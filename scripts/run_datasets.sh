@@ -20,7 +20,7 @@ cd "$REPO_ROOT"
 DATA_DIR="${DATA_DIR:-$REPO_ROOT/salt/datasets/longbench/data}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/runs/run_$(date +%Y%m%d_%H%M%S)}"
 BUDGET="${BUDGET:-0.20}"
-GPU="${GPU:-}"                           # GPU 0 drives the display; use 1
+GPU="${GPU:-}"                           
 MAX_SAMPLES="${MAX_SAMPLES:-}"            # empty = full dataset
 SALT_PY="${SALT_PY:-$(conda info --base)/envs/salt/bin/python}"
 MODEL="${MODEL:-meta-llama/Llama-3.1-8B-Instruct}"
