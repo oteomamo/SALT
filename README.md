@@ -209,6 +209,7 @@ deterministic prefixes when there is no query (e.g. passage_count).
 
 ### Evaluate
 (change prefer GPU number 0->#)
+
 vLLM by default (install it per step 5); pass `--backend hf` for a portable
 HF-transformers run that needs no vLLM install:
 
