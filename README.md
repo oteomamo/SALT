@@ -175,7 +175,7 @@ MAX_SAMPLES=5 RUN_EVAL=0 bash scripts/run_datasets.sh
 The script routes each dataset to the right mode automatically
 (`--synthetic` for `passage_count`/`passage_retrieval_en`, few-shot bypass for
 `trec`/`triviaqa`/`samsum`, standard prose for the rest), then scores the
-results. Knobs via env vars: `BUDGET` (default `0.20`), `GPU` (default `1`),
+results. Knobs via env vars: `BUDGET` (default `0.20`), `GPU` (default `0`),
 `DATA_DIR`, `OUT_DIR`, `EVAL_BACKEND` (`vllm`|`hf`), `MAX_INPUT_LEN`. Outputs
 land in `runs/run_<timestamp>/`, scores in `eval_all.json`.
 
@@ -205,7 +205,6 @@ paragraph label survives compression — full text for query-relevant paragraphs
 deterministic prefixes when there is no query (e.g. passage_count).
 
 ### Evaluate
-(change prefer GPU number 0->#)
 
 vLLM by default (install it per step 5); pass `--backend hf` for a portable
 HF-transformers run that needs no vLLM install:
