@@ -45,5 +45,5 @@ echo
 echo "Done. Next:"
 echo "  conda activate $SALT_ENV"
 echo "  hf auth login                              # gated eval model"
-echo "  python salt/datasets/download_datasets.py  # fetch LongBench"
+echo "  python salt/datasets/download_longbench.py # fetch LongBench"
 echo "  bash scripts/run_datasets.sh               # compress + evaluate"

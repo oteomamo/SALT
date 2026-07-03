@@ -1,16 +1,25 @@
 # Datasets
 
-`download_datasets.py` fetches [LongBench](https://huggingface.co/datasets/THUDM/LongBench)
-and normalizes it to SALT's canonical JSONL — one `<task>.jsonl` per dataset in
-`longbench/data/`. Idempotent: existing files are skipped (`--force` rebuilds).
+Each script fetches one dataset and writes it under `salt/datasets/`. All are
+idempotent: existing files are skipped (`--force` rebuilds).
+
+| script | dataset | consumed by | output dir |
+|---|---|---|---|
+| `download_longbench.py` | [LongBench](https://huggingface.co/datasets/THUDM/LongBench) (16 EN tasks) | `compress.py` / `eval.py` | `longbench/data/` |
+| `download_quality.py` | [QuALITY](https://github.com/nyu-mll/quality) (MCQ) / [LooGLE](https://huggingface.co/datasets/bigai-nlco/LooGLE) (free-form) | `results/quality_multiturn.py` | `quality/`, `loogle/` |
+| `download_niah.py` | Needle-in-a-haystack from [PG-19](https://huggingface.co/datasets/emozilla/pg19) | `results/niah_ttft.py` | `niah/` |
 
 ## Usage
 
 ```bash
-python download_datasets.py                        # all 16 English tasks LongBench
+python download_longbench.py                       # all 16 English tasks LongBench
+python download_quality.py                         # QuALITY subset (--dataset loogle for LooGLE)
+python download_niah.py --tokenizer meta-llama/Llama-3.1-8B-Instruct
 ```
 
-The download path needs `huggingface_hub` (`pip install huggingface_hub`); `--from-dir` skips it.
+The LongBench download needs `huggingface_hub` (`pip install huggingface_hub`); `--from-dir` skips it.
+`download_niah.py` needs `datasets` + `transformers` and packs prompts to exact token lengths for the
+given `--tokenizer` — match it to your eval LLM.
 
 ## Canonical schema
 

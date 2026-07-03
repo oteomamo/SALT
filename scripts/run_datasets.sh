@@ -28,14 +28,14 @@ RUN_EVAL="${RUN_EVAL:-1}"
 EVAL_BACKEND="${EVAL_BACKEND:-vllm}"      # vllm | hf
 MAX_INPUT_LEN="${MAX_INPUT_LEN:-14000}"   # cap so the 24GB A5000 does not OOM on the 128k window
 
-# The 16 English LongBench tasks (matches salt/datasets/download_datasets.py).
+# The 16 English LongBench tasks (matches salt/datasets/download_longbench.py).
 LONGBENCH_EN=(narrativeqa qasper multifieldqa_en hotpotqa 2wikimqa musique
               gov_report qmsum multi_news trec triviaqa samsum
               passage_count passage_retrieval_en lcc repobench-p)
 SYNTH_SET=" passage_count passage_retrieval_en "
 
 [ -d "$DATA_DIR" ] || { echo "ERROR: data dir not found: $DATA_DIR" >&2
-  echo "Build it with: $SALT_PY salt/datasets/download_datasets.py" >&2; exit 1; }
+  echo "Build it with: $SALT_PY salt/datasets/download_longbench.py" >&2; exit 1; }
 [ -x "$SALT_PY" ] || { echo "ERROR: salt python not found: $SALT_PY (run scripts/setup_env.sh)" >&2; exit 1; }
 
 mkdir -p "$OUT_DIR"
@@ -77,7 +77,12 @@ if [ "$RUN_EVAL" = "1" ] && [ "$n_run" -gt 0 ]; then
   "$SALT_PY" eval.py --backend "$EVAL_BACKEND" \
     --data-dir "$OUT_DIR" --model "$MODEL" --gpu "$GPU" --max-input-len "$MAX_INPUT_LEN"
   echo "scores -> $OUT_DIR/eval_all.json"
+
+  echo
+  echo "== LongBench category summary =="
+  "$SALT_PY" scripts/longbench_categories.py "$OUT_DIR/eval_all.json"
 else
   echo "eval skipped (RUN_EVAL=$RUN_EVAL). To score later:"
   echo "  $SALT_PY eval.py --backend $EVAL_BACKEND --data-dir $OUT_DIR --model $MODEL --gpu $GPU --max-input-len $MAX_INPUT_LEN"
+  echo "  $SALT_PY scripts/longbench_categories.py $OUT_DIR/eval_all.json"
 fi

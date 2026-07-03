@@ -16,6 +16,9 @@ cache/
 *.pkl
 *.log
 salt/datasets/longbench/data/
+salt/datasets/quality/
+salt/datasets/loogle/
+salt/datasets/niah/
 *.png
 *.pdf
 !salt/assets/banner.png

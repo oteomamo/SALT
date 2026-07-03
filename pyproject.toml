@@ -15,6 +15,7 @@ dependencies = [
     "numpy>=1.26",
     "tiktoken>=0.7",
     "huggingface_hub",
+    "datasets==3.6.0",
     "click",
     "rouge>=1.0",
     "fuzzywuzzy>=0.18",
@@ -23,5 +24,5 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["salt", "salt.engine", "salt.datasets"]
+include = ["salt", "salt.engine", "salt.datasets", "salt.results"]
 namespaces = false

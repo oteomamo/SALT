@@ -150,7 +150,7 @@ SALT evaluates on the 16 English tasks of
 already present, fetch and normalize it with:
 
 ```bash
-python salt/datasets/download_datasets.py
+python salt/datasets/download_longbench.py
 ```
 
 Existing files are skipped (`--force` rebuilds, `--list` shows status). The
