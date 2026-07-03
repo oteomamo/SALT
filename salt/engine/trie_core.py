@@ -448,3 +448,95 @@ def profile_themes(sent_data, theme_percentile=0.75):
     df_threshold = df_values[min(threshold_idx, len(df_values) - 1)]
     theme_keywords = {kw for kw, df in kw_df.items() if df >= df_threshold}
     return dict(kw_df), theme_keywords
+
+
+# =============================================================================
+# Coverage-objective trie construction
+# =============================================================================
+# `build_trie_paths` builds the document term of the submodular coverage
+# objective maximized by `coverage_select` (`salt.engine.celf`).
+#
+# Objective (summary mode):
+#     F(R) = sum_{v in trie} s_v * (1 - lam^{n_v(R)})
+# where n_v(R) = number of selected sentences whose keyword path passes
+# through node v, and s_v = normalized SF of the node's keyword. Reading
+# model: each selected sentence independently "conveys" each node on its
+# path with probability (1 - lam); F is the expected conveyed salience mass.
+#
+# Query mode adds, to the SAME objective, (a) one node per query term w with
+# weight proportional to its Shannon surprisal in the document log(N/df(w))
+# and coverage count m_w(R) = #selected sentences stem-matching w, and (b)
+# one semantic node with soft coverage sigma(R) = sum_i cos+(e_q, e_i).
+# Total query mass = query_mass_ratio * (document node mass), split evenly
+# between the lexical and semantic parts. The trie itself stays
+# query-independent (reusable across turns); the query only re-weights.
+#
+# F is monotone submodular (concave phi(x) = 1 - lam^x composed with
+# nonnegative modular counts), so lazy greedy (CELF) under the word budget
+# inherits the standard max(cost-benefit, unit-cost) >= (1/2)(1-1/e) OPT
+# guarantee (Leskovec et al., 2007). Marginal gains are closed-form:
+#     dF_i = (1-lam) * [ sum_{v in path(i)} s_v lam^{n_v}
+#                        + sum_{w in terms(i)} t_w lam^{m_w} ]
+#            + e_mass * lam^{sigma} * (1 - lam^{rel_i})
+# computed in O(path depth + |matched query terms|).
+#
+# lam in (0,1) is the single coverage dial. lam -> 1: F/(1-lam) tends to the
+# modular score sum_{i in R} [path mass + matched-term mass + e_mass*rel_i]
+# (pure scalar ranking; path mass alone in summary mode). lam -> 0: weighted
+# budgeted max coverage over the integer-count nodes. In the continuous
+# relaxation under the word budget (sum_b c_b n_b <= W), KKT stationarity
+# s_b ln(1/lam) lam^{n_b} = mu c_b gives depth-1 branch budgets
+# n_b = max(0, log((s_b/c_b)/theta) / log(1/lam)): logarithmic water-filling
+# in salience-per-word (per-sentence marginals for the unit-cost variant).
+# Allocation grows logarithmically in branch salience, the principled form of
+# the "sublinear allocation" that prevents theme collapse; deeper levels are
+# levelled jointly by the same greedy rather than independently per depth.
+
+def build_trie_paths(theme_kw_sets, kw_df, theme_keywords):
+    """Map each sentence to its root-to-leaf trie path of node ids.
+
+    Node identity = (ancestor context, keyword): the same keyword under
+    different prefixes is a different node (multi-anchor semantics). Node 0
+    is the root and carries no weight.
+
+    Returns (paths, node_weights, n_depth1_branches, node_kw).
+    """
+    sorted_kws = sorted(theme_keywords, key=lambda k: (-kw_df.get(k, 0), k))
+    kw_rank = {kw: r for r, kw in enumerate(sorted_kws)}
+    max_df = max((kw_df.get(k, 0) for k in theme_keywords), default=1) or 1
+    children = [{}]          # node_id -> {keyword: child_id}
+    node_w = [0.0]
+    node_kw = [None]
+    paths = []
+    for kws in theme_kw_sets:
+        path_kws = sorted(kws, key=lambda k: kw_rank.get(k, len(kw_rank)))
+        node, pid = 0, []
+        for kw in path_kws:
+            nxt = children[node].get(kw)
+            if nxt is None:
+                nxt = len(node_w)
+                node_w.append(kw_df.get(kw, 0) / max_df)
+                node_kw.append(kw)
+                children[node][kw] = nxt
+                children.append({})
+            pid.append(nxt)
+            node = nxt
+        paths.append(pid)
+    node_w = np.array(node_w, dtype=np.float64)
+    # A keyword appearing under k distinct ancestor contexts owns k nodes
+    # (multi-anchor semantics), but its total extractable mass must stay
+    # s_k = df_k/max_df, or context multiplicity would inflate rare keywords
+    # and defeat cross-context diminishing returns. Split each keyword's
+    # weight across its nodes proportionally to path support.
+    support = np.zeros(len(node_w))
+    for pid in paths:
+        for v in pid:
+            support[v] += 1.0
+    kw_support = defaultdict(float)
+    for nid, kw in enumerate(node_kw):
+        if kw is not None:
+            kw_support[kw] += support[nid]
+    for nid, kw in enumerate(node_kw):
+        if kw is not None and kw_support[kw] > 0:
+            node_w[nid] *= support[nid] / kw_support[kw]
+    return paths, node_w, len(children[0]), node_kw

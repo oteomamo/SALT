@@ -527,7 +527,8 @@ def print_summary(results, metadata, args, total_raw, total_kept,
     print(f"\n{'='*60}")
     print(f"COMPRESSION SUMMARY ({len(results)} samples)")
     print(f"{'='*60}")
-    print(f"  Method: keyword_trie | Budget: {args.token_budget_pct:.0%}")
+    print(f"  Selector: {getattr(args, 'selector', 'legacy')} | "
+          f"Budget: {args.token_budget_pct:.0%}")
     if n_fewshot:
         print(f"  Few-shot bypass: {n_fewshot}/{len(results)} samples")
     if n_anchored_samples:

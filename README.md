@@ -26,6 +26,9 @@ before choosing sentences, so minor themes keep their share instead of being
 crowded out. Because the theme map is built once, it can be reused across the
 turns of a conversation without re-reading the document.
 
+> The previous **legacy** selector (`trie_select`) release is tagged
+> [`v1.0.0`](https://github.com/oteomamo/SALT/releases/tag/v1.0.0); `main` now
+> defaults to the coverage/CELF selector described below.
 
 ## 📑 Table of contents
 
@@ -35,57 +38,42 @@ turns of a conversation without re-reading the document.
 - [Quick start](#-quick-start)
 - [Usage examples](#-usage-examples)
 - [Results](#-results)
+- [Roadmap](#-roadmap)
+- [Contributing](#-contributing)
 - [License](#-license)
 
 ## 🧩 Architecture
 
-SALT runs in two phases. **Indexing** reads the document once and turns it into
-a keyword trie — a small, reusable map of its recurring themes. **Selection**
-traverses that trie under a token budget and returns a sentence subset in
-original document order, either unconditionally (*summary mode*) or biased
-toward a query (*query mode*).
+Two phases. **Indexing** reads the document once and builds a keyword trie — a
+reusable map of its recurring themes. **Selection** then picks a sentence subset
+under a token budget, returned in original document order, query-biased or not.
 
 ```text
- INDEXING — run once per document, reused across turns and budgets
- ──────────────────────────────────────────────────────────────────
- document
-    │  sentence split + junk filter
-    ▼
- per-sentence keywords     BGE-small [CLS] attention ranks each sentence's
-    │                      words; knee detection keeps the top-k per sentence
-    ▼
- salience set              sentence frequency SF(w) = #sentences keeping w;
-    │                      top-quantile keywords = the recurring themes
-    ▼
- keyword trie              each sentence's keywords, sorted by SF, form a
-                           root-to-leaf path; leaves store sentence ids
+ INDEXING  ── once per document, reused across turns and budgets
+   document → split + junk filter
+           → per-sentence keywords   (BGE-small [CLS] attention + knee cutoff)
+           → theme salience          (SF = #sentences keeping a word; top quantile)
+           → keyword trie            (each sentence's themes, SF-ordered, form a
+                                      root-to-leaf path; leaves hold sentence ids)
 
- SELECTION — per budget, with or without a query
- ──────────────────────────────────────────────────────────────────
- (query mode) multi-anchor activation: query keywords activate trie
-    │         nodes at any depth; top anchors + neighbors admitted first
-    ▼
- branch allocation         remaining budget spread across depth-1 theme
-    │                      branches (floor + share ∝ uncovered mass^α)
-    ▼
- in-branch selection       greedy pick by marginal theme-coverage gain,
-    │                      moderated by length and position priors
-    ▼
- global fill               unused budget goes to best remaining sentences
-    ▼
- compressed prompt         selected sentences, original order, ≤ budget
+ SELECTION ── per budget, with or without a query
+   maximize theme coverage with CELF lazy-greedy: a pick's value shrinks as its
+   theme branches fill, so budget spreads across themes instead of collapsing
+   onto the dominant one. A query re-weights the trie (lexical + BGE-semantic)
+   without rebuilding it. → compressed prompt, original order, ≤ budget
 ```
 
 Where each stage lives:
 
 | Stage | Code |
 |---|---|
-| Sentence split + junk filter | `salt/engine/embedder.py`, `salt/engine/sentence_filter.py` |
-| Keyword extraction, BGE embedding, theme profiling | `salt/engine/trie_core.py` |
-| Trie-guided selection (`trie_select`) | `salt/engine/retrieval.py` |
-| Prose pipeline runner (load → pipeline → JSONL out) | `salt/engine/compressor.py` |
+| Split + junk filter | `salt/engine/embedder.py`, `salt/engine/sentence_filter.py` |
+| Keywords, BGE embedding, theme profiling | `salt/engine/trie_core.py` |
+| Coverage selection (default) | `salt/engine/celf.py` |
+| Prose pipeline runner | `salt/engine/compressor.py` |
 | Few-shot bypass (`trec`, `triviaqa`, `samsum`) | `salt/engine/fewshot.py` |
-| `--synthetic` paragraph-unit adapter | `salt/engine/dataset_modes.py` |
+| Dataset adapters (`--synthetic`, `--code`) | `salt/engine/dataset_modes.py` |
+| Multi-turn session store | `salt/engine/session_trie.py` |
 | CLI entry points | `compress.py`, `eval.py` |
 
 ## 📦 Installation
@@ -122,7 +110,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-**4. Authenticate with Hugging Face** — the eval model
+**4. Authenticate with Hugging Face** - the eval model
 (`meta-llama/Llama-3.1-8B-Instruct`) is gated:
 
 ```bash
@@ -132,7 +120,7 @@ hf auth login
 Or skip the CLI and export the token directly: `export HF_TOKEN=hf_...`.
 
 **5. (Optional) vLLM eval backend.** `eval.py` defaults to vLLM. Install it into
-the same `salt` env — there is only one environment:
+the same `salt` env - there is only one environment:
 
 ```bash
 pip install vllm==0.11.0
@@ -173,9 +161,10 @@ MAX_SAMPLES=5 RUN_EVAL=0 bash scripts/run_datasets.sh
 ```
 
 The script routes each dataset to the right mode automatically
-(`--synthetic` for `passage_count`/`passage_retrieval_en`, few-shot bypass for
-`trec`/`triviaqa`/`samsum`, standard prose for the rest), then scores the
-results. Knobs via env vars: `BUDGET` (default `0.20`), `GPU` (default `0`),
+(`--synthetic` for `passage_count`/`passage_retrieval_en`, `--code` for
+`lcc`/`repobench-p`, few-shot bypass for `trec`/`triviaqa`/`samsum`, standard
+prose for the rest), then scores the results. Knobs via env vars: `BUDGET`
+(default `0.20`), `GPU` (default `0`),
 `DATA_DIR`, `OUT_DIR`, `EVAL_BACKEND` (`vllm`|`hf`), `MAX_INPUT_LEN`. Outputs
 land in `runs/run_<timestamp>/`, scores in `eval_all.json`.
 
@@ -195,14 +184,14 @@ python compress.py \
 
 When a sample carries a query, its keywords and proper nouns are matched against
 the document as surprisal-weighted lexical terms (rare, discriminative terms get
-more mass) alongside a semantic term scored by BGE query–sentence cosine. Both
-re-weight the keyword trie, and `trie_select` (query anchoring + neighbor
-expansion, frequency-weighted branch budgeting, thematic fill) picks the
-sentences that fit the budget.
+more mass) alongside a semantic term scored by BGE query-sentence cosine. Both
+re-weight the keyword trie, and the coverage selector picks the sentences that
+best cover it under the budget.
 
 `--synthetic` treats `Paragraph N:` units as the selection records so every
-paragraph label survives compression — full text for query-relevant paragraphs,
-deterministic prefixes when there is no query (e.g. passage_count).
+paragraph label survives compression; `--code` treats physical lines as records
+with identifier keywords and file/function structure, keeping the completion-site
+tail. Both modes are chosen automatically by `scripts/run_datasets.sh`.
 
 ### Evaluate
 
@@ -218,28 +207,50 @@ python eval.py \
 
 ## 🔬 Results
 
-LongBench accuracy with Llama-3.1-8B-Instruct at a 20% compression budget:
+SALT (coverage/CELF selector) on LongBench with Llama-3.1-8B-Instruct at a 20%
+token budget. More datasets coming soon.
 
-| Method | Single-Doc QA | Multi-Doc QA | Summarization | Few-Shot | Synthetic | Code | Avg. |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Full-context | 43.58 | 44.65 | 29.22 | 69.48 | 54.21 | 60.01 | 50.19 |
-| **KV cache methods (20%)** | | | | | | | |
-| SnapKV | 43.29 | 43.92 | 26.59 | 67.95 | 53.75 | 58.74 | 49.04 |
-| FastKV | 43.31 | 44.10 | 26.61 | 68.36 | 53.72 | 59.26 | 49.23 |
-| SentenceKV | 39.25 | 43.82 | 28.18 | 69.26 | 53.24 | 47.33 | 46.85 |
-| DuoAttention | 34.71 | 36.67 | 24.30 | 58.02 | 50.81 | 54.33 | 43.14 |
-| **Preprocessing methods (20%)** | | | | | | | |
-| EXIT | 31.50 | 23.77 | 24.94 | 58.89 | 13.5 | 37.45 | 31.68 |
-| RECOMP | 35.88 | 41.09 | 24.16 | 52.06 | 50.77 | 37.37 | 40.22 |
-| CPC | 38.91 | 39.42 | 24.97 | 51.67 | 51.50 | 21.84 | 38.05 |
-| Sentinel | 39.85 | 41.66 | 26.15 | 38.78 | 51.55 | 38.83 | 39.47 |
-| **SALT** | **40.05** | **41.42** | **26.95** | **62.21** | **53.37** | **37.06** | **43.51** |
+| Category | Dataset | Metric | SALT |
+|---|---|---|---:|
+| Single-Doc QA | `narrativeqa` | qa_f1 | 25.89 |
+| | `qasper` | qa_f1 | 42.61 |
+| | `multifieldqa_en` | qa_f1 | 51.03 |
+| | **average** | | **39.84** |
+| Multi-Doc QA | `hotpotqa` | qa_f1 | 56.09 |
+| | `2wikimqa` | qa_f1 | 44.26 |
+| | `musique` | qa_f1 | 31.76 |
+| | **average** | | **44.04** |
+| Summarization | `gov_report` | rouge | 31.59 |
+| | `qmsum` | rouge | 23.89 |
+| | `multi_news` | rouge | 23.78 |
+| | **average** | | **26.42** |
+| Few-Shot | `trec` | classification | 61.00 |
+| | `triviaqa` | qa_f1 | 81.83 |
+| | `samsum` | rouge | 42.94 |
+| | **average** | | **61.92** |
+| Synthetic | `passage_count` | count | 10.00 |
+| | `passage_retrieval_en` | retrieval | 97.00 |
+| | **average** | | **53.50** |
+| Code | `lcc` | code_sim | 48.50 |
+| | `repobench-p` | code_sim | 41.38 |
+| | **average** | | **44.94** |
+| **Overall** | | | **44.60** |
 
-Task → category mapping: **Single-Doc QA** `narrativeqa`, `qasper`,
-`multifieldqa_en` · **Multi-Doc QA** `hotpotqa`, `2wikimqa`, `musique` ·
-**Summarization** `gov_report`, `qmsum`, `multi_news` · **Few-Shot** `trec`,
-`triviaqa`, `samsum` · **Synthetic** `passage_count`, `passage_retrieval_en` ·
-**Code** `lcc`, `repobench-p`.
+## 🔭 Roadmap
+
+Active goals and next steps:
+
+- **Summarization coverage** - extend the theme-coverage objective to better
+  serve summarization, where recall across many minor themes matters most.
+- **Document processing** - broaden the pipeline toward general document
+  ingestion beyond benchmark-style contexts.
+- **Chatbot mode** *(in progress)* - a persistent multi-turn session that reuses
+  and grows one trie across a conversation.
+- **More datasets** - additional benchmarks in the results table.
+
+## 🤝 Contributing
+
+PRs welcome - see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 📄 License
 
