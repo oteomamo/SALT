@@ -131,15 +131,17 @@ hf auth login
 
 Or skip the CLI and export the token directly: `export HF_TOKEN=hf_...`.
 
-**5. (Optional) vLLM eval backend.** Evaluation defaults to vLLM, which pins its
-own torch build and therefore lives in a second environment:
+**5. (Optional) vLLM eval backend.** `eval.py` defaults to vLLM. Install it into
+the same `salt` env — there is only one environment:
 
 ```bash
-bash scripts/setup_env.sh
+pip install vllm==0.11.0
 ```
 
-This creates/completes both envs (`salt` + `vllm`). Skip it and pass
-`--backend hf` to `eval.py` if you want to stay inside the single `salt` env.
+Skip this and run `eval.py --backend hf` for a portable run that needs no vLLM.
+
+> `bash scripts/setup_env.sh` does steps 2–3 in one shot (add `WITH_VLLM=1` to
+> include vLLM).
 
 ## 📚 Datasets
 
@@ -204,8 +206,8 @@ deterministic prefixes when there is no query (e.g. passage_count).
 
 ### Evaluate
 
-vLLM by default (use the `vllm` env from `scripts/setup_env.sh`); pass
-`--backend hf` for a portable HF-transformers run that needs no vLLM install:
+vLLM by default (install it per step 5); pass `--backend hf` for a portable
+HF-transformers run that needs no vLLM install:
 
 ```bash
 python eval.py \

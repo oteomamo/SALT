@@ -1,10 +1,10 @@
 torch==2.7.0
-transformers==5.3.0
+transformers==4.55.2
 accelerate==1.14.0
 numpy==2.2.5
 tiktoken==0.12.0
-huggingface_hub==1.15.0
-click==8.4.1
+huggingface_hub
+click
 rouge==1.0.1
 fuzzywuzzy==0.18.0
 python-Levenshtein==0.27.3

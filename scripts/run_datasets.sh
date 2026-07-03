@@ -23,7 +23,6 @@ BUDGET="${BUDGET:-0.20}"
 GPU="${GPU:-1}"                           # GPU 0 drives the display; use 1
 MAX_SAMPLES="${MAX_SAMPLES:-}"            # empty = full dataset
 SALT_PY="${SALT_PY:-$(conda info --base)/envs/salt/bin/python}"
-VLLM_PY="${VLLM_PY:-$(conda info --base)/envs/vllm/bin/python}"
 MODEL="${MODEL:-meta-llama/Llama-3.1-8B-Instruct}"
 RUN_EVAL="${RUN_EVAL:-1}"
 EVAL_BACKEND="${EVAL_BACKEND:-vllm}"      # vllm | hf
@@ -67,13 +66,18 @@ echo
 echo "compressed $n_run dataset(s), skipped $n_skip  ->  $OUT_DIR"
 
 if [ "$RUN_EVAL" = "1" ] && [ "$n_run" -gt 0 ]; then
-  eval_py=$([ "$EVAL_BACKEND" = vllm ] && echo "$VLLM_PY" || echo "$SALT_PY")
+  if [ "$EVAL_BACKEND" = vllm ] && ! "$SALT_PY" -c "import vllm" 2>/dev/null; then
+    echo "ERROR: --backend vllm needs vLLM in the salt env." >&2
+    echo "  install it:  WITH_VLLM=1 bash scripts/setup_env.sh   (or pip install vllm==0.11.0)" >&2
+    echo "  or score with the HF backend:  EVAL_BACKEND=hf bash scripts/run_datasets.sh" >&2
+    exit 1
+  fi
   echo
   echo "== eval ($EVAL_BACKEND, $MODEL) =="
-  "$eval_py" eval.py --backend "$EVAL_BACKEND" \
+  "$SALT_PY" eval.py --backend "$EVAL_BACKEND" \
     --data-dir "$OUT_DIR" --model "$MODEL" --gpu "$GPU" --max-input-len "$MAX_INPUT_LEN"
   echo "scores -> $OUT_DIR/eval_all.json"
 else
   echo "eval skipped (RUN_EVAL=$RUN_EVAL). To score later:"
-  echo "  $VLLM_PY eval.py --backend vllm --data-dir $OUT_DIR --model $MODEL --gpu $GPU --max-input-len $MAX_INPUT_LEN"
+  echo "  $SALT_PY eval.py --backend $EVAL_BACKEND --data-dir $OUT_DIR --model $MODEL --gpu $GPU --max-input-len $MAX_INPUT_LEN"
 fi

@@ -1,68 +1,49 @@
 #!/usr/bin/env bash
-# Minimal environment setup for SALT.
+# Environment setup for SALT — a single conda env named `salt` (Python 3.10,
+# required for PEP 604 `X | None` unions) that runs everything: compression,
+# dataset download, and both eval backends (HF, and optionally vLLM).
 #
-# Creates (or reuses) two conda environments — both Python 3.10, since SALT uses
-# PEP 604 `X | None` unions:
-#
-#   $SALT_ENV  (default: salt)   compress.py + eval.py --backend hf
-#   $VLLM_ENV  (default: vllm)   eval.py --backend vllm
-#
-# Existing envs are reused; deps already satisfied are left untouched (plain
-# `pip install`, no -U), so this is safe to re-run.
+# Dependencies come from requirements.txt plus the editable install, so this
+# script stays in sync with the package and is safe to re-run (an existing env
+# is reused, nothing is force-upgraded).
 #
 # Usage:
-#   bash scripts/setup_env.sh                   # both envs
-#   SALT_ENV=salt-core bash scripts/setup_env.sh
-#   SKIP_VLLM=1 bash scripts/setup_env.sh       # core + HF only, no vLLM
+#   bash scripts/setup_env.sh                # salt env: deps + editable install
+#   WITH_VLLM=1 bash scripts/setup_env.sh    # also install the vLLM eval backend
+#   SALT_ENV=my-salt bash scripts/setup_env.sh
 #
 # The eval model (meta-llama/Llama-3.1-8B-Instruct) is gated: run
 #   hf auth login            (or export HF_TOKEN=...)
-# before evaluating. `pip install torch` pulls the default CUDA wheel; for a
-# specific CUDA build, install torch yourself first, then re-run this script.
+# before evaluating. requirements.txt pins a CUDA torch wheel; for a different
+# CUDA build install torch yourself first, then re-run this script.
 set -euo pipefail
 
 SALT_ENV="${SALT_ENV:-salt}"
-VLLM_ENV="${VLLM_ENV:-vllm}"
 PYVER="${PYVER:-3.10}"
-SKIP_VLLM="${SKIP_VLLM:-0}"
+WITH_VLLM="${WITH_VLLM:-0}"
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$(conda info --base)/etc/profile.d/conda.sh"
 
-# Shared by both envs: compressor runtime + eval metrics + dataset tool.
-#   torch/transformers/numpy  -> BGE encoder, sentence pipeline
-#   tiktoken                  -> token-accurate budget logging (optional but used)
-#   huggingface_hub + click   -> model + LongBench dataset download, `hf` CLI
-#   rouge/fuzzywuzzy/python-Levenshtein/jieba -> eval.py metrics (metrics.py)
-CORE_PKGS=(torch transformers numpy tiktoken huggingface_hub click
-           rouge fuzzywuzzy python-Levenshtein jieba)
-
-ensure_env () {   # $1 = env name
-  if conda env list | awk '{print $1}' | grep -qx "$1"; then
-    echo ">> env '$1' exists — ensuring deps"
-  else
-    echo ">> creating env '$1' (python $PYVER)"
-    conda create -y -n "$1" "python=$PYVER"
-  fi
-}
-
-echo "=== [1/2] SALT core + HF backend -> env '$SALT_ENV' ==="
-ensure_env "$SALT_ENV"
-conda run -n "$SALT_ENV" python -m pip install "${CORE_PKGS[@]}"
-
-if [ "$SKIP_VLLM" != "1" ]; then
-  echo "=== [2/2] vLLM eval backend -> env '$VLLM_ENV' ==="
-  ensure_env "$VLLM_ENV"
-  # vllm ships its own torch build; install it first so it wins the torch pin.
-  conda run -n "$VLLM_ENV" python -m pip install vllm
-  conda run -n "$VLLM_ENV" python -m pip install \
-    transformers numpy huggingface_hub rouge fuzzywuzzy python-Levenshtein jieba
+if conda env list | awk '{print $1}' | grep -qx "$SALT_ENV"; then
+  echo ">> env '$SALT_ENV' exists — ensuring deps"
 else
-  echo "=== [2/2] vLLM env skipped (SKIP_VLLM=1) ==="
+  echo ">> creating env '$SALT_ENV' (python $PYVER)"
+  conda create -y -n "$SALT_ENV" "python=$PYVER"
+fi
+
+echo ">> installing SALT (requirements.txt + editable package)"
+conda run -n "$SALT_ENV" python -m pip install -r "$REPO_ROOT/requirements.txt"
+conda run -n "$SALT_ENV" python -m pip install -e "$REPO_ROOT"
+
+if [ "$WITH_VLLM" = "1" ]; then
+  echo ">> installing vLLM eval backend into '$SALT_ENV'"
+  conda run -n "$SALT_ENV" python -m pip install "vllm==0.11.0"
 fi
 
 echo
-echo "Done."
-echo "  compress:  CUDA_VISIBLE_DEVICES=1 conda run -n $SALT_ENV python compress.py --data DATA.jsonl --output OUT.jsonl --device cuda --token-budget-pct 0.20"
-echo "  eval hf:   conda run -n $SALT_ENV python eval.py --backend hf   --data-dir OUT_DIR --model meta-llama/Llama-3.1-8B-Instruct --gpu 1"
-echo "  eval vllm: conda run -n $VLLM_ENV python eval.py --backend vllm --data-dir OUT_DIR --model meta-llama/Llama-3.1-8B-Instruct --gpu 1 --max-input-len 14000"
-echo "  datasets:  conda run -n $SALT_ENV python salt/datasets/download_datasets.py --list"
+echo "Done. Next:"
+echo "  conda activate $SALT_ENV"
+echo "  hf auth login                              # gated eval model"
+echo "  python salt/datasets/download_datasets.py  # fetch LongBench"
+echo "  bash scripts/run_datasets.sh               # compress + evaluate"
