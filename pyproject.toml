@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "salt"
+version = "0.1.0"
+description = "SALT: Salience-Aware Lexical Trie for Long-Context Compression"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.44",
+    "accelerate>=1.0",
+    "numpy>=1.26",
+    "tiktoken>=0.7",
+    "huggingface_hub>=0.24",
+    "rouge>=1.0",
+    "fuzzywuzzy>=0.18",
+    "python-Levenshtein>=0.25",
+    "jieba>=0.42",
+]
+
+[tool.setuptools.packages.find]
+include = ["salt", "salt.engine", "salt.datasets"]
+namespaces = false
