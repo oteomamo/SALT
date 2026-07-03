@@ -216,7 +216,7 @@ HF-transformers run that needs no vLLM install:
 python eval.py \
   --data-dir out \
   --model meta-llama/Llama-3.1-8B-Instruct \
-  --gpu 1 --max-input-len 14000
+  --gpu 0 --max-input-len 14000
 ```
 
 ## 🔬 Results
