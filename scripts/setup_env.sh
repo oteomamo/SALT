@@ -16,7 +16,7 @@
 #   SKIP_VLLM=1 bash scripts/setup_env.sh       # core + HF only, no vLLM
 #
 # The eval model (meta-llama/Llama-3.1-8B-Instruct) is gated: run
-#   huggingface-cli login    (or export HF_TOKEN=...)
+#   hf auth login            (or export HF_TOKEN=...)
 # before evaluating. `pip install torch` pulls the default CUDA wheel; for a
 # specific CUDA build, install torch yourself first, then re-run this script.
 set -euo pipefail
@@ -31,9 +31,9 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 # Shared by both envs: compressor runtime + eval metrics + dataset tool.
 #   torch/transformers/numpy  -> BGE encoder, sentence pipeline
 #   tiktoken                  -> token-accurate budget logging (optional but used)
-#   huggingface_hub           -> model + LongBench dataset download
+#   huggingface_hub + click   -> model + LongBench dataset download, `hf` CLI
 #   rouge/fuzzywuzzy/python-Levenshtein/jieba -> eval.py metrics (metrics.py)
-CORE_PKGS=(torch transformers numpy tiktoken huggingface_hub
+CORE_PKGS=(torch transformers numpy tiktoken huggingface_hub click
            rouge fuzzywuzzy python-Levenshtein jieba)
 
 ensure_env () {   # $1 = env name

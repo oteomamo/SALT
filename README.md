@@ -126,8 +126,10 @@ pip install -e .
 (`meta-llama/Llama-3.1-8B-Instruct`) is gated:
 
 ```bash
-huggingface-cli login
+hf auth login
 ```
+
+Or skip the CLI and export the token directly: `export HF_TOKEN=hf_...`.
 
 **5. (Optional) vLLM eval backend.** Evaluation defaults to vLLM, which pins its
 own torch build and therefore lives in a second environment:
