@@ -216,6 +216,15 @@ python eval.py \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --gpu 0 --max-input-len 14000
 ```
+or
+```bash
+python eval.py \
+  --backend vllm \
+  --data-dir runs/run_20260703_111031 \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --max-input-len 14000 \
+  --gpu-mem-util 0.70 #depending on the how many VRAM usage in %
+```
 
 ## 🔬 Results
 
