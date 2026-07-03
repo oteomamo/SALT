@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.1",
-    "transformers>=4.44,<5",
+    "transformers==4.55.2",
     "accelerate>=1.0",
     "numpy>=1.26",
     "tiktoken>=0.7",
