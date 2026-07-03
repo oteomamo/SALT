@@ -91,7 +91,10 @@ Where each stage lives:
 ## 📦 Installation
 
 Requires Python 3.10 and a CUDA GPU (CPU works for compression, just slower).
-
+If you are in cluster, use
+```bash
+module load cuda/version
+```
 **1. Clone the repository**
 
 ```bash
