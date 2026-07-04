@@ -251,6 +251,13 @@ Inside the REPL:
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
 | `/exit` | leave; the session is saved and resumable by id |
 
+Every turn is recorded in a per-conversation KV ledger under
+`salt/chat/sessions/<id>/kvtrace/`: an append-only `events.jsonl` whose usage
+keys follow the cached-token convention (`input` = freshly prefilled
+sentences, `input_cached_tokens` = context re-selected from the previous
+turn, `output` = generated tokens) plus a per-token `tokens.npy` matrix;
+`/stats` shows the running totals.
+
 Attached PDFs are read whole (images ignored; repeated headers/footers and
 page numbers cleaned). A `salt@` file becomes **its own branch** of the
 session trie, hanging off the conversation's root — so multiple attachments

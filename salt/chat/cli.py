@@ -30,6 +30,7 @@ from pathlib import Path
 
 import torch
 
+from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import PLAIN_SUFFIXES, ExtractionError, read_document
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
@@ -84,6 +85,8 @@ class ChatState:
         self.last_stats = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
+        self.kvtrace = KVTrace(self.trie.cache_dir,
+                               self.trie.conversation_id)
 
     def new_trie(self, conversation_id):
         self.trie = SessionTrie(conversation_id, cache_dir=SESSIONS_DIR,
@@ -92,6 +95,8 @@ class ChatState:
         self.tail.clear()
         self.last_stats = None
         self.load_full_attachments()
+        self.kvtrace = KVTrace(self.trie.cache_dir,
+                               self.trie.conversation_id)
         return self.trie
 
     # ── attach@ full-context attachments (persisted per session) ─────────
@@ -384,6 +389,14 @@ def handle_command(line, state):
                   f"{s.get('theme_coverage_pct', 0):.1%}, "
                   f"{trie_info.get('n_nodes', '?')} nodes / "
                   f"{trie_info.get('n_branches', '?')} branches")
+        kv = state.kvtrace
+        if kv.last_event:
+            u, tot = kv.last_event["usage"], kv.totals
+            print(f"kv ledger: turn {kv.last_event['turn']} - "
+                  f"read {u['input_cached_tokens']}, write {u['input']}, "
+                  f"output {u['output']} tok | session totals "
+                  f"read {tot['input_cached_tokens']}, write {tot['input']}, "
+                  f"output {tot['output']}")
         if torch.cuda.is_available():
             print(f"GPU memory allocated: "
                   f"{torch.cuda.memory_allocated() / 2**30:.2f} GiB")
@@ -416,19 +429,24 @@ def chat_turn(state, line):
     if state.runner is None:
         print("No chat model loaded - /model <name> to load one.")
         return
+    ts_start = datetime.now().isoformat(timespec="seconds")
     # trie holds turns 1..N-1 here (this message is added after generation):
     # the verbatim tail covers recent turns, the trie covers older ones
-    compressed = ""
+    compressed, selected_idx = "", []
     if state.trie.n_sentences > 0:
         comp = state.trie.compress(query=line, budget_pct=state.budget,
                                    tokenizer=state.bge_tok,
                                    model=state.bge_model,
                                    device=state.bge_device)
         compressed = comp["context"]
+        selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
 
     messages = build_messages(compressed, state.tail, line,
                               state.full_attachments)
+    # cleared per turn so an interrupt before tokenization can't record the
+    # previous turn's prompt size for this one
+    state.runner.last_prompt_tokens = None
     print(f"{state.runner.alias}> ", end="", flush=True)
     pieces = []
     interrupted = False
@@ -441,6 +459,15 @@ def chat_turn(state, line):
     print("\n" if not interrupted else "  [interrupted]\n")
 
     reply = "".join(pieces).strip()
+    try:
+        state.kvtrace.record_turn(
+            tokenizer=state.runner.tokenizer, trie=state.trie,
+            selected_idx=selected_idx, reply_text=reply,
+            model_id=state.runner.cfg["hf_id"], ts_start=ts_start,
+            ts_end=datetime.now().isoformat(timespec="seconds"),
+            prompt_tokens=getattr(state.runner, "last_prompt_tokens", None))
+    except Exception as exc:
+        print(f"[kvtrace] recording failed for this turn: {exc}")
     add_to_trie(state, line, "user")
     if reply:
         add_to_trie(state, reply, "assistant")  # seam: --no-assistant-memory

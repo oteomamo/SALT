@@ -70,6 +70,8 @@ class ChatRunner:
             # keep the tail: the generation prompt and recent turns must
             # survive; smarter budget-aware trimming is a later seam
             inputs = {k: v[:, -max_input:] for k, v in inputs.items()}
+        # observed prompt size after truncation, for the KV-trace ledger
+        self.last_prompt_tokens = int(inputs["input_ids"].shape[-1])
 
         gen_cfg = dict(self.cfg.get("gen") or {})
         gen_cfg.update(overrides)
