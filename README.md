@@ -242,6 +242,7 @@ Inside the REPL:
 |---|---|
 | `salt@` | list attachable files staged in `salt/files/` |
 | `salt@<file>` | attach a `.pdf`/`.txt`/`.md`: whole text, own trie branch |
+| `attach@<file>` | attach in full: uncompressed text rides in every prompt |
 | `/model` | list registered models; `/model <name>` switches (session kept) |
 | `/add <hf_id> [alias]` | download and register another model |
 | `/doc <path>` | ingest a text or PDF file into the trie |
@@ -251,11 +252,13 @@ Inside the REPL:
 | `/exit` | leave; the session is saved and resumable by id |
 
 Attached PDFs are read whole (images ignored; repeated headers/footers and
-page numbers cleaned) and each file becomes **its own branch** of the session
-trie, hanging off the conversation's root — so multiple attachments never
-crowd each other out, and the per-turn budget (default 20%) spreads across
-files and conversation themes. TAB completes both `/commands` and
-`salt@<file>` names (see [`salt/files/README.md`](salt/files/README.md)).
+page numbers cleaned). A `salt@` file becomes **its own branch** of the
+session trie, hanging off the conversation's root — so multiple attachments
+never crowd each other out, and the per-turn budget (default 20%) spreads
+across files and conversation themes. An `attach@` file skips the trie
+entirely: its full text rides uncompressed in every prompt. TAB completes
+`/commands`, `salt@<file>`, and `attach@<file>` names (see
+[`salt/files/README.md`](salt/files/README.md)).
 
 ## 🔬 Results
 

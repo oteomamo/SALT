@@ -53,8 +53,10 @@ MEMORY_BLOCK = (
 
 HELP = """\
 salt@              list attachable files staged in salt/files/
-salt@<file>        attach a file (.pdf/.txt/.md): whole text is ingested
-                   under its own trie branch; a path outside files/ works too
+salt@<file>        attach via SALT (.pdf/.txt/.md): whole text ingested under
+                   its own trie branch; compressed into the prompt per turn
+attach@<file>      attach IN FULL: the whole text rides in every prompt,
+                   uncompressed (the full-context counterpart of salt@)
 /help              show this help
 /model             list registered models (* = active)
 /model <name>      switch chat model (unloads current, loads new; session kept)
@@ -80,6 +82,8 @@ class ChatState:
         self.budget = args.budget_pct
         self.tail = deque(maxlen=2 * args.tail)  # seam: tail length policy
         self.last_stats = None
+        self.full_attachments = {}      # name -> whole text (attach@)
+        self.load_full_attachments()
 
     def new_trie(self, conversation_id):
         self.trie = SessionTrie(conversation_id, cache_dir=SESSIONS_DIR,
@@ -87,7 +91,39 @@ class ChatState:
                                 budget_pct_default=self.budget)
         self.tail.clear()
         self.last_stats = None
+        self.load_full_attachments()
         return self.trie
+
+    # ── attach@ full-context attachments (persisted per session) ─────────
+    def attachments_dir(self):
+        return self.trie.cache_dir / "attachments"
+
+    def load_full_attachments(self):
+        self.full_attachments = {}
+        d = self.attachments_dir()
+        if d.is_dir():
+            for f in sorted(d.glob("*.txt")):
+                self.full_attachments[f.name[:-4]] = f.read_text(
+                    encoding="utf-8", errors="replace")
+
+    def save_full_attachment(self, name, text):
+        # pypdf can emit lone surrogates from broken font CMaps; make the
+        # text strictly encodable before it reaches disk or a prompt, and
+        # only expose the attachment once the write has succeeded
+        text = text.encode("utf-8", errors="replace").decode("utf-8")
+        d = self.attachments_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        (d / (name + ".txt")).write_text(text, encoding="utf-8")
+        self.full_attachments[name] = text
+
+    def count_tokens(self, text):
+        if self.runner is None:
+            return None
+        try:
+            return len(self.runner.tokenizer(
+                text, add_special_tokens=False).input_ids)
+        except Exception:
+            return None
 
 
 def fresh_conversation_id():
@@ -105,10 +141,13 @@ def normalize_budget(val):
     return val if 0 < val <= 1 else None
 
 
-def build_messages(compressed, tail, user_msg):
-    """System prompt (+ compressed memory when non-empty), verbatim tail,
-    then the current user message."""
+def build_messages(compressed, tail, user_msg, attachments=None):
+    """System prompt (+ full attachments + compressed memory when present),
+    verbatim tail, then the current user message."""
     system = SYSTEM_PROMPT
+    for name, text in (attachments or {}).items():
+        system += (f"\n\nAttached document {name!r} (full text):"
+                   f"\n---\n{text}\n---")
     if compressed:
         system += "\n\n" + MEMORY_BLOCK.format(context=compressed)
     return ([{"role": "system", "content": system}]
@@ -169,21 +208,9 @@ def staged_files():
                   and p.name != "README.md")
 
 
-def handle_salt_at(state, line):
-    """`salt@` lists the staging dir; `salt@<name>` attaches a file."""
-    name = line[len("salt@"):].strip()
-    if not name:
-        files = staged_files()
-        if not files:
-            print(f"No attachable files - drop .pdf/.txt/.md into {FILES_DIR}")
-            return
-        attached = set(state.trie.attached_sources)
-        for f in files:
-            mark = "*" if f.name in attached else " "
-            print(f" {mark} salt@{f.name}  ({f.stat().st_size / 1024:.0f} KB)")
-        return
-    # bare names resolve ONLY in the staging dir (matching what the listing
-    # and TAB completion show); explicit paths must look like paths
+def resolve_staged(name):
+    """Bare names resolve ONLY in the staging dir (matching what the listing
+    and TAB completion show); explicit paths must look like paths."""
     if "/" in name or name.startswith("~"):
         candidate = Path(name).expanduser()
     else:
@@ -192,10 +219,81 @@ def handle_salt_at(state, line):
             alt = FILES_DIR / (name + ".pdf")
             if alt.is_file():
                 candidate = alt
-    if not candidate.is_file():
+    return candidate if candidate.is_file() else None
+
+
+def list_staged(state):
+    files = staged_files()
+    if not files:
+        print(f"No attachable files - drop .pdf/.txt/.md into {FILES_DIR}")
+        return
+    in_trie = set(state.trie.attached_sources)
+    in_full = set(state.full_attachments)
+    for f in files:
+        marks = (("*" if f.name in in_trie else " ")
+                 + ("+" if f.name in in_full else " "))
+        print(f" {marks} {f.name}  ({f.stat().st_size / 1024:.0f} KB)")
+    print("   (* = in trie via salt@, + = full context via attach@)")
+
+
+def handle_salt_at(state, line):
+    """`salt@` lists the staging dir; `salt@<name>` ingests into the trie."""
+    name = line[len("salt@"):].strip()
+    if not name:
+        list_staged(state)
+        return
+    candidate = resolve_staged(name)
+    if candidate is None:
         print(f"No such file {name!r} - `salt@` lists what's in {FILES_DIR}")
         return
     ingest_doc(state, candidate)
+
+
+def handle_attach_at(state, line):
+    """`attach@<name>` keeps a file's WHOLE text in every prompt - the
+    uncompressed, full-context counterpart of salt@."""
+    name = line[len("attach@"):].strip()
+    if not name:
+        list_staged(state)
+        return
+    candidate = resolve_staged(name)
+    if candidate is None:
+        print(f"No such file {name!r} - `attach@` lists what's in {FILES_DIR}")
+        return
+    try:
+        text, n_pages = read_document(candidate)
+    except ExtractionError as exc:
+        print(exc)
+        return
+    replacing = candidate.name in state.full_attachments
+    state.save_full_attachment(candidate.name, text)
+    n_tok = state.count_tokens(text)
+    pages = f"{n_pages} pages, " if n_pages else ""
+    toks = f"~{n_tok} tokens" if n_tok is not None else f"{len(text)} chars"
+    print(f"Attached {candidate.name} in full: {pages}{toks} - "
+          f"included in every prompt from now on.")
+    if replacing:
+        print(f"note: replaced the previous full-context attachment named "
+              f"{candidate.name!r}.")
+    warn_attachment_budget(state)
+
+
+def warn_attachment_budget(state):
+    """Warn when ALL full attachments together exceed the active model's
+    input window (the runner tail-truncates, silently dropping the head)."""
+    if state.runner is None or not state.full_attachments:
+        return
+    limit = int(state.runner.cfg.get("max_input_len") or 0)
+    if not limit:
+        return
+    total = sum(state.count_tokens(t) or 0
+                for t in state.full_attachments.values())
+    if total > limit:
+        print(f"warning: full-context attachments total ~{total} tokens, over "
+              f"the model's max_input_len ({limit}) - prompts will be "
+              f"tail-truncated and the earliest content silently dropped. "
+              f"Raise max_input_len in salt/models/{state.runner.alias}/"
+              f"config.json, or prefer salt@ for large files.")
 
 
 def switch_model(state, name):
@@ -212,6 +310,7 @@ def switch_model(state, name):
     state.runner = None
     try:
         state.runner = ChatRunner(cfg, device=state.device)
+        warn_attachment_budget(state)  # new model may have a smaller window
     except Exception as exc:
         print(f"Failed to load {cfg['alias']}: {exc}")
         gc.collect()  # drop the failed load's partial allocations first
@@ -271,7 +370,13 @@ def handle_command(line, state):
               f"model {state.runner.alias if state.runner else 'none'}")
         files = t.attached_sources
         if files:
-            print(f"attached files ({len(files)}): {', '.join(files)}")
+            print(f"trie attachments ({len(files)}): {', '.join(files)}")
+        if state.full_attachments:
+            parts = []
+            for name, text in state.full_attachments.items():
+                n_tok = state.count_tokens(text)
+                parts.append(f"{name} (~{n_tok} tok)" if n_tok else name)
+            print(f"full-context attachments ({len(parts)}): {', '.join(parts)}")
         s = state.last_stats or {}
         if s:
             trie_info = s.get("trie", {})
@@ -322,7 +427,8 @@ def chat_turn(state, line):
         compressed = comp["context"]
         state.last_stats = comp["stats"]
 
-    messages = build_messages(compressed, state.tail, line)
+    messages = build_messages(compressed, state.tail, line,
+                              state.full_attachments)
     print(f"{state.runner.alias}> ", end="", flush=True)
     pieces = []
     interrupted = False
@@ -354,9 +460,10 @@ def _setup_completion():
                 "/new", "/clear", "/exit"]
 
     def complete(text, i):
-        if text.startswith("salt@"):
-            prefix = text[len("salt@"):]
-            opts = ["salt@" + f.name for f in staged_files()
+        if text.startswith("salt@") or text.startswith("attach@"):
+            at = text.index("@") + 1
+            prefix = text[at:]
+            opts = [text[:at] + f.name for f in staged_files()
                     if f.name.startswith(prefix)]
         elif text.startswith("/"):
             opts = [c for c in commands if c.startswith(text)]
@@ -384,6 +491,8 @@ def repl(state):
         try:
             if line.startswith("salt@"):
                 handle_salt_at(state, line)
+            elif line.startswith("attach@"):
+                handle_attach_at(state, line)
             elif line.startswith("/"):
                 if not handle_command(line, state):
                     break
@@ -502,6 +611,10 @@ def main(argv=None):
 
     runner = ChatRunner(cfg, device=args.device)
     state = ChatState(args, bge_tok, bge_model, runner, trie)
+    if state.full_attachments:
+        print(f"Restored {len(state.full_attachments)} full-context "
+              f"attachment(s): {', '.join(state.full_attachments)}")
+        warn_attachment_budget(state)
 
     for doc in args.doc:
         ingest_doc(state, doc)
