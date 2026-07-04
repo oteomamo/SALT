@@ -398,8 +398,9 @@ def handle_command(line, state):
                   f"read {tot['input_cached_tokens']}, write {tot['input']}, "
                   f"output {tot['output']}")
         if torch.cuda.is_available():
-            print(f"GPU memory allocated: "
-                  f"{torch.cuda.memory_allocated() / 2**30:.2f} GiB")
+            dev = state.device if str(state.device).startswith("cuda") else None
+            print(f"GPU memory allocated ({state.device}): "
+                  f"{torch.cuda.memory_allocated(dev) / 2**30:.2f} GiB")
     elif cmd == "/new":
         cid = rest[0] if rest else fresh_conversation_id()
         if not valid_session_id(cid):
@@ -554,7 +555,14 @@ def build_parser():
     p.add_argument("--conversation-id",
                    help="session id; reuse one to resume its trie "
                         "(default: a fresh timestamped id)")
-    p.add_argument("--device", default="cuda", help="device for the chat model")
+    p.add_argument("--device", default=None,
+                   help="device for the chat model "
+                        "(default: cuda, or cuda:<gpu> when --gpu is set)")
+    p.add_argument("--gpu", type=int, default=None, metavar="N",
+                   help="CUDA GPU index for this chat (chat model + BGE); "
+                        "shorthand for --device cuda:N. Default: current CUDA "
+                        "device. Use different indices to run chats on "
+                        "separate GPUs.")
     p.add_argument("--bge-device", default=None,
                    help="device for the BGE encoder (default: --device)")
     p.add_argument("--budget-pct", type=float, default=0.20,
@@ -569,6 +577,9 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+
+    if args.device is None:
+        args.device = f"cuda:{args.gpu}" if args.gpu is not None else "cuda"
 
     if args.add:
         try:
