@@ -240,13 +240,22 @@ Inside the REPL:
 
 | Command | Effect |
 |---|---|
+| `salt@` | list attachable files staged in `salt/files/` |
+| `salt@<file>` | attach a `.pdf`/`.txt`/`.md`: whole text, own trie branch |
 | `/model` | list registered models; `/model <name>` switches (session kept) |
 | `/add <hf_id> [alias]` | download and register another model |
-| `/doc <path>` | ingest a text file into the trie |
+| `/doc <path>` | ingest a text or PDF file into the trie |
 | `/budget <pct>` | set the memory budget (`0.3` or `30`) |
-| `/stats` | session, compression, and GPU-memory stats |
+| `/stats` | session, attachments, compression, and GPU-memory stats |
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
 | `/exit` | leave; the session is saved and resumable by id |
+
+Attached PDFs are read whole (images ignored; repeated headers/footers and
+page numbers cleaned) and each file becomes **its own branch** of the session
+trie, hanging off the conversation's root — so multiple attachments never
+crowd each other out, and the per-turn budget (default 20%) spreads across
+files and conversation themes. TAB completes both `/commands` and
+`salt@<file>` names (see [`salt/files/README.md`](salt/files/README.md)).
 
 ## 🔬 Results
 

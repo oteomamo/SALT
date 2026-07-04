@@ -57,6 +57,19 @@ from salt.engine.celf import coverage_select
 VALID_ROLES = ("user", "assistant", "doc")
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 
+# Synthetic root keyword for per-file trie branches. Sentences ingested with a
+# `source` get this token injected at compress time with a document frequency
+# above every real keyword, so path SF-ordering places it first and the whole
+# file hangs off the shared root as ONE branch (its own sub-trie). CELF's
+# branch discounting then spreads budget across files + conversation themes
+# instead of letting one large attachment flood selection. The section sign
+# cannot appear in tokenized text keywords, so collisions are impossible.
+FILE_TOKEN_PREFIX = "§file:"
+
+
+def file_token(source):
+    return FILE_TOKEN_PREFIX + source
+
 
 class SessionTrie:
     """Persistent, growing per-conversation trie for multi-turn compression."""
@@ -74,6 +87,8 @@ class SessionTrie:
         self.texts = []                 # list[str]
         self.roles = []                 # list[str] in VALID_ROLES
         self.turns = []                 # list[int] turn index the sentence entered on
+        self.sources = []               # list[str|None]: None = conversation,
+                                        #   else attachment id -> per-file branch
         self.n_words = []               # list[int]
         self.keyword_weights = []       # list[dict[str, float]]  (cached attention keywords)
         self.embeddings = None          # np.ndarray (n, dim) float32  (cached BGE [CLS])
@@ -113,18 +128,25 @@ class SessionTrie:
     def n_turns(self):
         return self._next_turn_index
 
+    @property
+    def attached_sources(self):
+        return sorted({s for s in self.sources if s})
+
     # ── ingest ────────────────────────────────────────────────────────────
     @staticmethod
     def _norm_hash(text):
         return hashlib.sha1(" ".join(text.lower().split()).encode("utf-8")).hexdigest()
 
-    def add_turn(self, text, role="user", *, tokenizer, model, device="cpu"):
+    def add_turn(self, text, role="user", *, tokenizer, model, device="cpu",
+                 source=None):
         """Split/filter/encode NEW text and append it to the growing corpus.
 
         Runs the dense-attention keyword pass and the BGE [CLS] embedding pass on
         the new sentences only (old sentences are never re-encoded). `role` is
         stored for provenance; it does not affect weighting (user/assistant/doc
-        text is ingested identically).
+        text is ingested identically). `source` (e.g. an attached file's name)
+        groups the sentences into their own trie branch at compress time —
+        see FILE_TOKEN_PREFIX; None means the main conversation trie.
         """
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
@@ -179,6 +201,7 @@ class SessionTrie:
             self.texts.append(sent)
             self.roles.append(role)
             self.turns.append(turn)
+            self.sources.append(source)
             self.n_words.append(len(sent.split()))
             self.keyword_weights.append(kw)
             self._next_sentence_index += 1
@@ -224,6 +247,26 @@ class SessionTrie:
         sent_data = self._sent_data()
         kw_df, theme_keywords = profile_themes(
             sent_data, theme_percentile=self.config["theme_percentile"])
+
+        # Per-file branches: inject each attachment's synthetic root keyword
+        # AFTER theme profiling (so the percentile threshold sees only real
+        # keywords) with df just above the real maximum — high enough that
+        # SF-ordering roots every one of the file's paths at its token, low
+        # enough that real node weights (df/max_df) barely shift.
+        attached = sorted({s for s in self.sources if s})
+        if attached:
+            kw_df = dict(kw_df)
+            top_df = max(kw_df.values(), default=1) + 1
+            theme_keywords = set(theme_keywords)
+            for s in attached:
+                kw_df[file_token(s)] = top_df
+                theme_keywords.add(file_token(s))
+            for i, sd in enumerate(sent_data):
+                if self.sources[i]:
+                    kw = dict(sd["keyword_weights"])
+                    kw[file_token(self.sources[i])] = max(kw.values(), default=1.0)
+                    sd["keyword_weights"] = kw
+
         orig_words = sum(self.n_words)
         word_budget = int(orig_words * budget_pct)
 
@@ -270,6 +313,7 @@ class SessionTrie:
             self._atomic_write(self._p("embeddings.npy"), _save_npy)
         state = {
             "texts": self.texts, "roles": self.roles, "turns": self.turns,
+            "sources": self.sources,
             "n_words": self.n_words, "keyword_weights": self.keyword_weights,
             "coverage": self.coverage, "seen_hashes": self._seen_hashes,
             "next_sentence_index": self._next_sentence_index,
@@ -293,6 +337,8 @@ class SessionTrie:
         state = pickle.loads(sp.read_bytes())
         self.texts = state["texts"]; self.roles = state["roles"]
         self.turns = state["turns"]; self.n_words = state["n_words"]
+        # sessions saved before per-file branches existed have no sources
+        self.sources = state.get("sources", [None] * len(self.texts))
         self.keyword_weights = state["keyword_weights"]
         self.coverage = state["coverage"]; self._seen_hashes = state["seen_hashes"]
         self._next_sentence_index = state["next_sentence_index"]

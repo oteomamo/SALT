@@ -4,6 +4,7 @@ accelerate==1.14.0
 numpy==2.2.5
 tiktoken==0.12.0
 huggingface_hub
+pypdf==6.14.2
 datasets==3.6.0
 click
 rouge==1.0.1

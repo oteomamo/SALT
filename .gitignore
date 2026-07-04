@@ -17,6 +17,8 @@ cache/
 *.log
 salt/models/*
 !salt/models/README.md
+salt/files/*
+!salt/files/README.md
 salt/chat/sessions/
 salt/engine/session_cache/
 salt/datasets/longbench/data/

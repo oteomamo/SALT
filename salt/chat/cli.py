@@ -30,6 +30,7 @@ from pathlib import Path
 
 import torch
 
+from salt.chat.pdfio import PLAIN_SUFFIXES, ExtractionError, read_document
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
 from salt.chat.runner import ChatRunner
@@ -37,6 +38,8 @@ from salt.engine.compressor import load_bge
 from salt.engine.session_trie import SessionTrie
 
 SESSIONS_DIR = Path(__file__).resolve().parent / "sessions"
+FILES_DIR = Path(__file__).resolve().parents[1] / "files"
+FILE_SUFFIXES = {".pdf"} | PLAIN_SUFFIXES
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 
 # conversation ids become directory names under SESSIONS_DIR
@@ -49,13 +52,16 @@ MEMORY_BLOCK = (
     "(sentence fragments, original order):\n---\n{context}\n---")
 
 HELP = """\
+salt@              list attachable files staged in salt/files/
+salt@<file>        attach a file (.pdf/.txt/.md): whole text is ingested
+                   under its own trie branch; a path outside files/ works too
 /help              show this help
 /model             list registered models (* = active)
 /model <name>      switch chat model (unloads current, loads new; session kept)
 /add <hf_id> [alias]  download + register a model by HuggingFace id
-/doc <path>        ingest a text file into the trie (role=doc)
+/doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
-/stats             session, last-compression, and GPU memory stats
+/stats             session, attachments, compression, and GPU memory stats
 /new [id]          start (or resume) another conversation
 /clear             wipe and restart the current conversation
 /exit              leave (also Ctrl-D)"""
@@ -123,9 +129,10 @@ def print_models(active=None):
               f"[{m['dtype']}, {state}]")
 
 
-def add_to_trie(state, text, role):
+def add_to_trie(state, text, role, source=None):
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
-                               model=state.bge_model, device=state.bge_device)
+                               model=state.bge_model, device=state.bge_device,
+                               source=source)
 
 
 def ingest_doc(state, path):
@@ -134,13 +141,61 @@ def ingest_doc(state, path):
         print(f"No such file: {p}")
         return
     try:
-        text = p.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        print(f"Could not read {p}: {exc}")
+        text, n_pages = read_document(p)
+    except ExtractionError as exc:
+        print(exc)
         return
-    info = add_to_trie(state, text, "doc")
-    print(f"Ingested {p.name}: {info['added']} sentences added "
-          f"({info['filtered']} filtered), {info['n_total']} total.")
+    merging = p.name in state.trie.attached_sources
+    info = add_to_trie(state, text, "doc", source=p.name)
+    if info["added"] == 0:
+        print(f"{p.name}: nothing new to add (already attached?).")
+        return
+    pages = f"{n_pages} pages, " if n_pages else ""
+    branch = (f"merged into the existing {p.name!r} branch" if merging
+              else "under its own branch")
+    print(f"Attached {p.name}: {pages}{info['added']} sentences "
+          f"({info['filtered']} filtered) {branch}; "
+          f"{info['n_total']} total in session.")
+    if merging:
+        print(f"note: a source named {p.name!r} was already attached - "
+              f"same-named files share one trie branch.")
+
+
+def staged_files():
+    if not FILES_DIR.is_dir():
+        return []
+    return sorted(p for p in FILES_DIR.iterdir()
+                  if p.is_file() and p.suffix.lower() in FILE_SUFFIXES
+                  and p.name != "README.md")
+
+
+def handle_salt_at(state, line):
+    """`salt@` lists the staging dir; `salt@<name>` attaches a file."""
+    name = line[len("salt@"):].strip()
+    if not name:
+        files = staged_files()
+        if not files:
+            print(f"No attachable files - drop .pdf/.txt/.md into {FILES_DIR}")
+            return
+        attached = set(state.trie.attached_sources)
+        for f in files:
+            mark = "*" if f.name in attached else " "
+            print(f" {mark} salt@{f.name}  ({f.stat().st_size / 1024:.0f} KB)")
+        return
+    # bare names resolve ONLY in the staging dir (matching what the listing
+    # and TAB completion show); explicit paths must look like paths
+    if "/" in name or name.startswith("~"):
+        candidate = Path(name).expanduser()
+    else:
+        candidate = FILES_DIR / name
+        if not candidate.is_file() and "." not in name:
+            alt = FILES_DIR / (name + ".pdf")
+            if alt.is_file():
+                candidate = alt
+    if not candidate.is_file():
+        print(f"No such file {name!r} - `salt@` lists what's in {FILES_DIR}")
+        return
+    ingest_doc(state, candidate)
 
 
 def switch_model(state, name):
@@ -214,6 +269,9 @@ def handle_command(line, state):
         print(f"session {t.conversation_id!r}: {t.n_sentences} sentences over "
               f"{t.n_turns} turns, budget {state.budget:.0%}, "
               f"model {state.runner.alias if state.runner else 'none'}")
+        files = t.attached_sources
+        if files:
+            print(f"attached files ({len(files)}): {', '.join(files)}")
         s = state.last_stats or {}
         if s:
             trie_info = s.get("trie", {})
@@ -286,8 +344,35 @@ def chat_turn(state, line):
         state.tail.append({"role": "assistant", "content": reply})
 
 
+def _setup_completion():
+    """TAB completes /commands and salt@<staged file> where readline exists."""
+    try:
+        import readline
+    except ImportError:
+        return
+    commands = ["/help", "/model", "/add", "/doc", "/budget", "/stats",
+                "/new", "/clear", "/exit"]
+
+    def complete(text, i):
+        if text.startswith("salt@"):
+            prefix = text[len("salt@"):]
+            opts = ["salt@" + f.name for f in staged_files()
+                    if f.name.startswith(prefix)]
+        elif text.startswith("/"):
+            opts = [c for c in commands if c.startswith(text)]
+        else:
+            opts = []
+        return opts[i] if i < len(opts) else None
+
+    readline.set_completer_delims(" \t\n")
+    readline.set_completer(complete)
+    readline.parse_and_bind("tab: complete")
+
+
 def repl(state):
-    print("saltChat ready - /help lists commands, /exit leaves.\n")
+    _setup_completion()
+    print("saltChat ready - /help lists commands, salt@ lists attachable "
+          "files, /exit leaves.\n")
     while True:
         try:
             line = input("you> ").strip()
@@ -297,7 +382,9 @@ def repl(state):
         if not line:
             continue
         try:
-            if line.startswith("/"):
+            if line.startswith("salt@"):
+                handle_salt_at(state, line)
+            elif line.startswith("/"):
                 if not handle_command(line, state):
                     break
             else:
@@ -337,7 +424,8 @@ def build_parser():
     p.add_argument("--budget-pct", type=float, default=0.20,
                    help="token budget for the compressed memory block")
     p.add_argument("--doc", action="append", default=[], metavar="PATH",
-                   help="text file to ingest into the trie at startup (repeatable)")
+                   help="text or PDF file to ingest into the trie at startup "
+                        "(repeatable)")
     p.add_argument("--tail", type=int, default=4,
                    help="recent exchanges kept verbatim in the prompt")
     return p
