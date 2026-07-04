@@ -3,7 +3,7 @@
 SessionTrie: a persistent, continuously-growing keyword-trie cache for
 multi-turn chat, built on SALT's default `coverage` selector.
 
-The one-shot connector (`compress.py`) rebuilds the trie from scratch for every
+The one-shot connector (`salt/compress.py`) rebuilds the trie from scratch for every
 request and throws all state away. A chat tool instead wants ONE trie per
 conversation that is (1) reused every turn, (2) grown every turn as new content
 arrives (user messages, attached docs, assistant replies), and (3) stored in a

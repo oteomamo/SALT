@@ -22,9 +22,10 @@ Per-mode tuned hyperparameters (lam, query mass, theme percentile, tail
 fraction) are frozen in dataset_modes.MODE_DEFAULTS; explicit flags override
 them. Evaluate a compressed prompt with `eval.py`.
 
-Usage:
-    python compress.py --data DATA.jsonl --output OUT.jsonl \
-        --device cuda --token-budget-pct 0.20 [--synthetic | --code] \
+Usage (installed as the `salt` console command, also runnable as
+`python -m salt.compress`):
+    salt --data DATA.jsonl --output OUT.jsonl \
+        [--device cpu] [--token-budget-pct 0.20] [--synthetic | --code] \
         [--selector legacy]
 """
 import argparse
@@ -39,6 +40,7 @@ from salt.engine.fewshot import detect as detect_fewshot
 
 def build_parser():
     p = argparse.ArgumentParser(
+        prog="salt",
         description="SALT compressor: keyword-trie selection "
                     "(coverage/CELF by default, --selector legacy available).")
     p.add_argument("--data", type=str, required=True)
@@ -121,9 +123,9 @@ def build_parser():
     return p
 
 
-def main():
+def main(argv=None):
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.code and args.selector != "coverage":
         parser.error("--code is coverage-only; drop --selector legacy "
                      "(or drop --code).")

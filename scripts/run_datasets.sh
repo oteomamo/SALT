@@ -71,7 +71,7 @@ for ds in "${LONGBENCH_EN[@]}"; do
   fi
 
   echo "== $ds  ($SELECTOR, ${flags[*]:-prose}) =="
-  CUDA_VISIBLE_DEVICES="$GPU" "$SALT_PY" compress.py \
+  CUDA_VISIBLE_DEVICES="$GPU" "$SALT_PY" -m salt.compress \
     --data "$data" --output "$OUT_DIR/$ds.jsonl" \
     --selector "$SELECTOR" \
     --device cuda --token-budget-pct "$BUDGET" "${flags[@]}" "${samples_flag[@]}"

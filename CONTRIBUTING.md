@@ -28,8 +28,8 @@ needs no extra install.
 3. Sanity-check that it runs — e.g. a small compression:
 
    ```bash
-   python compress.py --data salt/datasets/longbench/data/hotpotqa.jsonl \
-     --output /tmp/out.jsonl --device cuda --token-budget-pct 0.20 --max-samples 3
+   salt --data salt/datasets/longbench/data/hotpotqa.jsonl \
+     --output /tmp/out.jsonl --max-samples 3
    ```
 
 4. Commit with a clear message. A [conventional-commit](https://www.conventionalcommits.org/)
@@ -40,8 +40,8 @@ needs no extra install.
 
 - **Naming**: `snake_case` for functions/variables, `PascalCase` for classes.
 - **Docstrings**: on modules and public functions — match the existing tone.
-- **Selectors stay separate**: the connector (`compress.py`) injects the selector;
-  engine modules never import a selector directly.
+- **Selectors stay separate**: the connector (`salt/compress.py`) injects the
+  selector; engine modules never import a selector directly.
 - **Dependencies**: keep them minimal, and discuss before adding a new one.
 
 ## Git identity

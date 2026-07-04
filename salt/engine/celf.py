@@ -5,7 +5,7 @@ SALT coverage selector: the CELF (lazy-greedy) submodular sentence selector.
 `coverage_select` maximizes a probabilistic trie-coverage objective under a word
 budget, replacing the phase/boost heuristics of the legacy `trie_select`
 (`salt.engine.retrieval`) with a single submodular objective. It is the default
-selector of the `compress.py` connector (`--selector coverage`) and the selector
+selector of the `salt/compress.py` connector (`--selector coverage`) and the selector
 used by the persistent multi-turn store (`salt.engine.session_trie.SessionTrie`).
 
 The shared primitives it builds on (trie construction, theme profiling, query

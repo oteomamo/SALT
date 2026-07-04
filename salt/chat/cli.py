@@ -1,0 +1,426 @@
+# -*- coding: utf-8 -*-
+"""saltChat: interactive multi-turn chat backed by SALT's persistent trie.
+
+The session pins three things for its whole lifetime: the BGE encoder and the
+chat LLM on GPU, and one ``SessionTrie`` in process RAM (autosaved to
+``salt/chat/sessions/<conversation-id>/``). Every turn, the trie compresses
+the accumulated conversation (and any ``/doc`` ingested files) into a
+query-biased memory block under the token budget; the last ``--tail``
+exchanges ride along verbatim. Both sides of each exchange then grow the
+trie, so older material keeps flowing through the compressed block instead of
+falling out of a context window.
+
+Usage:
+    saltChat --add Qwen/Qwen2.5-0.5B-Instruct
+    saltChat --model qwen2.5-0.5b-instruct
+    saltChat --model qwen2.5-0.5b-instruct --conversation-id demo1 --doc notes.txt
+
+Inside the REPL, ``/help`` lists the slash commands (``/model`` switches
+among registered models without touching the session).
+"""
+
+import argparse
+import gc
+import re
+import shutil
+import sys
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+
+import torch
+
+from salt.chat.registry import (RegistryError, list_models, register_model,
+                                resolve_model)
+from salt.chat.runner import ChatRunner
+from salt.engine.compressor import load_bge
+from salt.engine.session_trie import SessionTrie
+
+SESSIONS_DIR = Path(__file__).resolve().parent / "sessions"
+BGE_MODEL = "BAAI/bge-small-en-v1.5"
+
+# conversation ids become directory names under SESSIONS_DIR
+SESSION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+# seam: system-prompt wording is a later tuning knob
+SYSTEM_PROMPT = "You are a helpful assistant."
+MEMORY_BLOCK = (
+    "Relevant earlier context from this conversation, compressed by SALT "
+    "(sentence fragments, original order):\n---\n{context}\n---")
+
+HELP = """\
+/help              show this help
+/model             list registered models (* = active)
+/model <name>      switch chat model (unloads current, loads new; session kept)
+/add <hf_id> [alias]  download + register a model by HuggingFace id
+/doc <path>        ingest a text file into the trie (role=doc)
+/budget <pct>      set memory token budget (0.3 or 30 for 30%)
+/stats             session, last-compression, and GPU memory stats
+/new [id]          start (or resume) another conversation
+/clear             wipe and restart the current conversation
+/exit              leave (also Ctrl-D)"""
+
+
+class ChatState:
+    """Everything a live session pins: models on GPU, trie in RAM."""
+
+    def __init__(self, args, bge_tok, bge_model, runner, trie):
+        self.device = args.device
+        self.bge_device = args.bge_device or args.device
+        self.bge_tok = bge_tok
+        self.bge_model = bge_model
+        self.runner = runner
+        self.trie = trie
+        self.budget = args.budget_pct
+        self.tail = deque(maxlen=2 * args.tail)  # seam: tail length policy
+        self.last_stats = None
+
+    def new_trie(self, conversation_id):
+        self.trie = SessionTrie(conversation_id, cache_dir=SESSIONS_DIR,
+                                model_name=BGE_MODEL,
+                                budget_pct_default=self.budget)
+        self.tail.clear()
+        self.last_stats = None
+        return self.trie
+
+
+def fresh_conversation_id():
+    return datetime.now().strftime("chat-%Y%m%d-%H%M%S")
+
+
+def valid_session_id(cid):
+    return bool(SESSION_ID_RE.fullmatch(cid or ""))
+
+
+def normalize_budget(val):
+    """Accept 0.3 or 30 for 30%; None if out of range."""
+    if val > 1:
+        val /= 100.0
+    return val if 0 < val <= 1 else None
+
+
+def build_messages(compressed, tail, user_msg):
+    """System prompt (+ compressed memory when non-empty), verbatim tail,
+    then the current user message."""
+    system = SYSTEM_PROMPT
+    if compressed:
+        system += "\n\n" + MEMORY_BLOCK.format(context=compressed)
+    return ([{"role": "system", "content": system}]
+            + list(tail)
+            + [{"role": "user", "content": user_msg}])
+
+
+def print_models(active=None):
+    models = list_models()
+    if not models:
+        print("  (none registered - add one with: saltChat --add <hf_id>)")
+        return
+    width = max(len(m["alias"]) for m in models)
+    for m in models:
+        mark = "*" if m["alias"] == active else " "
+        state = "ready" if m["downloaded"] else "missing weights"
+        print(f" {mark} {m['alias']:<{width}}  {m['hf_id']}  "
+              f"[{m['dtype']}, {state}]")
+
+
+def add_to_trie(state, text, role):
+    return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
+                               model=state.bge_model, device=state.bge_device)
+
+
+def ingest_doc(state, path):
+    p = Path(path).expanduser()
+    if not p.is_file():
+        print(f"No such file: {p}")
+        return
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        print(f"Could not read {p}: {exc}")
+        return
+    info = add_to_trie(state, text, "doc")
+    print(f"Ingested {p.name}: {info['added']} sentences added "
+          f"({info['filtered']} filtered), {info['n_total']} total.")
+
+
+def switch_model(state, name):
+    try:
+        cfg = resolve_model(name)
+    except RegistryError as exc:
+        print(exc)
+        return
+    if state.runner is not None and cfg["alias"] == state.runner.alias:
+        print(f"{cfg['alias']} is already active.")
+        return
+    prev_cfg = state.runner.cfg
+    state.runner.unload()  # free before load: never two LLMs on the GPU
+    state.runner = None
+    try:
+        state.runner = ChatRunner(cfg, device=state.device)
+    except Exception as exc:
+        print(f"Failed to load {cfg['alias']}: {exc}")
+        gc.collect()  # drop the failed load's partial allocations first
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        print(f"Reloading previous model {prev_cfg['alias']} ...")
+        try:
+            state.runner = ChatRunner(prev_cfg, device=state.device)
+        except Exception as exc2:
+            print(f"Also failed to reload {prev_cfg['alias']}: {exc2}")
+            print("No model loaded - use /model <name> when ready.")
+
+
+def handle_command(line, state):
+    """Dispatch a slash command. Returns False to exit the REPL."""
+    parts = line.split()
+    cmd, rest = parts[0].lower(), parts[1:]
+
+    if cmd in ("/exit", "/quit", "/q"):
+        return False
+    if cmd == "/help":
+        print(HELP)
+    elif cmd == "/model":
+        if not rest:
+            print_models(active=state.runner.alias if state.runner else None)
+        else:
+            switch_model(state, rest[0])
+    elif cmd == "/add":
+        if not rest:
+            print("Usage: /add <hf_id> [alias]")
+        else:
+            try:
+                cfg = register_model(rest[0],
+                                     alias=rest[1] if len(rest) > 1 else None)
+                print(f"Registered {cfg['hf_id']} as {cfg['alias']!r}.")
+            except RegistryError as exc:
+                print(exc)
+    elif cmd == "/doc":
+        if not rest:
+            print("Usage: /doc <path>")
+        else:
+            ingest_doc(state, " ".join(rest))
+    elif cmd == "/budget":
+        try:
+            val = normalize_budget(float(rest[0]))
+        except (IndexError, ValueError):
+            val = None
+        if val is None:
+            print("Usage: /budget <pct>   e.g. /budget 0.3 or /budget 30")
+            return True
+        state.budget = val
+        print(f"Memory budget set to {val:.0%}.")
+    elif cmd == "/stats":
+        t = state.trie
+        print(f"session {t.conversation_id!r}: {t.n_sentences} sentences over "
+              f"{t.n_turns} turns, budget {state.budget:.0%}, "
+              f"model {state.runner.alias if state.runner else 'none'}")
+        s = state.last_stats or {}
+        if s:
+            trie_info = s.get("trie", {})
+            print(f"last compression: theme coverage "
+                  f"{s.get('theme_coverage_pct', 0):.1%}, "
+                  f"{trie_info.get('n_nodes', '?')} nodes / "
+                  f"{trie_info.get('n_branches', '?')} branches")
+        if torch.cuda.is_available():
+            print(f"GPU memory allocated: "
+                  f"{torch.cuda.memory_allocated() / 2**30:.2f} GiB")
+    elif cmd == "/new":
+        cid = rest[0] if rest else fresh_conversation_id()
+        if not valid_session_id(cid):
+            print("Session ids may only contain letters, digits, '.', '_', '-'.")
+            return True
+        try:
+            trie = state.new_trie(cid)
+        except Exception as exc:
+            print(f"Could not open session {cid!r}: {exc}")
+            return True
+        print(f"{'Resumed' if trie.is_loaded else 'Started'} session {cid!r}.")
+    elif cmd == "/clear":
+        cid = state.trie.conversation_id
+        target = state.trie.cache_dir.resolve()
+        if SESSIONS_DIR.resolve() not in target.parents:
+            print(f"Refusing to wipe {target}: not under {SESSIONS_DIR}.")
+            return True
+        shutil.rmtree(target, ignore_errors=True)
+        state.new_trie(cid)
+        print(f"Session {cid!r} wiped.")
+    else:
+        print(f"Unknown command {cmd!r} - /help lists commands.")
+    return True
+
+
+def chat_turn(state, line):
+    if state.runner is None:
+        print("No chat model loaded - /model <name> to load one.")
+        return
+    # trie holds turns 1..N-1 here (this message is added after generation):
+    # the verbatim tail covers recent turns, the trie covers older ones
+    compressed = ""
+    if state.trie.n_sentences > 0:
+        comp = state.trie.compress(query=line, budget_pct=state.budget,
+                                   tokenizer=state.bge_tok,
+                                   model=state.bge_model,
+                                   device=state.bge_device)
+        compressed = comp["context"]
+        state.last_stats = comp["stats"]
+
+    messages = build_messages(compressed, state.tail, line)
+    print(f"{state.runner.alias}> ", end="", flush=True)
+    pieces = []
+    interrupted = False
+    try:
+        for piece in state.runner.stream_chat(messages):
+            print(piece, end="", flush=True)
+            pieces.append(piece)
+    except KeyboardInterrupt:
+        interrupted = True
+    print("\n" if not interrupted else "  [interrupted]\n")
+
+    reply = "".join(pieces).strip()
+    add_to_trie(state, line, "user")
+    if reply:
+        add_to_trie(state, reply, "assistant")  # seam: --no-assistant-memory
+        # tail only grows in pairs so strict chat templates always see
+        # alternating roles (a replyless user turn still reaches the trie)
+        state.tail.append({"role": "user", "content": line})
+        state.tail.append({"role": "assistant", "content": reply})
+
+
+def repl(state):
+    print("saltChat ready - /help lists commands, /exit leaves.\n")
+    while True:
+        try:
+            line = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        try:
+            if line.startswith("/"):
+                if not handle_command(line, state):
+                    break
+            else:
+                chat_turn(state, line)
+        except KeyboardInterrupt:
+            print("\n[interrupted]")
+        except Exception as exc:
+            # the REPL must survive any command/turn failure
+            print(f"[error] {type(exc).__name__}: {exc}")
+    print(f"Session saved under {state.trie.cache_dir}")
+
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="saltChat",
+        description="Chat with a registered model; SALT's persistent trie "
+                    "compresses the conversation memory every turn.")
+    p.add_argument("--model",
+                   help="registered alias or HF id to chat with (default: "
+                        "the single registered model, if there is one)")
+    p.add_argument("--add", metavar="HF_ID",
+                   help="download + register a model by HuggingFace id, then exit")
+    p.add_argument("--alias", help="short name for --add (default: repo name, lowercased)")
+    p.add_argument("--dtype", default="bfloat16",
+                   choices=["bfloat16", "float16", "float32"],
+                   help="dtype recorded by --add (default: bfloat16)")
+    p.add_argument("--force", action="store_true",
+                   help="overwrite an existing registry entry on --add")
+    p.add_argument("--list", action="store_true",
+                   help="list registered models, then exit")
+    p.add_argument("--conversation-id",
+                   help="session id; reuse one to resume its trie "
+                        "(default: a fresh timestamped id)")
+    p.add_argument("--device", default="cuda", help="device for the chat model")
+    p.add_argument("--bge-device", default=None,
+                   help="device for the BGE encoder (default: --device)")
+    p.add_argument("--budget-pct", type=float, default=0.20,
+                   help="token budget for the compressed memory block")
+    p.add_argument("--doc", action="append", default=[], metavar="PATH",
+                   help="text file to ingest into the trie at startup (repeatable)")
+    p.add_argument("--tail", type=int, default=4,
+                   help="recent exchanges kept verbatim in the prompt")
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+
+    if args.add:
+        try:
+            cfg = register_model(args.add, alias=args.alias, dtype=args.dtype,
+                                 force=args.force)
+        except RegistryError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(f"Registered {cfg['hf_id']} as {cfg['alias']!r} -> {cfg['path']}")
+        return 0
+    if args.list:
+        print_models()
+        return 0
+
+    if args.conversation_id and not valid_session_id(args.conversation_id):
+        print("--conversation-id may only contain letters, digits, '.', '_', '-'.",
+              file=sys.stderr)
+        return 1
+    budget = normalize_budget(args.budget_pct)
+    if budget is None:
+        print("--budget-pct must be in (0, 1], or 0-100 as a percentage.",
+              file=sys.stderr)
+        return 1
+    args.budget_pct = budget
+
+    models = list_models()
+    if args.model:
+        try:
+            cfg = resolve_model(args.model)
+        except RegistryError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+    elif len(models) == 1:
+        cfg = models[0]
+    else:
+        if models:
+            print("Pick a model with --model. Registered models:")
+            print_models()
+        else:
+            print("No models registered yet. Add one with: saltChat --add <hf_id>")
+        return 1
+    if not cfg["downloaded"]:
+        print(f"Weights for {cfg['alias']!r} are missing (broken symlink?). "
+              f"Re-register with: saltChat --add {cfg['hf_id']} --force",
+              file=sys.stderr)
+        return 1
+
+    # pinning order: BGE encoder first (tiny), then the session trie
+    # (CPU/RAM, resumes from disk), then the chat LLM - all stay resident
+    bge_device = args.bge_device or args.device
+    print(f"Loading BGE encoder {BGE_MODEL} on {bge_device}")
+    bge_tok, bge_model = load_bge(BGE_MODEL, bge_device)
+
+    conversation_id = args.conversation_id or fresh_conversation_id()
+    try:
+        trie = SessionTrie(conversation_id, cache_dir=SESSIONS_DIR,
+                           model_name=BGE_MODEL,
+                           budget_pct_default=args.budget_pct)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    if trie.is_loaded:
+        print(f"Resumed session {conversation_id!r}: {trie.n_sentences} "
+              f"sentences over {trie.n_turns} turns.")
+    else:
+        print(f"New session {conversation_id!r}.")
+
+    runner = ChatRunner(cfg, device=args.device)
+    state = ChatState(args, bge_tok, bge_model, runner, trie)
+
+    for doc in args.doc:
+        ingest_doc(state, doc)
+
+    repl(state)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -15,6 +15,10 @@ out/
 cache/
 *.pkl
 *.log
+salt/models/*
+!salt/models/README.md
+salt/chat/sessions/
+salt/engine/session_cache/
 salt/datasets/longbench/data/
 salt/datasets/quality/
 salt/datasets/loogle/

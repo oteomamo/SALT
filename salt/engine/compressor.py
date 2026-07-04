@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-SALT shared compression runner: the prose pipeline the `compress.py` connector
-builds on. It owns:
+SALT shared compression runner: the prose pipeline the `salt/compress.py`
+connector builds on. It owns:
 
   * model / sample loading and JSONL output,
   * the prose sentence pipeline (clean -> split -> filter -> dense-attention

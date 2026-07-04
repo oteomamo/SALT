@@ -5,7 +5,7 @@ per-mode hyperparameter defaults.
 
 Each mode changes the *representation* fed to the selector, not the selector
 itself. The `--synthetic` query sub-policy takes an injected `select_fn`
-(`retrieval.trie_select` or `celf.coverage_select` via `compress.py`), so it
+(`retrieval.trie_select` or `celf.coverage_select` via `salt/compress.py`), so it
 stays selector-agnostic; the `--code` helpers build code sent_data / anchors
 that the connector feeds to whichever selector is active. This module imports no
 selector directly; it depends only on `trie_core` primitives and `compressor`

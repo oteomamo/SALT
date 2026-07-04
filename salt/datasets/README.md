@@ -5,7 +5,7 @@ idempotent: existing files are skipped (`--force` rebuilds).
 
 | script | dataset | consumed by | output dir |
 |---|---|---|---|
-| `download_longbench.py` | [LongBench](https://huggingface.co/datasets/THUDM/LongBench) (16 EN tasks) | `compress.py` / `eval.py` | `longbench/data/` |
+| `download_longbench.py` | [LongBench](https://huggingface.co/datasets/THUDM/LongBench) (16 EN tasks) | `salt` / `eval.py` | `longbench/data/` |
 | `download_quality.py` | [QuALITY](https://github.com/nyu-mll/quality) (MCQ) / [LooGLE](https://huggingface.co/datasets/bigai-nlco/LooGLE) (free-form) | `results/quality_multiturn.py` | `quality/`, `loogle/` |
 | `download_niah.py` | Needle-in-a-haystack from [PG-19](https://huggingface.co/datasets/emozilla/pg19) | `results/niah_ttft.py` | `niah/` |
 

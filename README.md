@@ -37,6 +37,7 @@ turns of a conversation without re-reading the document.
 - [Datasets](#-datasets)
 - [Quick start](#-quick-start)
 - [Usage examples](#-usage-examples)
+- [Chatbot mode](#-chatbot-mode)
 - [Results](#-results)
 - [Roadmap](#-roadmap)
 - [Contributing](#-contributing)
@@ -74,7 +75,8 @@ Where each stage lives:
 | Few-shot bypass (`trec`, `triviaqa`, `samsum`) | `salt/engine/fewshot.py` |
 | Dataset adapters (`--synthetic`, `--code`) | `salt/engine/dataset_modes.py` |
 | Multi-turn session store | `salt/engine/session_trie.py` |
-| CLI entry points | `compress.py`, `eval.py` |
+| Chat REPL + model registry | `salt/chat/`, `salt/models/` |
+| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat` |
 
 ## 📦 Installation
 
@@ -109,6 +111,10 @@ pip install -r requirements.txt
 ```bash
 pip install -e .
 ```
+
+This also installs the two console commands: `salt` (one-shot compression,
+see [Usage examples](#-usage-examples)) and `saltChat` (interactive chat, see
+[Chatbot mode](#-chatbot-mode)).
 
 **4. Authenticate with Hugging Face** - the eval model
 (`meta-llama/Llama-3.1-8B-Instruct`) is gated:
@@ -170,17 +176,18 @@ land in `runs/run_<timestamp>/`, scores in `eval_all.json`.
 
 ## 💬 Usage examples
 
-Compress a document to 20% of its token budget:
+Compress a document with the `salt` command (installed with the package):
 
 ```bash
-python compress.py \
+salt \
   --data salt/datasets/longbench/data/hotpotqa.jsonl \
   --output out/hotpotqa.jsonl \
-  --device cuda \
-  --token-budget-pct 0.20 \
-  --model BAAI/bge-small-en-v1.5 \
   --verbose
 ```
+
+Defaults: 20% token budget (`--token-budget-pct`), GPU compression
+(`--device cpu` runs without one), `BAAI/bge-small-en-v1.5` as the
+compression model (`--model`).
 
 When a sample carries a query, its keywords and proper nouns are matched against
 the document as surprisal-weighted lexical terms (rare, discriminative terms get
@@ -204,6 +211,42 @@ python eval.py \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --gpu 0 --max-input-len 14000
 ```
+
+## 🤖 Chatbot mode
+
+`saltChat` is an interactive chat REPL where SALT is the conversation memory:
+one persistent trie per conversation grows with every exchange (and any
+attached documents), and each turn it compresses the accumulated history into
+a query-biased context block under the token budget. The BGE encoder and the
+chat model stay resident on the GPU for the whole session; the trie lives in
+process memory and autosaves to disk, so any conversation can be resumed
+later by its id.
+
+Register a model by its HuggingFace name - weights are symlinked from your HF
+cache into `salt/models/`, never copied (see
+[`salt/models/README.md`](salt/models/README.md)):
+
+```bash
+saltChat --add Qwen/Qwen2.5-0.5B-Instruct --alias qwen05
+```
+
+Chat, optionally seeding the trie with a document:
+
+```bash
+saltChat --model qwen05 --conversation-id demo1 --doc report.txt
+```
+
+Inside the REPL:
+
+| Command | Effect |
+|---|---|
+| `/model` | list registered models; `/model <name>` switches (session kept) |
+| `/add <hf_id> [alias]` | download and register another model |
+| `/doc <path>` | ingest a text file into the trie |
+| `/budget <pct>` | set the memory budget (`0.3` or `30`) |
+| `/stats` | session, compression, and GPU-memory stats |
+| `/new [id]`, `/clear` | start another conversation, wipe this one |
+| `/exit` | leave; the session is saved and resumable by id |
 
 ## 🔬 Results
 
@@ -244,8 +287,8 @@ Active goals and next steps:
   serve summarization, where recall across many minor themes matters most.
 - **Document processing** - broaden the pipeline toward general document
   ingestion beyond benchmark-style contexts.
-- **Chatbot mode** *(in progress)* - a persistent multi-turn session that reuses
-  and grows one trie across a conversation.
+- **Chatbot mode** - a first version ships as [`saltChat`](#-chatbot-mode);
+  next: smarter prompt budgeting and bounded trie eviction.
 - **More datasets** - additional benchmarks in the results table.
 
 ## 🤝 Contributing

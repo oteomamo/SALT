@@ -23,6 +23,10 @@ dependencies = [
     "jieba>=0.42",
 ]
 
+[project.scripts]
+salt = "salt.compress:main"
+saltChat = "salt.chat.cli:main"
+
 [tool.setuptools.packages.find]
-include = ["salt", "salt.engine", "salt.datasets", "salt.results"]
+include = ["salt", "salt.engine", "salt.datasets", "salt.results", "salt.chat"]
 namespaces = false
