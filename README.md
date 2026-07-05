@@ -64,6 +64,68 @@ under a token budget, returned in original document order, query-biased or not.
    without rebuilding it. → compressed prompt, original order, ≤ budget
 ```
 
+The whole system as a blueprint — this map is kept current as SALT grows,
+so it is the fastest way to find where a change belongs:
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                   SALT                                   │
+│                                                                          │
+│ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
+│ │      Indexing      │  │    Keyword Trie    │  │     Selection      │   │
+│ │                    │  │                    │  │                    │   │
+│ │ BGE-small encoder  │  │ SF-ordered paths   │  │ coverage (CELF)    │   │
+│ │ attention keywords │  │ theme branches     │  │ branch discounting │   │
+│ │ knee cutoff        │  │ §file: doc branches│  │ multi-anchor query │   │
+│ │ junk filter        │  │ rebuilt cheaply    │  │ ≤ word budget      │   │
+│ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
+│ │    Session Trie    │  │  Prompt Assembly   │  │    Chat Runner     │   │
+│ │                    │  │                    │  │                    │   │
+│ │ per-conversation   │  │ stable prefix first│  │ HF streaming (now) │   │
+│ │ lives in DRAM      │  │ append-only tail   │  │ vLLM + APC (later) │   │
+│ │ grows every turn   │  │ memory + question  │  │ model registry     │   │
+│ │ cross-turn coverage│  │ instructions.md    │  │ GPU-pinned models  │   │
+│ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │            Trie shape — the root binds the conversation            │   │
+│ │                               ● root — the conversation bind       │   │
+│ │         ┌─────────────────────┼─────────────────────┐              │   │
+│ │  §file:paper.pdf       §file:notes.txt        conversation         │   │
+│ │         │                     │              ┌──────┴──────┐       │   │
+│ │   keyword paths         keyword paths     theme A       theme B    │   │
+│ │         │                     │              │             │       │   │
+│ │     sentences             sentences      sentences     sentences   │   │
+│ │                                                                    │   │
+│ │ each turn: ≤ budget spread across branches (CELF discounting)      │   │
+│ │ the untrie — the verbatim tail — sits OUTSIDE the trie, as the     │   │
+│ │ prompt's stable recent-history window                              │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │                  Prompt layout (KV-cache shaped)                   │   │
+│ │ [system: instructions · file inventory · attach@ full documents]   │   │
+│ │ → [tail: recent exchanges — append-only, block-wise compaction]    │   │
+│ │ → [newest user message: SALT memory (≈20% selection) + question]   │   │
+│ │ stable prefix = reusable KV ──── fresh suffix = per-turn prefill   │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │                    kvtrace — per-turn KV ledger                    │   │
+│ │ read (reused) / write (fresh) / output · events.jsonl + tokens.npy │   │
+│ │ usage keys: input (write) · input_cached_tokens (read) · output    │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │                            Entry points                            │   │
+│ │ salt (one-shot compression) · saltChat (chat REPL) · eval.py       │   │
+│ │ salt@ trie attach · attach@ full text · /doc /model /budget /stats │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
 Where each stage lives:
 
 | Stage | Code |
@@ -241,7 +303,7 @@ Inside the REPL:
 | Command | Effect |
 |---|---|
 | `salt@` | list attachable files staged in `salt/files/` |
-| `salt@<file>` | attach a `.pdf`/`.txt`/`.md`: whole text, own trie branch |
+| `salt@<file>` | attach a `.pdf`/`.txt`/`.md`/`.rst`: whole text, own trie branch |
 | `attach@<file>` | attach in full: uncompressed text rides in every prompt |
 | `/model` | list registered models; `/model <name>` switches (session kept) |
 | `/add <hf_id> [alias]` | download and register another model |
@@ -258,14 +320,39 @@ sentences, `input_cached_tokens` = context re-selected from the previous
 turn, `output` = generated tokens) plus a per-token `tokens.npy` matrix;
 `/stats` shows the running totals.
 
-Attached PDFs are read whole (images ignored; repeated headers/footers and
-page numbers cleaned). A `salt@` file becomes **its own branch** of the
-session trie, hanging off the conversation's root — so multiple attachments
-never crowd each other out, and the per-turn budget (default 20%) spreads
-across files and conversation themes. An `attach@` file skips the trie
-entirely: its full text rides uncompressed in every prompt. TAB completes
-`/commands`, `salt@<file>`, and `attach@<file>` names (see
+Attached PDFs are read whole (images ignored) and cleaned into proper
+sentences before they reach the trie: repeated headers/footers, page numbers,
+and ACL/NeurIPS-style margin line numbers are stripped, ligatures and
+hyphenation repaired, wrapped lines reflowed into paragraphs, and reference
+lists and table rows filtered — sentence boundaries never break inside
+citations. A `salt@` file becomes **its own branch** of the session trie,
+hanging off the conversation's root — so multiple attachments never crowd
+each other out, and the per-turn budget (default 20%) spreads across files
+and conversation themes. An `attach@` file skips the trie entirely: its full
+text rides uncompressed in every prompt. TAB completes `/commands`,
+`salt@<file>`, and `attach@<file>` names (see
 [`salt/files/README.md`](salt/files/README.md)).
+
+The chat model is told what it is looking at: the system prompt carries a
+reading guide from [`salt/chat/instructions.md`](salt/chat/instructions.md)
+(edit it to tune the wording — it is re-read every turn, even mid-session)
+plus an inventory of every attached file, and the compressed memory arrives
+at the top of the newest user message, grouped by origin — `[from attached
+file 'paper.pdf' — 42 of 358 indexed sentences]` versus `[from the earlier
+conversation]` — so answers can cite their source file and the model knows
+the excerpts are partial.
+
+The prompt is deliberately **KV-cache shaped**: everything stable (system
+prompt, `attach@` full texts, the verbatim tail) comes first, and the only
+per-turn content — the SALT memory selection and the question — comes last.
+The tail grows append-only and compacts **in blocks** (back to `--tail`
+exchanges once it hits twice that) instead of rolling every turn, so the
+prompt prefix stays byte-identical between compactions; nothing is lost,
+since every sentence already entered the trie the moment it was spoken.
+Today each turn still prefills the whole prompt — this layout is what lets
+a prefix-caching runner (vLLM APC) later reuse the stable prefix and pay
+only for the fresh suffix, exactly the read/write split the kvtrace ledger
+already measures.
 
 ## 🔬 Results
 

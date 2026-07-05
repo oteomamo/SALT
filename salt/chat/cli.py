@@ -24,14 +24,15 @@ import gc
 import re
 import shutil
 import sys
-from collections import deque
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import torch
 
 from salt.chat.kvtrace import KVTrace
-from salt.chat.pdfio import PLAIN_SUFFIXES, ExtractionError, read_document
+from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError, read_document,
+                             split_document_sentences)
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
 from salt.chat.runner import ChatRunner
@@ -49,13 +50,36 @@ SESSION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # seam: system-prompt wording is a later tuning knob
 SYSTEM_PROMPT = "You are a helpful assistant."
 MEMORY_BLOCK = (
-    "Relevant earlier context from this conversation, compressed by SALT "
-    "(sentence fragments, original order):\n---\n{context}\n---")
+    "SALT memory — compressed excerpts auto-selected for this message "
+    "(partial, not full text; each section keeps original order):"
+    "\n---\n{body}\n---")
+
+# The universal instruction block that teaches the chat model how to read
+# SALT's context (memory sections, attachment inventory, citing rules).
+# Kept as an editable file so the wording can be tuned without code changes;
+# re-read every turn, so edits apply live to a running session.
+INSTRUCTIONS_PATH = Path(__file__).resolve().parent / "instructions.md"
+FALLBACK_INSTRUCTIONS = (
+    'The "SALT memory" block at the top of the newest user message contains '
+    "compressed sentence excerpts from earlier conversation and attached "
+    "files, grouped by source — it is partial, not full text. Name the file "
+    "you draw on; if the excerpts don't cover a question, say so rather "
+    "than inventing content.")
+
+
+def load_instructions():
+    # ValueError covers UnicodeDecodeError from a re-saved non-UTF-8 file;
+    # a broken instructions file must never take down the chat turn
+    try:
+        text = INSTRUCTIONS_PATH.read_text(encoding="utf-8").strip()
+        return text or FALLBACK_INSTRUCTIONS
+    except (OSError, ValueError):
+        return FALLBACK_INSTRUCTIONS
 
 HELP = """\
 salt@              list attachable files staged in salt/files/
-salt@<file>        attach via SALT (.pdf/.txt/.md): whole text ingested under
-                   its own trie branch; compressed into the prompt per turn
+salt@<file>        attach via SALT (.pdf/.txt/.md/.rst): whole text ingested
+                   under its own trie branch; compressed into the prompt per turn
 attach@<file>      attach IN FULL: the whole text rides in every prompt,
                    uncompressed (the full-context counterpart of salt@)
 /help              show this help
@@ -81,12 +105,26 @@ class ChatState:
         self.runner = runner
         self.trie = trie
         self.budget = args.budget_pct
-        self.tail = deque(maxlen=2 * args.tail)  # seam: tail length policy
+        # tail policy: grow append-only to tail_max exchanges, then compact
+        # to tail_min in ONE stroke. A rolling window (deque) would drop the
+        # oldest exchange every turn and break the prompt prefix each time;
+        # block compaction keeps the prefix byte-stable between compactions,
+        # which is what future KV-cache reuse (vLLM APC) needs.
+        self.tail = []
+        self.tail_min = args.tail
+        self.tail_max = 2 * args.tail
         self.last_stats = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
         self.kvtrace = KVTrace(self.trie.cache_dir,
                                self.trie.conversation_id)
+
+    def compact_tail(self):
+        """Cut the tail back to tail_min exchanges once it exceeds tail_max.
+        Nothing is lost: every sentence already entered the trie the moment
+        it was spoken — compaction only bounds the verbatim window."""
+        if len(self.tail) > 2 * self.tail_max:
+            del self.tail[: len(self.tail) - 2 * self.tail_min]
 
     def new_trie(self, conversation_id):
         self.trie = SessionTrie(conversation_id, cache_dir=SESSIONS_DIR,
@@ -146,18 +184,71 @@ def normalize_budget(val):
     return val if 0 < val <= 1 else None
 
 
-def build_messages(compressed, tail, user_msg, attachments=None):
-    """System prompt (+ full attachments + compressed memory when present),
-    verbatim tail, then the current user message."""
+def format_memory_block(trie, sel_idx):
+    """The selected sentences as a labeled memory block: grouped by origin
+    (attached files first, then conversation), each section headed with its
+    source and per-file selected/total counts so the model knows both where
+    an excerpt came from and how partial the selection is. The labels match
+    the reading guide in instructions.md."""
+    if not sel_idx:
+        return ""
+    by_src = {}
+    for i in sel_idx:
+        by_src.setdefault(trie.sources[i], []).append(i)
+    totals = Counter(s for s in trie.sources if s)
+    sections = []
+    for src in sorted(k for k in by_src if k):
+        idxs = by_src[src]
+        # explicit quotes, not !r: repr flips to double quotes on names with
+        # apostrophes, breaking the label format instructions.md documents
+        sections.append(f"[from attached file '{src}' — {len(idxs)} of "
+                        f"{totals[src]} indexed sentences]\n"
+                        + " ".join(trie.texts[i] for i in idxs))
+    if None in by_src:
+        sections.append("[from the earlier conversation]\n"
+                        + " ".join(trie.texts[i] for i in by_src[None]))
+    return MEMORY_BLOCK.format(body="\n\n".join(sections))
+
+
+def attachment_inventory(trie, full_attachments):
+    """One system-prompt line per attached file, so the model knows a file
+    exists even on turns when none of its sentences were selected."""
+    entries = {}
+    for src in trie.attached_sources:
+        entries[src] = (f"indexed by SALT ({trie.sources.count(src)} "
+                        f"sentences); relevant excerpts appear in the "
+                        f"'SALT memory' block")
+    for name in full_attachments:
+        prev = entries.get(name)
+        entries[name] = (prev + "; also provided in full below" if prev
+                         else "provided in full below")
+    if not entries:
+        return ""
+    return ("Files attached to this conversation:\n"
+            + "\n".join(f"- '{n}': {d}" for n, d in sorted(entries.items())))
+
+
+def build_messages(memory_block, tail, user_msg, attachments=None,
+                   inventory="", instructions=""):
+    """Cache-shaped prompt: the system message carries only STABLE content
+    (instructions, inventory, attach@ full texts), the verbatim tail follows
+    append-only, and the per-turn SALT memory rides at the top of the newest
+    user message. Everything ahead of the memory block is therefore a
+    reusable prefix for KV caching; the volatile 20% selection and the
+    question are the only per-turn prefill. The tail stores the clean user
+    line, so injected memory never enters history."""
     system = SYSTEM_PROMPT
+    if instructions:
+        system += "\n\n" + instructions
+    if inventory:
+        system += "\n\n" + inventory
     for name, text in (attachments or {}).items():
-        system += (f"\n\nAttached document {name!r} (full text):"
+        system += (f"\n\nAttached document '{name}' (full text):"
                    f"\n---\n{text}\n---")
-    if compressed:
-        system += "\n\n" + MEMORY_BLOCK.format(context=compressed)
+    user = (memory_block + "\n\n" + user_msg) if memory_block else user_msg
     return ([{"role": "system", "content": system}]
             + list(tail)
-            + [{"role": "user", "content": user_msg}])
+            + [{"role": "user", "content": user}])
 
 
 def print_models(active=None):
@@ -173,10 +264,10 @@ def print_models(active=None):
               f"[{m['dtype']}, {state}]")
 
 
-def add_to_trie(state, text, role, source=None):
+def add_to_trie(state, text, role, source=None, sentences=None):
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
                                model=state.bge_model, device=state.bge_device,
-                               source=source)
+                               source=source, sentences=sentences)
 
 
 def ingest_doc(state, path):
@@ -190,9 +281,15 @@ def ingest_doc(state, path):
         print(exc)
         return
     merging = p.name in state.trie.attached_sources
-    info = add_to_trie(state, text, "doc", source=p.name)
+    info = add_to_trie(state, text, "doc", source=p.name,
+                       sentences=split_document_sentences(text))
     if info["added"] == 0:
-        print(f"{p.name}: nothing new to add (already attached?).")
+        if merging:
+            print(f"{p.name}: nothing new to add (already attached).")
+        else:
+            print(f"{p.name}: no ingestible sentences - all "
+                  f"{info['filtered']} extracted units were filtered "
+                  f"(tables/references/fragments).")
         return
     pages = f"{n_pages} pages, " if n_pages else ""
     branch = (f"merged into the existing {p.name!r} branch" if merging
@@ -230,7 +327,7 @@ def resolve_staged(name):
 def list_staged(state):
     files = staged_files()
     if not files:
-        print(f"No attachable files - drop .pdf/.txt/.md into {FILES_DIR}")
+        print(f"No attachable files - drop .pdf/.txt/.md/.rst into {FILES_DIR}")
         return
     in_trie = set(state.trie.attached_sources)
     in_full = set(state.full_attachments)
@@ -284,8 +381,9 @@ def handle_attach_at(state, line):
 
 
 def warn_attachment_budget(state):
-    """Warn when ALL full attachments together exceed the active model's
-    input window (the runner tail-truncates, silently dropping the head)."""
+    """Warn when the full attachments plus the fixed system-prompt overhead
+    (instructions + inventory) exceed the active model's input window (the
+    runner tail-truncates, silently dropping the head)."""
     if state.runner is None or not state.full_attachments:
         return
     limit = int(state.runner.cfg.get("max_input_len") or 0)
@@ -293,8 +391,12 @@ def warn_attachment_budget(state):
         return
     total = sum(state.count_tokens(t) or 0
                 for t in state.full_attachments.values())
+    total += (state.count_tokens(load_instructions()) or 0)
+    total += (state.count_tokens(
+        attachment_inventory(state.trie, state.full_attachments)) or 0)
     if total > limit:
-        print(f"warning: full-context attachments total ~{total} tokens, over "
+        print(f"warning: full-context attachments (+ the system prompt's "
+              f"instruction/inventory overhead) total ~{total} tokens, over "
               f"the model's max_input_len ({limit}) - prompts will be "
               f"tail-truncated and the earliest content silently dropped. "
               f"Raise max_input_len in salt/models/{state.runner.alias}/"
@@ -433,18 +535,22 @@ def chat_turn(state, line):
     ts_start = datetime.now().isoformat(timespec="seconds")
     # trie holds turns 1..N-1 here (this message is added after generation):
     # the verbatim tail covers recent turns, the trie covers older ones
-    compressed, selected_idx = "", []
+    memory_block, selected_idx = "", []
     if state.trie.n_sentences > 0:
         comp = state.trie.compress(query=line, budget_pct=state.budget,
                                    tokenizer=state.bge_tok,
                                    model=state.bge_model,
                                    device=state.bge_device)
-        compressed = comp["context"]
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
+        memory_block = format_memory_block(state.trie, selected_idx)
 
-    messages = build_messages(compressed, state.tail, line,
-                              state.full_attachments)
+    inventory = attachment_inventory(state.trie, state.full_attachments)
+    instructions = (load_instructions()
+                    if (memory_block or inventory or state.full_attachments)
+                    else "")
+    messages = build_messages(memory_block, state.tail, line,
+                              state.full_attachments, inventory, instructions)
     # cleared per turn so an interrupt before tokenization can't record the
     # previous turn's prompt size for this one
     state.runner.last_prompt_tokens = None
@@ -476,6 +582,7 @@ def chat_turn(state, line):
         # alternating roles (a replyless user turn still reaches the trie)
         state.tail.append({"role": "user", "content": line})
         state.tail.append({"role": "assistant", "content": reply})
+        state.compact_tail()
 
 
 def _setup_completion():
@@ -571,7 +678,9 @@ def build_parser():
                    help="text or PDF file to ingest into the trie at startup "
                         "(repeatable)")
     p.add_argument("--tail", type=int, default=4,
-                   help="recent exchanges kept verbatim in the prompt")
+                   help="exchanges kept verbatim after tail compaction (the "
+                        "window grows append-only to 2x this, then compacts "
+                        "back in one stroke)")
     return p
 
 

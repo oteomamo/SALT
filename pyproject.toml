@@ -31,3 +31,6 @@ saltChat = "salt.chat.cli:main"
 [tool.setuptools.packages.find]
 include = ["salt", "salt.engine", "salt.datasets", "salt.results", "salt.chat"]
 namespaces = false
+
+[tool.setuptools.package-data]
+"salt.chat" = ["instructions.md"]

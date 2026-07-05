@@ -4,10 +4,10 @@
 Records, per chat turn, which SALT-selected sentences were carried over from
 the previous turn's context (KV READ - their cache would be reusable) versus
 freshly selected (KV WRITE - new prefill), plus the generated reply (OUTPUT).
-The per-turn totals use Langfuse's native usage-details key semantics
+The per-turn totals use the additive cached-token usage-key convention
 (`input` = write, `input_cached_tokens` = read, `output`, `total`;
-every `input_*` key is an additive component of input), so a downstream
-emitter can map one event line onto one `generation-create` observation.
+every `input_*` key is an additive component of input), so an external
+emitter can map one event line onto one usage record.
 
 Layout, alongside the session's state.pkl / embeddings.npy / attachments/:
 

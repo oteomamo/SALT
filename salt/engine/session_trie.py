@@ -71,6 +71,23 @@ def file_token(source):
     return FILE_TOKEN_PREFIX + source
 
 
+def _chunk_by_tokens(sent, tokenizer, max_tokens=400, _depth=0):
+    """Word-boundary bisection for over-long pre-split sentences (BGE
+    truncates past ~512 tokens, so an over-budget unit would lose its tail).
+    Bisects recursively because token density is uneven — a proportional
+    word split cannot guarantee the cap when some words tokenize heavily."""
+    try:
+        n = len(tokenizer.encode(sent, add_special_tokens=False))
+    except Exception:
+        n = len(sent) // 4
+    words = sent.split()
+    if n <= max_tokens or len(words) < 2 or _depth >= 8:
+        return [sent]
+    mid = len(words) // 2
+    return (_chunk_by_tokens(" ".join(words[:mid]), tokenizer, max_tokens, _depth + 1)
+            + _chunk_by_tokens(" ".join(words[mid:]), tokenizer, max_tokens, _depth + 1))
+
+
 class SessionTrie:
     """Persistent, growing per-conversation trie for multi-turn compression."""
 
@@ -138,7 +155,7 @@ class SessionTrie:
         return hashlib.sha1(" ".join(text.lower().split()).encode("utf-8")).hexdigest()
 
     def add_turn(self, text, role="user", *, tokenizer, model, device="cpu",
-                 source=None):
+                 source=None, sentences=None):
         """Split/filter/encode NEW text and append it to the growing corpus.
 
         Runs the dense-attention keyword pass and the BGE [CLS] embedding pass on
@@ -147,17 +164,29 @@ class SessionTrie:
         text is ingested identically). `source` (e.g. an attached file's name)
         groups the sentences into their own trie branch at compress time —
         see FILE_TOKEN_PREFIX; None means the main conversation trie.
+
+        `sentences`, when given, is an already-segmented unit list (e.g. from
+        `salt.chat.pdfio.split_document_sentences`) used INSTEAD of the
+        built-in clean+split pass; the junk filter, cross-turn dedupe and the
+        per-unit token cap still apply.
         """
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
         text = (text or "").strip()
-        if not text:
+        if sentences is None and not text:
             return {"added": 0, "filtered": 0, "n_total": self.n_sentences,
                     "turn": self._next_turn_index}
 
-        cleaned = clean_text_for_embedding(text)
-        raw = embed_split_sentences(cleaned, max_tokens=400, tokenizer=tokenizer)
-        all_texts = [s for s, _, _ in raw]
+        if sentences is not None:
+            all_texts = []
+            for s in sentences:
+                s = " ".join((s or "").split())
+                if s:
+                    all_texts.extend(_chunk_by_tokens(s, tokenizer))
+        else:
+            cleaned = clean_text_for_embedding(text)
+            raw = embed_split_sentences(cleaned, max_tokens=400, tokenizer=tokenizer)
+            all_texts = [s for s, _, _ in raw]
         sentences, *_ = filter_texts(all_texts, aggressive=True,
                                      remove_urls=True, deduplicate=True)
         # cross-turn dedupe: drop sentences already present in the corpus
