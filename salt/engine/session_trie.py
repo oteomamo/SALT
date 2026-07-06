@@ -66,6 +66,12 @@ DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 # cannot appear in tokenized text keywords, so collisions are impossible.
 FILE_TOKEN_PREFIX = "§file:"
 
+# Coverage-decay floor: entries whose decayed count falls below this are
+# dropped from the persisted dict entirely. Content is never deleted — only
+# a node's residual suppression — and the floor is what keeps the coverage
+# dict bounded over long sessions instead of growing forever.
+COVERAGE_DECAY_FLOOR = 0.05
+
 
 def file_token(source):
     return FILE_TOKEN_PREFIX + source
@@ -260,18 +266,51 @@ class SessionTrie:
                 for i in range(self.n_sentences)]
 
     def compress(self, query="", budget_pct=None, *, tokenizer, model,
-                 device="cpu", delimiter=" "):
+                 device="cpu", delimiter=" ",
+                 coverage_half_life=None, coverage_decay_docs=False):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
         Returns {context, stats, selected_sent_idx, n_total_sentences, n_turns}.
         When `query` is empty, selection is document-coverage only (no query
         nodes). Coverage from this turn is merged into the persisted state.
+
+        `coverage_half_life` (in compress calls, i.e. chat turns) enables
+        Ebbinghaus-style forgetting of the persisted coverage before it seeds
+        selection: a theme's accumulated suppression halves every
+        `coverage_half_life` turns it goes unselected, so topics the
+        conversation left behind resurface gradually instead of staying
+        discounted forever. Entries decayed below COVERAGE_DECAY_FLOOR are
+        dropped, which also bounds the dict. Attachment branches (§file:)
+        are exempt unless `coverage_decay_docs` is set — decaying them makes
+        selection oscillate back to a document's head themes instead of
+        progressively covering the file. Default None keeps the original
+        accumulate-forever behavior exactly.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_sentences == 0:
             return {"context": "", "stats": {}, "selected_sent_idx": [],
                     "n_total_sentences": 0, "n_turns": self.n_turns}
+
+        # Decay BEFORE seeding; compress() runs once per chat turn, so one
+        # multiplicative step per call is per-turn decay (no last-touched
+        # bookkeeping). The decayed dict stays LOCAL until the commit after
+        # selection: the REPL survives a mid-compress Ctrl-C/error and would
+        # otherwise persist an extra decay step for a turn that never
+        # selected anything.
+        seed = self.coverage
+        if coverage_half_life and coverage_half_life > 0 and seed:
+            factor = 0.5 ** (1.0 / coverage_half_life)
+            kept = {}
+            for k, v in seed.items():
+                if not coverage_decay_docs and any(
+                        t.startswith(FILE_TOKEN_PREFIX) for t in k):
+                    kept[k] = v                   # doc branches exempt
+                    continue
+                v *= factor
+                if v >= COVERAGE_DECAY_FLOOR:
+                    kept[k] = v
+            seed = kept
 
         sent_data = self._sent_data()
         kw_df, theme_keywords = profile_themes(
@@ -310,10 +349,13 @@ class SessionTrie:
             sent_data, dict(kw_df), theme_keywords, word_budget,
             query_keywords=q_kws, query_embedding=q_emb, query_proper_nouns=q_pns,
             lam=self.config["lam"], query_mass_ratio=self.config["query_mass_ratio"],
-            seed_coverage=self.coverage, return_coverage=True)
+            seed_coverage=seed, return_coverage=True)
 
         self.coverage = cov["coverage"]
         self.save()
+
+        stats["coverage_keys"] = len(self.coverage)
+        stats["coverage_half_life"] = coverage_half_life
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)

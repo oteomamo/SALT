@@ -21,6 +21,7 @@ among registered models without touching the session).
 
 import argparse
 import gc
+import math
 import re
 import shutil
 import sys
@@ -105,6 +106,11 @@ class ChatState:
         self.runner = runner
         self.trie = trie
         self.budget = args.budget_pct
+        # coverage-decay knobs live here and travel as per-call kwargs to
+        # compress(): SessionTrie.load() overwrites config values from the
+        # persisted config.json, so trie config can't carry launch flags
+        self.coverage_half_life = args.coverage_half_life
+        self.coverage_decay_docs = args.coverage_decay_docs
         # tail policy: grow append-only to tail_max exchanges, then compact
         # to tail_min in ONE stroke. A rolling window (deque) would drop the
         # oldest exchange every turn and break the prompt prefix each time;
@@ -491,6 +497,16 @@ def handle_command(line, state):
                   f"{s.get('theme_coverage_pct', 0):.1%}, "
                   f"{trie_info.get('n_nodes', '?')} nodes / "
                   f"{trie_info.get('n_branches', '?')} branches")
+        # reported from ChatState, not last_stats: the setting is visible
+        # even before the first compress of a session
+        if state.coverage_half_life:
+            keys = s.get("coverage_keys")
+            print(f"coverage decay: half-life "
+                  f"{state.coverage_half_life:g} turns"
+                  + (", attached files included" if state.coverage_decay_docs
+                     else "")
+                  + (f", {keys} theme keys tracked" if keys is not None
+                     else ""))
         kv = state.kvtrace
         if kv.last_event:
             u, tot = kv.last_event["usage"], kv.totals
@@ -540,7 +556,9 @@ def chat_turn(state, line):
         comp = state.trie.compress(query=line, budget_pct=state.budget,
                                    tokenizer=state.bge_tok,
                                    model=state.bge_model,
-                                   device=state.bge_device)
+                                   device=state.bge_device,
+                                   coverage_half_life=state.coverage_half_life,
+                                   coverage_decay_docs=state.coverage_decay_docs)
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx)
@@ -681,6 +699,16 @@ def build_parser():
                    help="exchanges kept verbatim after tail compaction (the "
                         "window grows append-only to 2x this, then compacts "
                         "back in one stroke)")
+    p.add_argument("--coverage-half-life", type=float, default=None,
+                   metavar="TURNS",
+                   help="halve each theme's cross-turn suppression every "
+                        "this-many turns of silence, so topics the "
+                        "conversation returns to can resurface (default: "
+                        "off - coverage accumulates for the whole session)")
+    p.add_argument("--coverage-decay-docs", action="store_true",
+                   help="apply --coverage-half-life to attached-file "
+                        "branches too (default: files are exempt, so "
+                        "selection keeps advancing through a document)")
     return p
 
 
@@ -713,6 +741,14 @@ def main(argv=None):
               file=sys.stderr)
         return 1
     args.budget_pct = budget
+    # isfinite: argparse's type=float happily parses "nan" and "inf"; nan
+    # even passes a <= 0 check and would then show up as enabled in /stats
+    if args.coverage_half_life is not None and not (
+            math.isfinite(args.coverage_half_life)
+            and args.coverage_half_life > 0):
+        print("--coverage-half-life must be a positive, finite number of "
+              "turns.", file=sys.stderr)
+        return 1
 
     models = list_models()
     if args.model:

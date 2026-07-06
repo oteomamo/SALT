@@ -87,6 +87,7 @@ so it is the fastest way to find where a change belongs:
 │ │ lives in DRAM      │  │ append-only tail   │  │ vLLM + APC (later) │   │
 │ │ grows every turn   │  │ memory + question  │  │ model registry     │   │
 │ │ cross-turn coverage│  │ instructions.md    │  │ GPU-pinned models  │   │
+│ │ + half-life decay  │  │                    │  │                    │   │
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
@@ -353,6 +354,15 @@ Today each turn still prefills the whole prompt — this layout is what lets
 a prefix-caching runner (vLLM APC) later reuse the stable prefix and pay
 only for the fresh suffix, exactly the read/write split the kvtrace ledger
 already measures.
+
+Cross-turn memory also has a **forgetting** knob. By default a theme that
+has been surfaced stays discounted for the whole session, so the memory
+block keeps favoring new material — even when the conversation circles back.
+`--coverage-half-life 8` makes that suppression fade instead, halving every
+8 turns a theme goes unmentioned, so a topic you return to after a long
+detour resurfaces gradually rather than staying buried. Attached files are
+exempt (selection keeps advancing through a document) unless
+`--coverage-decay-docs` is set; `/stats` reports the decay state.
 
 ## 🔬 Results
 
