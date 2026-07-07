@@ -1,8 +1,11 @@
 # Results / Experiments
 
 Two experiment runners that reproduce the SALT efficiency + accuracy studies.
-Both build on the tracked engine (`salt.engine.compressor` + `trie_select`) and
-write a per-turn/per-sample JSONL plus a `*_summary.tsv` next to it.
+Both build on the tracked engine (`salt.engine.compressor` + the legacy
+`trie_select` selector; the mainline default is the coverage/CELF selector —
+these runners keep `trie_select` so their numbers stay comparable with the
+original studies) and write a per-turn/per-sample JSONL plus a
+`*_summary.tsv` next to it.
 
 Prepare the datasets first (see [`../datasets/README.md`](../datasets/README.md)):
 

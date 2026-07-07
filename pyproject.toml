@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "salt"
-version = "0.1.0"
+version = "2.4.0"
 description = "SALT: Salience-Aware Lexical Trie for Long-Context Compression"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,11 +17,10 @@ dependencies = [
     "huggingface_hub",
     "pypdf>=4.0",
     "datasets==3.6.0",
-    "click",
+    "requests>=2.31",
     "rouge>=1.0",
     "fuzzywuzzy>=0.18",
     "python-Levenshtein>=0.25",
-    "jieba>=0.42",
 ]
 
 [project.scripts]

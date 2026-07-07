@@ -21,9 +21,9 @@ The LongBench download needs `huggingface_hub` (`pip install huggingface_hub`); 
 `download_niah.py` needs `datasets` + `transformers` and packs prompts to exact token lengths for the
 given `--tokenizer` — match it to your eval LLM.
 
-## Canonical schema
+## Canonical schema (LongBench)
 
-One JSON object per line — every SALT tool reads exactly these fields:
+One JSON object per line — this is the shape `salt` and `eval.py` consume:
 
 | field | type | notes |
 |---|---|---|
@@ -35,4 +35,24 @@ One JSON object per line — every SALT tool reads exactly these fields:
 | `dataset` | str | task name, e.g. `gov_report` |
 | `language` | str | `en` |
 | `all_classes` | list \| null | label set for classification (`trec`), else null |
+
+## QuALITY / LooGLE records
+
+`download_quality.py` writes one JSON object per **document**
+(`quality/quality_subset_<N>.json`), read only by
+`results/quality_multiturn.py`: `article_id`, `title`, `article` (the full
+document), `source_dataset` (`quality` \| `loogle_longdep_qa`), `format`
+(`mcq` \| `freeform`), `word_count`, and `questions` — a list of
+`{question_unique_id, question, options, gold_label, answer, difficult,
+writer_id, writer_label, validation}`. LooGLE questions carry a free-form
+`answer` string instead of `options`/`gold_label`.
+
+## NIAH records
+
+`download_niah.py` writes one JSON object per sample
+(`niah/longctx_<len>_<n>.jsonl`), read only by `results/niah_ttft.py`:
+`target_length`, `sample_id`, `prompt` (PG-19 filler packed to exactly
+`target_length` tokens), `token_count_built`, `token_count_retokenized`,
+`tokenizer`, and — unless built with `--no-needle` — `needle_city`,
+`needle_number`, `needle_depth`.
 

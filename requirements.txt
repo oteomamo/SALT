@@ -6,8 +6,7 @@ tiktoken==0.12.0
 huggingface_hub
 pypdf==6.14.2
 datasets==3.6.0
-click
+requests==2.34.2
 rouge==1.0.1
 fuzzywuzzy==0.18.0
 python-Levenshtein==0.27.3
-jieba==0.42.1

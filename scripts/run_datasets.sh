@@ -21,7 +21,7 @@ cd "$REPO_ROOT"
 
 SELECTOR="${SELECTOR:-coverage}"          # coverage (CELF, default) | legacy
 DATA_DIR="${DATA_DIR:-$REPO_ROOT/salt/datasets/longbench/data}"
-OUT_DIR="${OUT_DIR:-$REPO_ROOT/runs/run_${SELECTOR}_$(date +%Y%m%d_%H%M%S)}"
+OUT_DIR="${OUT_DIR:-$REPO_ROOT/runs/run_$(date +%Y%m%d_%H%M%S)}"
 BUDGET="${BUDGET:-0.20}"
 GPU="${GPU:-0}"                          # default GPU 0; set GPU=1 if 0 drives your display
 MAX_SAMPLES="${MAX_SAMPLES:-}"            # empty = full dataset

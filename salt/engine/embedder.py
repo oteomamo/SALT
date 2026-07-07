@@ -4,6 +4,9 @@ Sentence splitter for SALT.
 split_sentences() breaks document text into sentences with character offsets,
 protecting known abbreviations ("U.S.", "Gen.", "H.R.") from false splits and
 keeping over-long sentences within a token budget.
+
+Despite the module name, nothing here embeds — the BGE encoder lives in
+trie_core.py; this module only splits.
 """
 
 import re
