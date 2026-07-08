@@ -59,5 +59,5 @@ create avoidable provenance friction for downstream users.
 
 ## License
 
-The project license is being finalized (see the README). By contributing, you
-agree your work will be released under that license.
+SALT is released under the [MIT License](LICENSE). By contributing, you agree
+that your contributions will be licensed under the same terms.

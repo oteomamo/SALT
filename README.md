@@ -364,6 +364,18 @@ detour resurfaces gradually rather than staying buried. Attached files are
 exempt (selection keeps advancing through a document) unless
 `--coverage-decay-docs` is set; `/stats` reports the decay state.
 
+And a **pivot** knob. Every query turn, the question's similarity to the
+recent conversation is measured against the session's own running baseline
+(`/stats` shows the reading, so the margin can be tuned before trusting
+it). With `--shift-damping 0.25`, a turn that drops `--shift-margin` below
+that baseline — a topic shift — hands the selector a seed whose **stale**
+suppression (themes untouched for a few turns) is scaled down for that
+turn only, and the query channels get a `--shift-query-boost` bump: a
+pivot back to a long-quiet topic stops being fought by the discount it
+accumulated, while the topic being left stays suppressed. Nothing is
+forgotten — the persisted counts are rebuilt from genuine increments, so
+the damping never reaches disk.
+
 ## 🔬 Results
 
 SALT (coverage/CELF selector) on LongBench with Llama-3.1-8B-Instruct at a 20%
@@ -413,4 +425,4 @@ PRs welcome - see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 📄 License
 
-To be announced.
+SALT is released under the [MIT License](LICENSE).
