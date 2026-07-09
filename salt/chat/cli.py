@@ -106,11 +106,15 @@ class ChatState:
         self.runner = runner
         self.trie = trie
         self.budget = args.budget_pct
-        # coverage-decay knobs live here and travel as per-call kwargs to
-        # compress(): SessionTrie.load() overwrites config values from the
-        # persisted config.json, so trie config can't carry launch flags
+        # coverage-decay + shift-damping knobs live here and travel as
+        # per-call kwargs to compress(): SessionTrie.load() overwrites config
+        # values from the persisted config.json, so trie config can't carry
+        # launch flags
         self.coverage_half_life = args.coverage_half_life
         self.coverage_decay_docs = args.coverage_decay_docs
+        self.shift_damping = args.shift_damping
+        self.shift_margin = args.shift_margin
+        self.shift_query_boost = args.shift_query_boost
         # tail policy: grow append-only to tail_max exchanges, then compact
         # to tail_min in ONE stroke. A rolling window (deque) would drop the
         # oldest exchange every turn and break the prompt prefix each time;
@@ -507,6 +511,24 @@ def handle_command(line, state):
                      else "")
                   + (f", {keys} theme keys tracked" if keys is not None
                      else ""))
+        if state.shift_damping:
+            print(f"shift damping: x{state.shift_damping:g} stale-seed "
+                  f"scale on shift turns, query boost "
+                  f"x{state.shift_query_boost:g}")
+        if s.get("drift_cos") is not None:
+            base = s.get("drift_ema")
+            base_str = (f"{base:.3f}" if base is not None
+                        else "n/a (first measure)")
+            mark = ""
+            if s.get("topic_shift"):
+                mark = " - TOPIC SHIFT"
+                if s.get("shift_damped"):
+                    mark += (f" ({s.get('shift_damped_keys', 0)} stale keys "
+                             f"damped)")
+            # margin always shown: detection runs even with damping off,
+            # precisely so the margin can be tuned before trusting it
+            print(f"topic drift: cos {s['drift_cos']:.3f} vs ema {base_str} "
+                  f"(margin {state.shift_margin:g}){mark}")
         kv = state.kvtrace
         if kv.last_event:
             u, tot = kv.last_event["usage"], kv.totals
@@ -551,17 +573,24 @@ def chat_turn(state, line):
     ts_start = datetime.now().isoformat(timespec="seconds")
     # trie holds turns 1..N-1 here (this message is added after generation):
     # the verbatim tail covers recent turns, the trie covers older ones
-    memory_block, selected_idx = "", []
+    memory_block, selected_idx, drift_extra = "", [], None
     if state.trie.n_sentences > 0:
         comp = state.trie.compress(query=line, budget_pct=state.budget,
                                    tokenizer=state.bge_tok,
                                    model=state.bge_model,
                                    device=state.bge_device,
                                    coverage_half_life=state.coverage_half_life,
-                                   coverage_decay_docs=state.coverage_decay_docs)
+                                   coverage_decay_docs=state.coverage_decay_docs,
+                                   shift_damping=state.shift_damping,
+                                   shift_margin=state.shift_margin,
+                                   shift_query_boost=state.shift_query_boost)
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx)
+        # additive ledger fields; only on turns where detection actually ran
+        if comp["stats"].get("drift_cos") is not None:
+            drift_extra = {"drift_cos": comp["stats"]["drift_cos"],
+                           "topic_shift": bool(comp["stats"].get("topic_shift"))}
 
     inventory = attachment_inventory(state.trie, state.full_attachments)
     instructions = (load_instructions()
@@ -590,7 +619,8 @@ def chat_turn(state, line):
             selected_idx=selected_idx, reply_text=reply,
             model_id=state.runner.cfg["hf_id"], ts_start=ts_start,
             ts_end=datetime.now().isoformat(timespec="seconds"),
-            prompt_tokens=getattr(state.runner, "last_prompt_tokens", None))
+            prompt_tokens=getattr(state.runner, "last_prompt_tokens", None),
+            extra=drift_extra)
     except Exception as exc:
         print(f"[kvtrace] recording failed for this turn: {exc}")
     add_to_trie(state, line, "user")
@@ -709,6 +739,24 @@ def build_parser():
                    help="apply --coverage-half-life to attached-file "
                         "branches too (default: files are exempt, so "
                         "selection keeps advancing through a document)")
+    p.add_argument("--shift-damping", type=float, default=None,
+                   metavar="SCALE",
+                   help="on a detected topic shift, scale the STALE part of "
+                        "the cross-turn coverage seed by this factor for "
+                        "that turn only (e.g. 0.25) and boost the query "
+                        "channels, so a pivot back to a long-quiet topic is "
+                        "not fought by its accumulated suppression while "
+                        "the topic being left stays suppressed (default: "
+                        "off; drift detection still runs and /stats "
+                        "reports it)")
+    p.add_argument("--shift-margin", type=float, default=0.12, metavar="COS",
+                   help="cosine drop below the session's own drift baseline "
+                        "(EMA) that counts as a topic shift (default: 0.12)")
+    p.add_argument("--shift-query-boost", type=float, default=1.5,
+                   metavar="X",
+                   help="multiplier (>= 1) on the query-mass ratio during a "
+                        "shift turn while --shift-damping is active "
+                        "(default: 1.5)")
     return p
 
 
@@ -748,6 +796,23 @@ def main(argv=None):
             and args.coverage_half_life > 0):
         print("--coverage-half-life must be a positive, finite number of "
               "turns.", file=sys.stderr)
+        return 1
+    # strictly inside (0, 1): 1.0 means "no damping" (use no flag instead)
+    # and 0.0 is a falsy total-amnesia trap the enable-check would skip
+    if args.shift_damping is not None and not (
+            math.isfinite(args.shift_damping)
+            and 0 < args.shift_damping < 1):
+        print("--shift-damping must be a scale strictly between 0 and 1 "
+              "(e.g. 0.25).", file=sys.stderr)
+        return 1
+    if not (math.isfinite(args.shift_margin) and args.shift_margin >= 0):
+        print("--shift-margin must be a non-negative, finite cosine drop.",
+              file=sys.stderr)
+        return 1
+    if not (math.isfinite(args.shift_query_boost)
+            and args.shift_query_boost >= 1):
+        print("--shift-query-boost must be a finite multiplier >= 1 "
+              "(1 leaves the query mass unchanged).", file=sys.stderr)
         return 1
 
     models = list_models()

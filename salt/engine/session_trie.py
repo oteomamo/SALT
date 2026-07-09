@@ -72,6 +72,38 @@ FILE_TOKEN_PREFIX = "§file:"
 # dict bounded over long sessions instead of growing forever.
 COVERAGE_DECAY_FLOOR = 0.05
 
+# Topic-shift drift detection. Each query's BGE cosine against the mean of
+# the last DRIFT_WINDOW conversation-sentence embeddings is compared to the
+# session's own EMA baseline — BGE cosines have a high, corpus-shaped floor,
+# so an absolute threshold would be fragile across models and domains.
+# Detection runs whenever the turn has a query and the conversation holds at
+# least DRIFT_MIN_SENTENCES sentences (below that the baseline is noise);
+# it only ACTS (seed damping + query boost) behind `shift_damping`.
+DRIFT_WINDOW = 12
+DRIFT_MIN_SENTENCES = 6
+DRIFT_EMA_ALPHA = 0.3
+
+# On a shift turn only STALE suppression is damped: coverage keys that were
+# incremented within the last SHIFT_FRESH_WINDOW compress calls keep their
+# full counts. Scaling the whole seed uniformly was measured to hand the
+# freed budget straight back to the topic being pivoted AWAY from — its
+# suppression is the largest and freshest, so lifting it too cancels the
+# very discount that was keeping it out. Freshness, not source, is the
+# discriminator: a stale attachment branch is damped like a stale
+# conversation theme, so a pivot back to a document also resurfaces it.
+#
+# Known granularity limits of the freshness proxy (accepted for now):
+# staleness is per trie NODE, not per topic — a long single-topic phase
+# leaves its own early, already-covered nodes stale, so the pivot-away turn
+# also briefly relaxes them; and the damped turn's own selections re-stamp
+# the returned topic fresh, so the trie-side relief lasts one turn per
+# return (a sustained return rides the query channels and the tail until
+# its keys go stale again). With coverage decay (A) also active, decayed
+# conversation keys shrink toward the floor while doc branches stay exempt,
+# so most remaining stale MASS sits in attachments — damping then mostly
+# re-opens documents on pivot turns.
+SHIFT_FRESH_WINDOW = 3
+
 
 def file_token(source):
     return FILE_TOKEN_PREFIX + source
@@ -119,6 +151,9 @@ class SessionTrie:
         # --- cross-turn state ---
         self.coverage = {}              # dict[frozenset[str], float]  accumulated per-node coverage
         self._seen_hashes = set()       # cross-turn sentence dedupe
+        self.drift_ema = None           # EMA of query-vs-recent-conversation cosine
+        self.coverage_turn = {}         # dict[key -> compress call of last increment]
+        self._n_compress = 0            # completed compress() calls (freshness clock)
 
         # --- counters / config ---
         self.dim = None
@@ -267,7 +302,9 @@ class SessionTrie:
 
     def compress(self, query="", budget_pct=None, *, tokenizer, model,
                  device="cpu", delimiter=" ",
-                 coverage_half_life=None, coverage_decay_docs=False):
+                 coverage_half_life=None, coverage_decay_docs=False,
+                 shift_damping=None, shift_margin=0.12,
+                 shift_query_boost=1.5):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -286,6 +323,22 @@ class SessionTrie:
         selection oscillate back to a document's head themes instead of
         progressively covering the file. Default None keeps the original
         accumulate-forever behavior exactly.
+
+        Topic-shift damping (`shift_damping`): drift detection always runs
+        on query turns (surfaced in stats as drift_cos/drift_ema/topic_shift
+        so the margin can be tuned before trusting it); when a shift is
+        detected AND `shift_damping` is set, the STALE part of the coverage
+        seed handed to CELF is scaled by that factor FOR THIS TURN ONLY —
+        keys incremented within the last SHIFT_FRESH_WINDOW compress calls
+        keep their counts, so the topic being pivoted away from stays
+        suppressed while a long-quiet topic's discount is lifted — and the
+        query-mass ratio is multiplied by `shift_query_boost`. The persisted
+        coverage is then reconstructed increments-only: the scaled seed
+        never reaches disk. Relief is per shift turn: the damped turn's own
+        selections re-stamp the returned topic fresh, so its second turn is
+        carried by the query channels and the verbatim tail, not by a
+        lifted discount. Default None keeps selection and persisted
+        coverage bit-identical to the flag-off behavior.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_sentences == 0:
@@ -345,17 +398,97 @@ class SessionTrie:
             q_pns = extract_proper_nouns_in_query(query)
             q_emb = embed_query(query, tokenizer, model, device)
 
+        # Topic-shift detection: query cosine vs the mean of recent
+        # conversation embeddings (attachments excluded — a stable document
+        # must not anchor the "what we were just talking about" baseline),
+        # compared against the session's own EMA. Like the decay above, the
+        # EMA update is computed here but committed only after selection, so
+        # an interrupted turn perturbs neither coverage nor the baseline.
+        drift_cos, drift_baseline, shifted = None, self.drift_ema, False
+        if q_emb is not None:
+            conv_idx = [i for i in range(self.n_sentences)
+                        if self.sources[i] is None]
+            if len(conv_idx) >= DRIFT_MIN_SENTENCES:
+                recent = self.embeddings[conv_idx[-DRIFT_WINDOW:]]
+                drift_cos = float(np.dot(recent.mean(axis=0), q_emb))
+                if drift_baseline is not None:
+                    shifted = drift_cos < drift_baseline - shift_margin
+
+        # On a shift turn (and only behind the opt-in), hand CELF a seed
+        # with STALE suppression scaled down and boost the query channels,
+        # for this turn only: a pivot back to an old topic must not find
+        # precisely that topic the most-discounted content in the trie.
+        # Fresh keys (incremented within SHIFT_FRESH_WINDOW compress calls)
+        # keep their counts — the topic being pivoted away from must stay
+        # suppressed, or it wins the freed budget right back.
+        seed_passed = seed
+        query_mass_ratio = self.config["query_mass_ratio"]
+        damped = bool(shifted and shift_damping)
+        n_damped_keys = 0
+        if damped:
+            fresh_after = self._n_compress - SHIFT_FRESH_WINDOW
+            seed_passed = {}
+            for k, v in seed.items():
+                # A missing stamp reads STALE: only pre-feature resumes lack
+                # stamps (every key this code persists was stamped when it
+                # was incremented), and coverage of unknown age must damp.
+                # A numeric default would classify those keys fresh exactly
+                # while fresh_after < 0 — the first shifts after a resume.
+                stamp = self.coverage_turn.get(k)
+                if stamp is not None and stamp >= fresh_after:
+                    seed_passed[k] = v
+                else:
+                    seed_passed[k] = v * shift_damping
+                    n_damped_keys += 1
+            query_mass_ratio *= shift_query_boost
+
         selected, stats, cov = coverage_select(
             sent_data, dict(kw_df), theme_keywords, word_budget,
             query_keywords=q_kws, query_embedding=q_emb, query_proper_nouns=q_pns,
-            lam=self.config["lam"], query_mass_ratio=self.config["query_mass_ratio"],
-            seed_coverage=seed, return_coverage=True)
+            lam=self.config["lam"], query_mass_ratio=query_mass_ratio,
+            seed_coverage=seed_passed, return_coverage=True)
 
-        self.coverage = cov["coverage"]
+        if damped:
+            # Increments-only merge — the one real trap of seed scaling:
+            # CELF's returned coverage is seed-AS-PASSED + this turn's
+            # increments, so persisting it wholesale here would persist the
+            # scaled counts too — a permanent forgetting event on every
+            # shift turn. Rebuild from the unscaled base instead; untouched
+            # keys subtract to exactly 0.0 (the dict is copied, never
+            # re-derived), so the guard only filters float noise.
+            merged = dict(seed)
+            for k, v in cov["coverage"].items():
+                d = v - seed_passed.get(k, 0.0)
+                if d > 1e-12:
+                    merged[k] = merged.get(k, 0.0) + d
+            self.coverage = merged
+        else:
+            self.coverage = cov["coverage"]
+        # Freshness clock for stale-only damping: stamp every key CELF
+        # actually incremented this call (returned vs seed-as-passed is the
+        # true in/out diff on both paths), then drop stamps for keys the
+        # decay floor garbage-collected so the dict stays bounded with the
+        # coverage itself.
+        for k, v in cov["coverage"].items():
+            if v > seed_passed.get(k, 0.0) + 1e-12:
+                self.coverage_turn[k] = self._n_compress
+        if len(self.coverage_turn) > len(self.coverage):
+            self.coverage_turn = {k: t for k, t in self.coverage_turn.items()
+                                  if k in self.coverage}
+        self._n_compress += 1
+        if drift_cos is not None:
+            self.drift_ema = (drift_cos if drift_baseline is None
+                              else DRIFT_EMA_ALPHA * drift_cos
+                              + (1.0 - DRIFT_EMA_ALPHA) * drift_baseline)
         self.save()
 
         stats["coverage_keys"] = len(self.coverage)
         stats["coverage_half_life"] = coverage_half_life
+        stats["drift_cos"] = drift_cos
+        stats["drift_ema"] = drift_baseline
+        stats["topic_shift"] = shifted
+        stats["shift_damped"] = damped
+        stats["shift_damped_keys"] = n_damped_keys
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
@@ -387,6 +520,9 @@ class SessionTrie:
             "sources": self.sources,
             "n_words": self.n_words, "keyword_weights": self.keyword_weights,
             "coverage": self.coverage, "seen_hashes": self._seen_hashes,
+            "drift_ema": self.drift_ema,
+            "coverage_turn": self.coverage_turn,
+            "n_compress": self._n_compress,
             "next_sentence_index": self._next_sentence_index,
             "next_turn_index": self._next_turn_index,
         }
@@ -412,6 +548,12 @@ class SessionTrie:
         self.sources = state.get("sources", [None] * len(self.texts))
         self.keyword_weights = state["keyword_weights"]
         self.coverage = state["coverage"]; self._seen_hashes = state["seen_hashes"]
+        # sessions saved before topic-shift detection have no drift baseline
+        # and no freshness clock (every key then counts as stale, which is
+        # the right reading for coverage of unknown age)
+        self.drift_ema = state.get("drift_ema")
+        self.coverage_turn = state.get("coverage_turn", {})
+        self._n_compress = state.get("n_compress", 0)
         self._next_sentence_index = state["next_sentence_index"]
         self._next_turn_index = state["next_turn_index"]
         self.dim = cfg.get("dim")
