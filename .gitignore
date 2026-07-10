@@ -22,6 +22,9 @@ salt/files/*
 salt/chat/sessions/
 salt/engine/session_cache/
 salt/datasets/longbench/data/
+salt/datasets/quality/
+salt/datasets/loogle/
+salt/datasets/niah/
 *.png
 *.pdf
 !salt/assets/banner.png
