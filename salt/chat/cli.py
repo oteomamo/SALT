@@ -392,11 +392,11 @@ def handle_attach_at(state, line):
 
 def warn_attachment_budget(state):
     """Warn when the full attachments plus the fixed system-prompt overhead
-    (instructions + inventory) exceed the active model's input window (the
+    (instructions + inventory) exceed the active model's context window (the
     runner tail-truncates, silently dropping the head)."""
     if state.runner is None or not state.full_attachments:
         return
-    limit = int(state.runner.cfg.get("max_input_len") or 0)
+    limit = int(state.runner.input_budget() or 0)
     if not limit:
         return
     total = sum(state.count_tokens(t) or 0
@@ -407,10 +407,10 @@ def warn_attachment_budget(state):
     if total > limit:
         print(f"warning: full-context attachments (+ the system prompt's "
               f"instruction/inventory overhead) total ~{total} tokens, over "
-              f"the model's max_input_len ({limit}) - prompts will be "
-              f"tail-truncated and the earliest content silently dropped. "
-              f"Raise max_input_len in salt/models/{state.runner.alias}/"
-              f"config.json, or prefer salt@ for large files.")
+              f"the model's usable input ceiling ({limit} = context window "
+              f"minus reply headroom) - prompts will be tail-truncated and "
+              f"the earliest content dropped. Prefer salt@ for large files, "
+              f"or switch to a longer-context model.")
 
 
 def switch_model(state, name):

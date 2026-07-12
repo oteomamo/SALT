@@ -6,7 +6,9 @@ kept resident. ``stream_chat`` yields decoded text pieces as they are
 generated (``TextIteratorStreamer`` fed by a background generate thread, the
 same pattern as C2C's demo). ``unload`` frees the GPU so a ``/model`` switch
 never holds two models at once. A vLLM runner can slot in later as a sibling
-class behind the same load / stream_chat / unload surface.
+class behind the same surface: load / stream_chat / unload plus the
+``max_input_len``, ``input_budget()``, ``last_prompt_tokens``, ``tokenizer``,
+``alias``, and ``cfg`` members the REPL reads.
 """
 
 import gc
@@ -19,6 +21,26 @@ from transformers import (AutoModelForCausalLM, AutoTokenizer,
 
 DTYPES = {"bfloat16": torch.bfloat16, "float16": torch.float16,
           "float32": torch.float32}
+
+
+def _model_input_limit(config, tokenizer):
+    """The model's own context window, read from its config; the tokenizer
+    limit is the fallback (it over-claims on some models, so config wins).
+    Returns None when neither source knows one (no truncation then). This is
+    deliberately NOT a per-machine knob: the only input ceiling saltChat
+    honors is the published model length."""
+    candidates = [getattr(config, attr, None)
+                  for attr in ("max_position_embeddings", "n_positions",
+                               "seq_length", "max_seq_len",
+                               "max_sequence_length")]
+    candidates.append(getattr(tokenizer, "model_max_length", None))
+    for v in candidates:
+        # accept float-written ints from hand-edited configs; reject bool
+        # (an int in Python) and HF's huge "unset" sentinel
+        if (isinstance(v, (int, float)) and not isinstance(v, bool)
+                and 0 < v < 10 ** 9):
+            return int(v)
+    return None
 
 
 class _StopFlag(StoppingCriteria):
@@ -49,6 +71,25 @@ class ChatRunner:
             cfg["path"], torch_dtype=dtype, device_map=device,
             attn_implementation=cfg.get("attn_implementation", "sdpa"))
         self.model.eval()
+        self.max_input_len = _model_input_limit(self.model.config,
+                                                self.tokenizer)
+        if self.max_input_len:
+            print(f"Context window: {self.max_input_len} tokens")
+        if cfg.get("max_input_len"):
+            print("note: this entry's max_input_len is no longer used - "
+                  "the model's own context window is the only ceiling")
+
+    def input_budget(self, max_new_tokens=None):
+        """Effective prompt ceiling: the context window minus reply headroom.
+        Headroom is capped at half the window so a broken gen config can
+        never un-cap the prompt. None when the window is unknown."""
+        if not self.max_input_len:
+            return None
+        if max_new_tokens is None:
+            max_new_tokens = int((self.cfg.get("gen") or {})
+                                 .get("max_new_tokens", 512))
+        return self.max_input_len - min(max_new_tokens,
+                                        self.max_input_len // 2)
 
     def _to_prompt(self, messages):
         """Chat-template the messages; plain-concat fallback for models
@@ -62,22 +103,30 @@ class ChatRunner:
 
     def stream_chat(self, messages, **overrides):
         """Yield decoded text pieces for a chat turn as they are generated."""
-        prompt, used_chat = self._to_prompt(messages)
-        inputs = self.tokenizer(prompt, return_tensors="pt",
-                                add_special_tokens=not used_chat)
-        max_input = int(self.cfg.get("max_input_len") or 0)
-        if max_input > 0 and inputs["input_ids"].shape[-1] > max_input:
-            # keep the tail: the generation prompt and recent turns must
-            # survive; smarter budget-aware trimming is a later seam
-            inputs = {k: v[:, -max_input:] for k, v in inputs.items()}
-        # observed prompt size after truncation, for the KV-trace ledger
-        self.last_prompt_tokens = int(inputs["input_ids"].shape[-1])
-
         gen_cfg = dict(self.cfg.get("gen") or {})
         gen_cfg.update(overrides)
         temperature = float(gen_cfg.get("temperature", 0.7))
         do_sample = bool(gen_cfg.get("do_sample", temperature > 0))
-        gen_kwargs = dict(max_new_tokens=int(gen_cfg.get("max_new_tokens", 512)),
+        max_new_tokens = int(gen_cfg.get("max_new_tokens", 512))
+
+        prompt, used_chat = self._to_prompt(messages)
+        inputs = self.tokenizer(prompt, return_tensors="pt",
+                                add_special_tokens=not used_chat)
+        # the only input ceiling is the model's own context window, minus
+        # headroom for the reply so generation never runs past the window
+        max_input = self.input_budget(max_new_tokens) or 0
+        n_prompt = int(inputs["input_ids"].shape[-1])
+        if max_input > 0 and n_prompt > max_input:
+            # keep the tail: the generation prompt and recent turns must
+            # survive; smarter budget-aware trimming is a later seam
+            inputs = {k: v[:, -max_input:] for k, v in inputs.items()}
+            print(f"\nnote: prompt ({n_prompt} tokens) exceeds the context "
+                  f"window - truncated to the last {max_input} tokens, "
+                  f"earliest content (system prompt first) dropped")
+        # observed prompt size after truncation, for the KV-trace ledger
+        self.last_prompt_tokens = int(inputs["input_ids"].shape[-1])
+
+        gen_kwargs = dict(max_new_tokens=max_new_tokens,
                           do_sample=do_sample,
                           pad_token_id=self.tokenizer.pad_token_id)
         if do_sample:

@@ -29,11 +29,14 @@ saltChat --list
   "alias": "llama-3.1-8b-instruct",
   "hf_id": "meta-llama/Llama-3.1-8B-Instruct",
   "dtype": "bfloat16",
-  "max_input_len": 8192,
   "attn_implementation": "sdpa",
   "gen": {"max_new_tokens": 512, "temperature": 0.7, "do_sample": true, "top_p": 0.9},
   "registered_at": "2026-07-03T12:00:00"
 }
 ```
+
+The input length is not configurable here: `saltChat` reads the model's own
+context window from its config and truncates only past that ceiling (minus
+reply headroom).
 
 Everything in this directory except this README is gitignored.

@@ -53,7 +53,7 @@ def _load_entry(alias):
     return cfg
 
 
-def register_model(hf_id, alias=None, *, dtype="bfloat16", max_input_len=8192,
+def register_model(hf_id, alias=None, *, dtype="bfloat16",
                    attn_implementation="sdpa", max_new_tokens=512,
                    temperature=0.7, force=False):
     """Download ``hf_id`` (into the normal HF cache) and register it.
@@ -106,7 +106,6 @@ def register_model(hf_id, alias=None, *, dtype="bfloat16", max_input_len=8192,
         "alias": alias,
         "hf_id": hf_id,
         "dtype": dtype,
-        "max_input_len": int(max_input_len),
         "attn_implementation": attn_implementation,
         "gen": {"max_new_tokens": int(max_new_tokens),
                 "temperature": float(temperature),
