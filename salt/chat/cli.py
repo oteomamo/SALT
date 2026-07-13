@@ -95,12 +95,22 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /exit              leave (also Ctrl-D)"""
 
 
+def backend_opts(args):
+    """Engine knobs that only the vllm backend understands."""
+    if args.backend != "vllm":
+        return {}
+    return {"gpu_memory_utilization": args.gpu_mem_util,
+            "max_model_len": args.max_model_len}
+
+
 class ChatState:
     """Everything a live session pins: models on GPU, trie in RAM."""
 
     def __init__(self, args, bge_tok, bge_model, runner, trie):
         self.device = args.device
         self.bge_device = args.bge_device or args.device
+        self.backend = args.backend
+        self.backend_opts = backend_opts(args)
         self.bge_tok = bge_tok
         self.bge_model = bge_model
         self.runner = runner
@@ -426,7 +436,9 @@ def switch_model(state, name):
     state.runner.unload()  # free before load: never two LLMs on the GPU
     state.runner = None
     try:
-        state.runner = make_runner(cfg, device=state.device)
+        state.runner = make_runner(cfg, device=state.device,
+                                   backend=state.backend,
+                                   **state.backend_opts)
         warn_attachment_budget(state)  # new model may have a smaller window
     except Exception as exc:
         print(f"Failed to load {cfg['alias']}: {exc}")
@@ -435,7 +447,9 @@ def switch_model(state, name):
             torch.cuda.empty_cache()
         print(f"Reloading previous model {prev_cfg['alias']} ...")
         try:
-            state.runner = make_runner(prev_cfg, device=state.device)
+            state.runner = make_runner(prev_cfg, device=state.device,
+                                       backend=state.backend,
+                                       **state.backend_opts)
         except Exception as exc2:
             print(f"Also failed to reload {prev_cfg['alias']}: {exc2}")
             print("No model loaded - use /model <name> when ready.")
@@ -720,6 +734,20 @@ def build_parser():
                         "separate GPUs.")
     p.add_argument("--bge-device", default=None,
                    help="device for the BGE encoder (default: --device)")
+    p.add_argument("--backend", default="hf", choices=["hf", "vllm"],
+                   help="inference backend for the chat model (default: hf; "
+                        "vllm reuses the stable prompt prefix from the GPU "
+                        "KV cache across turns - needs the optional vLLM "
+                        "install, README step 5)")
+    p.add_argument("--gpu-mem-util", type=float, default=0.85,
+                   help="fraction of GPU memory the vLLM engine may manage "
+                        "(vllm backend only; default: 0.85, leaving room "
+                        "for the BGE encoder on the same GPU)")
+    p.add_argument("--max-model-len", type=int, default=0, metavar="N",
+                   help="cap the vllm backend's context window to N tokens "
+                        "(default: 0 = the model's own window; set this "
+                        "when the full window's KV cache does not fit GPU "
+                        "memory)")
     p.add_argument("--budget-pct", type=float, default=0.20,
                    help="token budget for the compressed memory block")
     p.add_argument("--doc", action="append", default=[], metavar="PATH",
@@ -814,6 +842,13 @@ def main(argv=None):
         print("--shift-query-boost must be a finite multiplier >= 1 "
               "(1 leaves the query mass unchanged).", file=sys.stderr)
         return 1
+    if not (math.isfinite(args.gpu_mem_util) and 0 < args.gpu_mem_util <= 1):
+        print("--gpu-mem-util must be a fraction in (0, 1].", file=sys.stderr)
+        return 1
+    if args.max_model_len < 0:
+        print("--max-model-len must be >= 0 (0 = the model's own window).",
+              file=sys.stderr)
+        return 1
 
     models = list_models()
     if args.model:
@@ -857,7 +892,8 @@ def main(argv=None):
     else:
         print(f"New session {conversation_id!r}.")
 
-    runner = make_runner(cfg, device=args.device)
+    runner = make_runner(cfg, device=args.device, backend=args.backend,
+                         **backend_opts(args))
     state = ChatState(args, bge_tok, bge_model, runner, trie)
     if state.full_attachments:
         print(f"Restored {len(state.full_attachments)} full-context "
