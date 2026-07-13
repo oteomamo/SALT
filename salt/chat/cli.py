@@ -551,6 +551,11 @@ def handle_command(line, state):
                   f"output {u['output']} tok | session totals "
                   f"read {tot['input_cached_tokens']}, write {tot['input']}, "
                   f"output {tot['output']}")
+        apc = (kv.last_event or {}).get("apc_cached_tokens")
+        if apc is not None:
+            n = (kv.last_event or {}).get("apc_prompt_tokens") or 0
+            print(f"APC: {apc}/{n} prompt tokens served from the engine's "
+                  f"prefix cache" + (f" ({apc / n:.0%})" if n else ""))
         if torch.cuda.is_available():
             dev = state.device if str(state.device).startswith("cuda") else None
             print(f"GPU memory allocated ({state.device}): "
@@ -615,6 +620,7 @@ def chat_turn(state, line):
     # cleared per turn so an interrupt before tokenization can't record the
     # previous turn's prompt size for this one
     state.runner.last_prompt_tokens = None
+    state.runner.last_engine_stats = None
     print(f"{state.runner.alias}> ", end="", flush=True)
     pieces = []
     interrupted = False
@@ -627,6 +633,8 @@ def chat_turn(state, line):
     print("\n" if not interrupted else "  [interrupted]\n")
 
     reply = "".join(pieces).strip()
+    extra = dict(drift_extra or {})
+    extra.update(getattr(state.runner, "last_engine_stats", None) or {})
     try:
         state.kvtrace.record_turn(
             tokenizer=state.runner.tokenizer, trie=state.trie,
@@ -634,7 +642,7 @@ def chat_turn(state, line):
             model_id=state.runner.cfg["hf_id"], ts_start=ts_start,
             ts_end=datetime.now().isoformat(timespec="seconds"),
             prompt_tokens=getattr(state.runner, "last_prompt_tokens", None),
-            extra=drift_extra)
+            extra=extra or None)
     except Exception as exc:
         print(f"[kvtrace] recording failed for this turn: {exc}")
     add_to_trie(state, line, "user")

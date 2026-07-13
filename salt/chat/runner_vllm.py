@@ -61,6 +61,7 @@ class VLLMChatRunner:
         if self.max_input_len:
             print(f"Context window: {self.max_input_len} tokens")
         self._request_no = 0
+        self.last_engine_stats = None
 
     def _resolved_window(self):
         try:
@@ -109,12 +110,15 @@ class VLLMChatRunner:
         request_id = f"{self.alias}-{self._request_no}"
         q = queue.Queue()
         done = object()
+        self.last_engine_stats = None
+        last = {}
 
         async def _pump():
             try:
                 async for out in self.engine.generate(
                         TokensPrompt(prompt_token_ids=ids), params,
                         request_id):
+                    last["out"] = out
                     q.put(out.outputs[0].text if out.outputs else "")
             except Exception as exc:
                 q.put(exc)
@@ -137,6 +141,16 @@ class VLLMChatRunner:
             if not fut.done():
                 # cancelling the consuming task aborts the request in V1
                 fut.cancel()
+            out = last.get("out")
+            if out is not None:
+                self.last_engine_stats = {
+                    "engine_backend": "vllm",
+                    "apc_cached_tokens": getattr(out, "num_cached_tokens",
+                                                 None),
+                    "apc_prompt_tokens": (len(out.prompt_token_ids)
+                                          if out.prompt_token_ids
+                                          else self.last_prompt_tokens),
+                }
 
     def unload(self):
         if self.engine is not None:
