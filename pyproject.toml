@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "salt"
-version = "2.6.0"
+version = "2.6.1"
 description = "SALT: Salience-Aware Lexical Trie for Long-Context Compression"
 readme = "README.md"
 license = "MIT"
@@ -24,6 +24,9 @@ dependencies = [
     "fuzzywuzzy>=0.18",
     "python-Levenshtein>=0.25",
 ]
+
+[project.optional-dependencies]
+vllm = ["vllm==0.11.0"]
 
 [project.scripts]
 salt = "salt.compress:main"

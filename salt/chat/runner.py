@@ -67,10 +67,13 @@ def input_budget_for(max_input_len, gen_cfg, max_new_tokens=None):
     return max_input_len - min(max_new_tokens, max_input_len // 2)
 
 
-def make_runner(cfg, device="cuda", backend="hf"):
+def make_runner(cfg, device="cuda", backend="hf", **backend_opts):
     if backend == "hf":
         return ChatRunner(cfg, device=device)
-    raise ValueError(f"Unknown chat backend {backend!r} (available: hf)")
+    if backend == "vllm":
+        from salt.chat.runner_vllm import VLLMChatRunner  # lazy: optional dep
+        return VLLMChatRunner(cfg, device=device, **backend_opts)
+    raise ValueError(f"Unknown chat backend {backend!r} (available: hf, vllm)")
 
 
 class _StopFlag(StoppingCriteria):
