@@ -80,8 +80,8 @@ so it is the fastest way to find where a change belongs:
 │ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
 │ │    Session Trie    │  │  Prompt Assembly   │  │    Chat Runner     │   │
 │ │                    │  │                    │  │                    │   │
-│ │ per-conversation   │  │ stable prefix first│  │ HF streaming (now) │   │
-│ │ lives in DRAM      │  │ append-only tail   │  │ vLLM + APC (later) │   │
+│ │ per-conversation   │  │ stable prefix first│  │ HF streaming       │   │
+│ │ lives in DRAM      │  │ append-only tail   │  │ vLLM + APC (opt-in)│   │
 │ │ grows every turn   │  │ memory + question  │  │ model registry     │   │
 │ │ cross-turn coverage│  │ instructions.md    │  │ GPU-pinned models  │   │
 │ │ + half-life decay  │  │                    │  │                    │   │
@@ -114,6 +114,7 @@ so it is the fastest way to find where a change belongs:
 │ │                    kvtrace — per-turn KV ledger                    │   │
 │ │ read (reused) / write (fresh) / output · events.jsonl + tokens.npy │   │
 │ │ usage keys: input (write) · input_cached_tokens (read) · output    │   │
+│ │ apc fields: engine-measured prefix-cache reuse (--backend vllm)    │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
@@ -185,14 +186,16 @@ hf auth login
 
 Or skip the CLI and export the token directly: `export HF_TOKEN=hf_...`.
 
-**5. (Optional) vLLM eval backend.** `eval.py` defaults to vLLM. Install it into
-the same `salt` env - there is only one environment:
+**5. (Optional) vLLM backend.** `eval.py` defaults to vLLM, and
+`saltChat --backend vllm` uses it for prefix caching. Install it into the
+same `salt` env - there is only one environment:
 
 ```bash
 pip install vllm==0.11.0
 ```
 
-Skip this and run `eval.py --backend hf` for a portable run that needs no vLLM.
+Skip this and run `eval.py --backend hf` for a portable run that needs no
+vLLM; `saltChat` already defaults to its HF backend.
 
 > `bash scripts/setup_env.sh` does steps 2–3 in one shot (add `WITH_VLLM=1` to
 > include vLLM).
@@ -296,6 +299,21 @@ Chat, optionally seeding the trie with a document:
 saltChat --model qwen05 --conversation-id demo1 --doc report.txt
 ```
 
+The default backend runs the model through HF transformers and works
+anywhere. `--backend vllm` serves the same registered weights through an
+in-process vLLM engine with automatic prefix caching, so the stable prompt
+head and tail are reused from the GPU KV cache instead of being re-prefilled
+every turn (install vLLM first — step 5 above):
+
+```bash
+saltChat --model qwen05 --backend vllm --gpu 1
+```
+
+`--gpu-mem-util` caps the engine's share of GPU memory (default `0.85`,
+leaving room for the BGE encoder on the same GPU); `--max-model-len` caps
+the context window when the model's full window would not fit in the KV
+cache. `/model` switching works on both backends.
+
 Inside the REPL:
 
 | Command | Effect |
@@ -316,7 +334,10 @@ Every turn is recorded in a per-conversation KV ledger under
 keys follow the cached-token convention (`input` = freshly prefilled
 sentences, `input_cached_tokens` = context re-selected from the previous
 turn, `output` = generated tokens) plus a per-token `tokens.npy` matrix;
-`/stats` shows the running totals.
+`/stats` shows the running totals. On `--backend vllm` every event also
+records the engine's measured prefix-cache reuse (`apc_cached_tokens` /
+`apc_prompt_tokens`) — the positional ground truth next to the ledger's
+content-overlap split.
 
 Attached PDFs are read whole (images ignored) and cleaned into proper
 sentences before they reach the trie: repeated headers/footers, page numbers,
@@ -347,10 +368,13 @@ The tail grows append-only and compacts **in blocks** (back to `--tail`
 exchanges once it hits twice that) instead of rolling every turn, so the
 prompt prefix stays byte-identical between compactions; nothing is lost,
 since every sentence already entered the trie the moment it was spoken.
-Today each turn still prefills the whole prompt — this layout is what lets
-a prefix-caching runner (vLLM APC) later reuse the stable prefix and pay
-only for the fresh suffix, exactly the read/write split the kvtrace ledger
-already measures.
+With the default HF backend each turn still prefills the whole prompt;
+`--backend vllm` cashes the layout in. The engine's automatic prefix caching
+serves the stable prefix straight from the GPU KV cache and prefills only
+the fresh suffix — in practice ~95% of prompt tokens on quiet turns. Each
+turn's real hit count is recorded in the kvtrace ledger (`apc_cached_tokens`,
+next to the selection-overlap split, which measures a different thing), and
+`/stats` prints it live.
 
 Cross-turn memory also has a **forgetting** knob. By default a theme that
 has been surfaced stays discounted for the whole session, so the memory
