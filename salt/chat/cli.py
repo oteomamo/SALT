@@ -612,9 +612,9 @@ def chat_turn(state, line):
                            "topic_shift": bool(comp["stats"].get("topic_shift"))}
 
     inventory = attachment_inventory(state.trie, state.full_attachments)
-    instructions = (load_instructions()
-                    if (memory_block or inventory or state.full_attachments)
-                    else "")
+    # unconditional: gating this on memory/attachments flips the system
+    # prompt after turn 1 and invalidates the whole KV prefix
+    instructions = load_instructions()
     messages = build_messages(memory_block, state.tail, line,
                               state.full_attachments, inventory, instructions)
     # cleared per turn so an interrupt before tokenization can't record the
