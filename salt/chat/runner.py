@@ -5,10 +5,12 @@ One HF-transformers model + tokenizer, loaded once from a registry entry and
 kept resident. ``stream_chat`` yields decoded text pieces as they are
 generated (``TextIteratorStreamer`` fed by a background generate thread, the
 same pattern as C2C's demo). ``unload`` frees the GPU so a ``/model`` switch
-never holds two models at once. A vLLM runner can slot in later as a sibling
-class behind the same surface: load / stream_chat / unload plus the
-``max_input_len``, ``input_budget()``, ``last_prompt_tokens``, ``tokenizer``,
-``alias``, and ``cfg`` members the REPL reads.
+never holds two models at once. Sibling runners slot in behind the same
+surface: load / stream_chat / unload plus the ``max_input_len``,
+``input_budget()``, ``last_prompt_tokens``, ``tokenizer``, ``alias``, and
+``cfg`` members the REPL reads. ``make_runner`` maps a backend name to a
+runner class; ``render_prompt`` / ``input_budget_for`` are shared so every
+backend renders identical prompts and honors the same reply headroom.
 """
 
 import gc
@@ -41,6 +43,34 @@ def _model_input_limit(config, tokenizer):
                 and 0 < v < 10 ** 9):
             return int(v)
     return None
+
+
+def render_prompt(tokenizer, messages):
+    """Chat-template the messages; plain-concat fallback for models without
+    a template (mirrors eval.apply_chat). Returns (text, used_chat_template)."""
+    try:
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True), True
+    except Exception:
+        text = "\n\n".join(f"{m['role']}: {m['content']}" for m in messages)
+        return text + "\n\nassistant:", False
+
+
+def input_budget_for(max_input_len, gen_cfg, max_new_tokens=None):
+    """Effective prompt ceiling: the context window minus reply headroom.
+    Headroom is capped at half the window so a broken gen config can never
+    un-cap the prompt. None when the window is unknown."""
+    if not max_input_len:
+        return None
+    if max_new_tokens is None:
+        max_new_tokens = int((gen_cfg or {}).get("max_new_tokens", 512))
+    return max_input_len - min(max_new_tokens, max_input_len // 2)
+
+
+def make_runner(cfg, device="cuda", backend="hf"):
+    if backend == "hf":
+        return ChatRunner(cfg, device=device)
+    raise ValueError(f"Unknown chat backend {backend!r} (available: hf)")
 
 
 class _StopFlag(StoppingCriteria):
@@ -80,26 +110,9 @@ class ChatRunner:
                   "the model's own context window is the only ceiling")
 
     def input_budget(self, max_new_tokens=None):
-        """Effective prompt ceiling: the context window minus reply headroom.
-        Headroom is capped at half the window so a broken gen config can
-        never un-cap the prompt. None when the window is unknown."""
-        if not self.max_input_len:
-            return None
-        if max_new_tokens is None:
-            max_new_tokens = int((self.cfg.get("gen") or {})
-                                 .get("max_new_tokens", 512))
-        return self.max_input_len - min(max_new_tokens,
-                                        self.max_input_len // 2)
-
-    def _to_prompt(self, messages):
-        """Chat-template the messages; plain-concat fallback for models
-        without a template (mirrors eval.apply_chat)."""
-        try:
-            return self.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True), True
-        except Exception:
-            text = "\n\n".join(f"{m['role']}: {m['content']}" for m in messages)
-            return text + "\n\nassistant:", False
+        """Effective prompt ceiling; see input_budget_for."""
+        return input_budget_for(self.max_input_len, self.cfg.get("gen"),
+                                max_new_tokens)
 
     def stream_chat(self, messages, **overrides):
         """Yield decoded text pieces for a chat turn as they are generated."""
@@ -109,7 +122,7 @@ class ChatRunner:
         do_sample = bool(gen_cfg.get("do_sample", temperature > 0))
         max_new_tokens = int(gen_cfg.get("max_new_tokens", 512))
 
-        prompt, used_chat = self._to_prompt(messages)
+        prompt, used_chat = render_prompt(self.tokenizer, messages)
         inputs = self.tokenizer(prompt, return_tensors="pt",
                                 add_special_tokens=not used_chat)
         # the only input ceiling is the model's own context window, minus

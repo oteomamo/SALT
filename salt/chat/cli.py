@@ -36,7 +36,7 @@ from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError, read_document,
                              split_document_sentences)
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
-from salt.chat.runner import ChatRunner
+from salt.chat.runner import make_runner
 from salt.engine.compressor import load_bge
 from salt.engine.session_trie import SessionTrie
 
@@ -426,7 +426,7 @@ def switch_model(state, name):
     state.runner.unload()  # free before load: never two LLMs on the GPU
     state.runner = None
     try:
-        state.runner = ChatRunner(cfg, device=state.device)
+        state.runner = make_runner(cfg, device=state.device)
         warn_attachment_budget(state)  # new model may have a smaller window
     except Exception as exc:
         print(f"Failed to load {cfg['alias']}: {exc}")
@@ -435,7 +435,7 @@ def switch_model(state, name):
             torch.cuda.empty_cache()
         print(f"Reloading previous model {prev_cfg['alias']} ...")
         try:
-            state.runner = ChatRunner(prev_cfg, device=state.device)
+            state.runner = make_runner(prev_cfg, device=state.device)
         except Exception as exc2:
             print(f"Also failed to reload {prev_cfg['alias']}: {exc2}")
             print("No model loaded - use /model <name> when ready.")
@@ -857,7 +857,7 @@ def main(argv=None):
     else:
         print(f"New session {conversation_id!r}.")
 
-    runner = ChatRunner(cfg, device=args.device)
+    runner = make_runner(cfg, device=args.device)
     state = ChatState(args, bge_tok, bge_model, runner, trie)
     if state.full_attachments:
         print(f"Restored {len(state.full_attachments)} full-context "
