@@ -37,10 +37,6 @@ class VLLMChatRunner:
         self.cfg = cfg
         self.device = device
         self.alias = cfg["alias"]
-        if ":" in device:
-            # parent CUDA is already live; this only steers the engine's
-            # child process
-            os.environ["CUDA_VISIBLE_DEVICES"] = device.split(":", 1)[1]
         print(f"Loading chat model {cfg['hf_id']} on {device} "
               f"[vLLM, {cfg.get('dtype', 'bfloat16')}, prefix caching on]")
         self.tokenizer = AutoTokenizer.from_pretrained(cfg["path"])
@@ -48,15 +44,31 @@ class VLLMChatRunner:
         self._loop_thread = threading.Thread(target=self._loop.run_forever,
                                              daemon=True)
         self._loop_thread.start()
-        self.engine = AsyncLLM.from_engine_args(AsyncEngineArgs(
-            model=cfg["path"], tokenizer=cfg["path"],
-            dtype=cfg.get("dtype", "bfloat16"),
-            gpu_memory_utilization=gpu_memory_utilization,
-            max_model_len=max_model_len or None,
-            enable_prefix_caching=True,
-            enable_chunked_prefill=True,
-            enforce_eager=bool(cfg.get("enforce_eager", False)),
-            trust_remote_code=True))
+        # CUDA_VISIBLE_DEVICES steers the engine's child process (parent
+        # CUDA is already live) and is restored right after: leaving it
+        # mutated would hide GPUs from every later subprocess
+        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if ":" in device:
+            os.environ["CUDA_VISIBLE_DEVICES"] = device.split(":", 1)[1]
+        try:
+            self.engine = AsyncLLM.from_engine_args(AsyncEngineArgs(
+                model=cfg["path"], tokenizer=cfg["path"],
+                dtype=cfg.get("dtype", "bfloat16"),
+                gpu_memory_utilization=gpu_memory_utilization,
+                max_model_len=max_model_len or None,
+                enable_prefix_caching=True,
+                enable_chunked_prefill=True,
+                enforce_eager=bool(cfg.get("enforce_eager", False)),
+                trust_remote_code=True))
+        except BaseException:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            raise
+        finally:
+            if ":" in device:
+                if prev is None:
+                    os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+                else:
+                    os.environ["CUDA_VISIBLE_DEVICES"] = prev
         self.max_input_len = self._resolved_window()
         if self.max_input_len:
             print(f"Context window: {self.max_input_len} tokens")
