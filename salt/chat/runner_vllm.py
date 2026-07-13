@@ -4,12 +4,15 @@
 In-process V1 AsyncLLM with automatic prefix caching: the stable prompt head
 (system message + verbatim tail) is reused from the GPU KV cache across
 turns, so the per-turn prefill is only the SALT selection and the newest
-exchange. Blocking generate for now; the streaming bridge lands next.
+exchange. A background thread owns the asyncio loop; text deltas cross to
+the sync REPL through a queue, and dropping the generator aborts the request
+(the Ctrl-C contract ChatRunner implements with _StopFlag).
 """
 
 import asyncio
 import gc
 import os
+import queue
 import threading
 
 import torch
@@ -104,24 +107,36 @@ class VLLMChatRunner:
 
         self._request_no += 1
         request_id = f"{self.alias}-{self._request_no}"
+        q = queue.Queue()
+        done = object()
 
-        async def _collect():
-            final = None
-            async for out in self.engine.generate(
-                    TokensPrompt(prompt_token_ids=ids), params, request_id):
-                final = out
-            return final
+        async def _pump():
+            try:
+                async for out in self.engine.generate(
+                        TokensPrompt(prompt_token_ids=ids), params,
+                        request_id):
+                    q.put(out.outputs[0].text if out.outputs else "")
+            except Exception as exc:
+                q.put(exc)
+            finally:
+                q.put(done)
 
-        fut = asyncio.run_coroutine_threadsafe(_collect(), self._loop)
+        fut = asyncio.run_coroutine_threadsafe(_pump(), self._loop)
+        sent = 0
         try:
-            final = fut.result()
+            while True:
+                item = q.get()
+                if item is done:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                if len(item) > sent:
+                    piece, sent = item[sent:], len(item)
+                    yield piece
         finally:
             if not fut.done():
+                # cancelling the consuming task aborts the request in V1
                 fut.cancel()
-                asyncio.run_coroutine_threadsafe(
-                    self.engine.abort(request_id), self._loop)
-        if final is not None and final.outputs:
-            yield final.outputs[0].text
 
     def unload(self):
         if self.engine is not None:
