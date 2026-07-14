@@ -195,7 +195,8 @@ def _strip_number_rail(pages):
 
 _MD_HEAD_RE = re.compile(r"^#{1,6}\s")
 _NUM_HEAD_RE = re.compile(
-    r"^(?:\d+(?:\.\d+)*\.?|[A-Z]\.?|[IVXLC]+\.?|Appendix\s+[A-Z]\d*\.?)\s+\S")
+    r"^(?:\d+(?:\.\d+)*\.?|[A-Z]\.\d+(?:\.\d+)*\.?|[A-Z]\.?|[IVXLC]+\.?"
+    r"|Appendix\s+[A-Z]\d*\.?)\s+\S")
 _CAPTION_RE = re.compile(r"^(?:Figure|Table|Algorithm|Listing|Chart)\s+\d+\s*[:.]")
 _SUBCAP_RE = re.compile(r"^\([a-z]\)\s")
 _BULLET_RE = re.compile(
@@ -229,6 +230,12 @@ def _is_heading(line):
         return True
     if line[-1] in ".!?,;:":
         return False
+    # assignments and pseudocode steps are never headings: a lone math
+    # operator glyph ("X" for Σ), "MAX_RETRIES = 5", "9 B ←Active(...)"
+    if "=" in line or "←" in line or "→" in line:
+        return False
+    if not any(sum(1 for c in w if c.isalpha()) >= 2 for w in words):
+        return False
     if len(words) <= 8 and line.isupper() and any(c.isalpha() for c in line):
         return True
     if _NUM_HEAD_RE.match(line):
@@ -253,6 +260,16 @@ def _is_table_line(line):
 
 _TERMINAL_RE = re.compile(r"[.!?][\"'”’)\]]*$")
 _FOOTNOTE_RE = re.compile(r"^\d{1,2}[A-Z][a-z]")
+_ALGO_STEP_RE = re.compile(
+    r"^\d{1,2}\s+(?:return\b|\S+\s*←|(?:if|for|while|else|end)\b)")
+
+
+def _next_nonblank(lines, i):
+    for l in lines[i + 1:]:
+        s = l.strip()
+        if s:
+            return s
+    return ""
 
 
 def _reflow_blocks(lines):
@@ -307,16 +324,24 @@ def _reflow_blocks(lines):
         else:
             buf += " " + line
 
-    for raw in lines:
+    for i, raw in enumerate(lines):
         line = raw.strip()
         if not line:
             flush()
             continue
         # table check first: an all-caps row like "EXIT 31.50 23.77 ..."
-        # would otherwise pass the ALL-CAPS heading test
+        # would otherwise pass the ALL-CAPS heading test. An ISOLATED
+        # number-dense line (no table line adjacent) is a prose fragment —
+        # "4096 × 4096 × 32 tensor per layer, which" — not a table row
         if _is_table_line(line):
+            if ((blocks and blocks[-1][0] == "table")
+                    or _is_table_line(_next_nonblank(lines, i))):
+                hold_or_flush()
+                blocks.append(("table", line))
+                continue
+        if _ALGO_STEP_RE.match(line):
             hold_or_flush()
-            blocks.append(("table", line))
+            blocks.append(("algo", line))
             continue
         if _is_heading(line):
             flush()
@@ -325,7 +350,10 @@ def _reflow_blocks(lines):
             continue
         if _CAPTION_RE.match(line) or _SUBCAP_RE.match(line) or _BULLET_RE.match(line):
             hold_or_flush()
-            kind = "bullet" if _BULLET_RE.match(line) else "caption"
+            # subcaption test first: "(a) 32k context length." is a figure
+            # panel label whose marker must survive, not a bullet to strip
+            kind = ("caption" if (_CAPTION_RE.match(line)
+                                  or _SUBCAP_RE.match(line)) else "bullet")
             buf = line
             continue
         if _FOOTNOTE_RE.match(line) and (kind or "body") == "body":
@@ -484,12 +512,37 @@ def _table_runs(blocks):
     return runs
 
 
-def _table_units(caption, rows):
-    """Chunk a table into ingestible units, each re-carrying the caption so
-    every chunk stays interpretable (and retrievable) on its own."""
-    prefix = (caption + " | ") if caption else "[table] | "
+def _table_units(caption, rows, fallback="[table]"):
+    """Chunk a table (or algorithm) into ingestible units, each re-carrying
+    the caption so every chunk stays interpretable (and retrievable) alone."""
+    prefix = (caption or fallback) + " | "
     return [prefix + " | ".join(rows[k:k + TABLE_CHUNK_ROWS])
             for k in range(0, len(rows), TABLE_CHUNK_ROWS)]
+
+
+_ALGO_CAPTION_RE = re.compile(r"^Algorithm\s+\d+\s*[:.]")
+
+
+def _algo_runs(blocks):
+    """Maximal runs of pseudocode step lines, paired with the nearest
+    preceding "Algorithm N:" caption; kept when a caption is found or the
+    run has at least two steps (a lone numbered line is noise)."""
+    runs, i = [], 0
+    while i < len(blocks):
+        if blocks[i][0] != "algo":
+            i += 1
+            continue
+        idx, j = [i], i + 1
+        while j < len(blocks) and blocks[j][0] == "algo":
+            idx.append(j)
+            j += 1
+        cap = next((k for k in range(i - 1, max(i - 5, -1), -1)
+                    if blocks[k][0] == "caption"
+                    and _ALGO_CAPTION_RE.match(blocks[k][1])), None)
+        if cap is not None or len(idx) >= 2:
+            runs.append((i, j, idx, cap))
+        i = j
+    return runs
 
 
 def split_document_sentences(text):
@@ -504,9 +557,12 @@ def split_document_sentences(text):
     twice. Stray single numeric rows, and tables inside the reference zone,
     are still dropped."""
     blocks = _reflow_blocks(_CTRL_RE.sub(" ", text).splitlines())
-    runs = {start: (idx, cap) for start, _, idx, cap in _table_runs(blocks)}
+    runs = {start: (idx, cap, "[table]")
+            for start, _, idx, cap in _table_runs(blocks)}
+    for start, _, idx, cap in _algo_runs(blocks):
+        runs[start] = (idx, cap, "[algorithm]")
     consumed = set()
-    for start, (idx, cap) in runs.items():
+    for start, (idx, cap, _fb) in runs.items():
         consumed.update(idx)
         if cap is not None:
             consumed.add(cap)
@@ -529,12 +585,12 @@ def split_document_sentences(text):
             out.append(btext)
             continue
         if bi in runs and not in_refs:
-            idx, cap = runs[bi]
+            idx, cap, fallback = runs[bi]
             out.extend(_table_units(
                 blocks[cap][1] if cap is not None else "",
-                [blocks[k][1] for k in idx]))
+                [blocks[k][1] for k in idx], fallback))
             continue
-        if bi in consumed or in_refs or kind == "table":
+        if bi in consumed or in_refs or kind in ("table", "algo"):
             continue
         if kind == "bullet":
             btext = _BULLET_RE.sub("", btext, count=1)
