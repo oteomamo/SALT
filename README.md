@@ -14,7 +14,7 @@ wait time that long inputs cost.
 **The problem.** When a prompt is too long, existing compressors give each
 sentence a single relevance score and keep the top-scoring ones until the budget
 runs out. Under a tight budget this lets the document's main topic swallow the
-whole budget, so smaller but still important points get dropped — a failure called
+whole budget, so smaller but still important points get dropped - a failure called
  *theme collapse* (in multi-hop questions, for example, it can keep
 passages about the main entity yet lose the one sentence that links it to a
 second).
@@ -42,7 +42,7 @@ turns of a conversation without re-reading the document.
 
 ## 🧩 Architecture
 
-Two phases. **Indexing** reads the document once and builds a keyword trie — a
+Two phases. **Indexing** reads the document once and builds a keyword trie - a
 reusable map of its recurring themes. **Selection** then picks a sentence subset
 under a token budget, returned in original document order, query-biased or not.
 
@@ -61,7 +61,7 @@ under a token budget, returned in original document order, query-biased or not.
    without rebuilding it. → compressed prompt, original order, ≤ budget
 ```
 
-The whole system as a blueprint — this map is kept current as SALT grows,
+The whole system as a blueprint - this map is kept current as SALT grows,
 so it is the fastest way to find where a change belongs:
 
 ```text
@@ -88,8 +88,15 @@ so it is the fastest way to find where a change belongs:
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
-│ │            Trie shape — the root binds the conversation            │   │
-│ │                               ● root — the conversation bind       │   │
+│ │              Document ingest (salt@ files, salt --doc)             │   │
+│ │ pypdf extract · furniture scrub · paragraphs rejoined across floats│   │
+│ │ tables + pseudocode grouped under captions · footnotes isolated    │   │
+│ │ headings, panel labels and equations kept · reference list dropped │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │            Trie shape - the root binds the conversation            │   │
+│ │                               ● root - the conversation bind       │   │
 │ │         ┌─────────────────────┼─────────────────────┐              │   │
 │ │  §file:paper.pdf       §file:notes.txt        conversation         │   │
 │ │         │                     │              ┌──────┴──────┐       │   │
@@ -98,20 +105,20 @@ so it is the fastest way to find where a change belongs:
 │ │     sentences             sentences      sentences     sentences   │   │
 │ │                                                                    │   │
 │ │ each turn: ≤ budget spread across branches (CELF discounting)      │   │
-│ │ the untrie — the verbatim tail — sits OUTSIDE the trie, as the     │   │
+│ │ the untrie - the verbatim tail - sits OUTSIDE the trie, as the     │   │
 │ │ prompt's stable recent-history window                              │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
 │ │                  Prompt layout (KV-cache shaped)                   │   │
 │ │ [system: instructions · file inventory · attach@ full documents]   │   │
-│ │ → [tail: recent exchanges — append-only, block-wise compaction]    │   │
+│ │ → [tail: recent exchanges - append-only, block-wise compaction]    │   │
 │ │ → [newest user message: SALT memory (≈20% selection) + question]   │   │
 │ │ stable prefix = reusable KV ──── fresh suffix = per-turn prefill   │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
-│ │                    kvtrace — per-turn KV ledger                    │   │
+│ │                    kvtrace - per-turn KV ledger                    │   │
 │ │ read (reused) / write (fresh) / output · events.jsonl + tokens.npy │   │
 │ │ usage keys: input (write) · input_cached_tokens (read) · output    │   │
 │ │ apc fields: engine-measured prefix-cache reuse (--backend vllm)    │   │
@@ -119,7 +126,7 @@ so it is the fastest way to find where a change belongs:
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
 │ │                            Entry points                            │   │
-│ │ salt (one-shot compression) · saltChat (chat REPL) · eval.py       │   │
+│ │ salt (one-shot: --data / --doc) · saltChat (chat REPL) · eval.py   │   │
 │ │ salt@ trie attach · attach@ full text · /doc /model /budget /stats │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -136,6 +143,7 @@ Where each stage lives:
 | Few-shot bypass (`trec`, `triviaqa`, `samsum`) | `salt/engine/fewshot.py` |
 | Dataset adapters (`--synthetic`, `--code`) | `salt/engine/dataset_modes.py` |
 | Multi-turn session store | `salt/engine/session_trie.py` |
+| Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat` |
 
@@ -252,7 +260,7 @@ Defaults: 20% token budget (`--token-budget-pct`), GPU compression
 (`--device cpu` runs without one), `BAAI/bge-small-en-v1.5` as the
 compression model (`--model`).
 
-Compress a single file instead of a dataset with `--doc` — a `.pdf`,
+Compress a single file instead of a dataset with `--doc` - a `.pdf`,
 `.txt`, or `.md` goes through the same PDF pipeline the chatbot uses
 (tables and pseudocode grouped under their captions, sentences re-joined
 across figure interruptions, headings and equations preserved), then
@@ -313,7 +321,7 @@ The default backend runs the model through HF transformers and works
 anywhere. `--backend vllm` serves the same registered weights through an
 in-process vLLM engine with automatic prefix caching, so the stable prompt
 head and tail are reused from the GPU KV cache instead of being re-prefilled
-every turn (install vLLM first — step 5 above):
+every turn (install vLLM first - step 5 above):
 
 ```bash
 saltChat --model qwen05 --backend vllm --gpu 1
@@ -346,14 +354,14 @@ sentences, `input_cached_tokens` = context re-selected from the previous
 turn, `output` = generated tokens) plus a per-token `tokens.npy` matrix;
 `/stats` shows the running totals. On `--backend vllm` every event also
 records the engine's measured prefix-cache reuse (`apc_cached_tokens` /
-`apc_prompt_tokens`) — the positional ground truth next to the ledger's
+`apc_prompt_tokens`) - the positional ground truth next to the ledger's
 content-overlap split.
 
 Attached PDFs are read whole (images ignored) and cleaned into proper
 sentences before they reach the trie: repeated headers/footers, page numbers,
 and ACL/NeurIPS-style margin line numbers are stripped, ligatures and
 hyphenation repaired, wrapped lines reflowed into paragraphs, and reference
-lists filtered — sentence boundaries never break inside citations.
+lists filtered - sentence boundaries never break inside citations.
 Paragraphs interrupted mid-sentence by a figure caption, table, or footnote
 are re-joined across the float instead of being severed. Tables and
 algorithm pseudocode are kept, grouped under their captions as
@@ -362,7 +370,7 @@ section headings, panel labels, and equations survive ingestion (big
 operators pypdf flattens to Latin look-alikes are restored where
 unambiguous), and a sentence mentioning a URL keeps its prose with the
 link as `<url>`. A `salt@` file becomes **its own branch** of the session trie,
-hanging off the conversation's root — so multiple attachments never crowd
+hanging off the conversation's root - so multiple attachments never crowd
 each other out, and the per-turn budget (default 20%) spreads across files
 and conversation themes. An `attach@` file skips the trie entirely: its full
 text rides uncompressed in every prompt. TAB completes `/commands`,
@@ -371,16 +379,16 @@ text rides uncompressed in every prompt. TAB completes `/commands`,
 
 The chat model is told what it is looking at: the system prompt carries a
 reading guide from [`salt/chat/instructions.md`](salt/chat/instructions.md)
-(edit it to tune the wording — it is re-read every turn, even mid-session)
+(edit it to tune the wording - it is re-read every turn, even mid-session)
 plus an inventory of every attached file, and the compressed memory arrives
-at the top of the newest user message, grouped by origin — `[from attached
-file 'paper.pdf' — 42 of 358 indexed sentences]` versus `[from the earlier
-conversation]` — so answers can cite their source file and the model knows
+at the top of the newest user message, grouped by origin - `[from attached
+file 'paper.pdf' - 42 of 358 indexed sentences]` versus `[from the earlier
+conversation]` - so answers can cite their source file and the model knows
 the excerpts are partial.
 
 The prompt is deliberately **KV-cache shaped**: everything stable (system
 prompt, `attach@` full texts, the verbatim tail) comes first, and the only
-per-turn content — the SALT memory selection and the question — comes last.
+per-turn content - the SALT memory selection and the question - comes last.
 The tail grows append-only and compacts **in blocks** (back to `--tail`
 exchanges once it hits twice that) instead of rolling every turn, so the
 prompt prefix stays byte-identical between compactions; nothing is lost,
@@ -388,14 +396,14 @@ since every sentence already entered the trie the moment it was spoken.
 With the default HF backend each turn still prefills the whole prompt;
 `--backend vllm` cashes the layout in. The engine's automatic prefix caching
 serves the stable prefix straight from the GPU KV cache and prefills only
-the fresh suffix — in practice ~95% of prompt tokens on quiet turns. Each
+the fresh suffix - in practice ~95% of prompt tokens on quiet turns. Each
 turn's real hit count is recorded in the kvtrace ledger (`apc_cached_tokens`,
 next to the selection-overlap split, which measures a different thing), and
 `/stats` prints it live.
 
 Cross-turn memory also has a **forgetting** knob. By default a theme that
 has been surfaced stays discounted for the whole session, so the memory
-block keeps favoring new material — even when the conversation circles back.
+block keeps favoring new material - even when the conversation circles back.
 `--coverage-half-life 8` makes that suppression fade instead, halving every
 8 turns a theme goes unmentioned, so a topic you return to after a long
 detour resurfaces gradually rather than staying buried. Attached files are
@@ -406,12 +414,12 @@ And a **pivot** knob. Every query turn, the question's similarity to the
 recent conversation is measured against the session's own running baseline
 (`/stats` shows the reading, so the margin can be tuned before trusting
 it). With `--shift-damping 0.25`, a turn that drops `--shift-margin` below
-that baseline — a topic shift — hands the selector a seed whose **stale**
+that baseline - a topic shift - hands the selector a seed whose **stale**
 suppression (themes untouched for a few turns) is scaled down for that
 turn only, and the query channels get a `--shift-query-boost` bump: a
 pivot back to a long-quiet topic stops being fought by the discount it
 accumulated, while the topic being left stays suppressed. Nothing is
-forgotten — the persisted counts are rebuilt from genuine increments, so
+forgotten - the persisted counts are rebuilt from genuine increments, so
 the damping never reaches disk.
 
 ## 🔬 Results
