@@ -251,18 +251,61 @@ def _is_table_line(line):
     return numish / len(toks) >= 0.5
 
 
+_TERMINAL_RE = re.compile(r"[.!?][\"'”’)\]]*$")
+_FOOTNOTE_RE = re.compile(r"^\d{1,2}[A-Z][a-z]")
+
+
 def _reflow_blocks(lines):
     """Group physical lines into logical (kind, text) blocks. Wrapped lines
     join (re-joining end-of-line hyphenation); blank lines, headings,
-    captions, bullets and table rows start new blocks."""
+    captions, bullets, footnotes and table rows start new blocks.
+
+    Floats (captions, tables, footnotes) land mid-paragraph in pypdf reading
+    order. A body paragraph interrupted mid-sentence is HELD while the float
+    passes and resumed at its continuation below, so float splices stop
+    severing sentences; a caption/footnote buffer closes at its first
+    sentence end once a lowercase line follows (that line is the resuming
+    paragraph, not more caption)."""
     blocks = []
     kind, buf = None, ""
+    held = ""
 
     def flush():
         nonlocal kind, buf
         if buf:
             blocks.append((kind or "body", buf))
         kind, buf = None, ""
+
+    def hold_or_flush():
+        # a float starter interrupts: park an unterminated body paragraph so
+        # its continuation below the float can re-join it. Fragments under 4
+        # words are header/label shrapnel, not paragraphs — never park them
+        # (they would steal a later paragraph's resume). A fresher qualifying
+        # paragraph evicts a stale held one, which is emitted as-is.
+        nonlocal held, kind, buf
+        if (buf and (kind or "body") == "body"
+                and len(buf.split()) >= 4
+                and not _TERMINAL_RE.search(buf)):
+            release_held()
+            held, kind, buf = buf, None, ""
+        else:
+            flush()
+
+    def release_held():
+        # the continuation never arrived: emit the fragment as it was
+        nonlocal held
+        if held:
+            blocks.append(("body", held))
+            held = ""
+
+    def join(line):
+        nonlocal buf
+        if re.search(r"[A-Za-z]-$", buf) and line[:1].isalpha():
+            # wrapped at a hyphen: lowercase continuation is a broken word
+            # (re-join), capitalized is a hyphenated compound (keep hyphen)
+            buf = (buf[:-1] + line) if line[:1].islower() else (buf + line)
+        else:
+            buf += " " + line
 
     for raw in lines:
         line = raw.strip()
@@ -272,27 +315,70 @@ def _reflow_blocks(lines):
         # table check first: an all-caps row like "EXIT 31.50 23.77 ..."
         # would otherwise pass the ALL-CAPS heading test
         if _is_table_line(line):
-            flush()
+            hold_or_flush()
             blocks.append(("table", line))
             continue
         if _is_heading(line):
             flush()
+            release_held()
             blocks.append(("heading", line))
             continue
         if _CAPTION_RE.match(line) or _SUBCAP_RE.match(line) or _BULLET_RE.match(line):
-            flush()
+            hold_or_flush()
             kind = "bullet" if _BULLET_RE.match(line) else "caption"
             buf = line
             continue
+        if _FOOTNOTE_RE.match(line) and (kind or "body") == "body":
+            hold_or_flush()
+            kind = "footnote"
+            buf = line
+            continue
+        # pypdf can glue a table's interior label onto the END of a body
+        # line broken mid-word ("...evaluation met-KV Cache Methods (20%)"):
+        # split the label off so the hyphenated word can re-join later, and
+        # emit it after the body part so it rides the table run it labels
+        m = re.match(r"^(.*[a-z]-)((?:[A-Z(][\w()%.-]*(?:\s+|$)){2,6})$", line)
+        if m and (kind or "body") == "body":
+            label = m.group(2).strip()
+            line = m.group(1)
+            if not buf:
+                buf = line
+            else:
+                join(line)
+            hold_or_flush()
+            blocks.append(("body", label))
+            continue
+        if (kind in ("caption", "footnote") and buf
+                and _TERMINAL_RE.search(buf) and line[:1].islower()):
+            flush()  # float text is complete; this line resumes a paragraph
+        if not buf and held:
+            # a bare title-case label line (a table section header pypdf
+            # emits on its own) is float content, not the parked
+            # paragraph's continuation: let it pass and keep holding
+            if re.fullmatch(r"(?:[A-Z(][\w().%-]*(?:\s+|$)){1,6}", line):
+                blocks.append(("body", line))
+                continue
+            if (line[:1].islower() or held[-1:] in ",;:"
+                    or re.search(r"[A-Za-z]-$", held)):
+                # pypdf sometimes glues a short title-case label (a table
+                # section header) onto the resuming line; split it off so
+                # the hyphen-broken word underneath can re-join
+                if re.search(r"[A-Za-z]-$", held) and not line[:1].islower():
+                    m = re.match(r"((?:[A-Z(][\w().%-]*\s+){1,6})([a-z].*)$",
+                                 line)
+                    if m:
+                        blocks.append(("body", m.group(1).strip()))
+                        line = m.group(2)
+                buf = held
+                held = ""
+            else:
+                release_held()
         if not buf:
             buf = line
-        elif re.search(r"[A-Za-z]-$", buf) and line[:1].isalpha():
-            # wrapped at a hyphen: lowercase continuation is a broken word
-            # (re-join), capitalized is a hyphenated compound (keep hyphen)
-            buf = (buf[:-1] + line) if line[:1].islower() else (buf + line)
         else:
-            buf += " " + line
+            join(line)
     flush()
+    release_held()
     return blocks
 
 
