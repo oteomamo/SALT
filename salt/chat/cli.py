@@ -309,7 +309,7 @@ def ingest_doc(state, path):
         else:
             print(f"{p.name}: no ingestible sentences - all "
                   f"{info['filtered']} extracted units were filtered "
-                  f"(tables/references/fragments).")
+                  f"(references/fragments).")
         return
     pages = f"{n_pages} pages, " if n_pages else ""
     branch = (f"merged into the existing {p.name!r} branch" if merging

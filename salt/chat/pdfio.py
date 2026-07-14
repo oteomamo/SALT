@@ -24,9 +24,13 @@ then cleaned line-by-line before reflow:
 `split_document_sentences` turns that structured text into clean sentence
 units for trie ingestion (the salt@ / /doc path): citation-safe boundaries
 (no splits at semicolons or inside balanced parentheses, extended
-abbreviation protection, initials), reference-list entries and
-number-dominated table rows dropped, headings kept as their own units,
-bullet markers stripped and the items sentence-split.
+abbreviation protection, initials), reference-list entries dropped,
+headings kept as their own units, bullet markers stripped and the items
+sentence-split. Number-dominated table rows are grouped into per-table
+units carrying their "Table N:" caption (which pypdf usually glues to the
+column header), so table data stays indexed AND interpretable — a bare row
+has no column meaning on its own; stray single numeric rows are still
+dropped.
 
 Plain-text files (.txt/.md and friends) skip extraction but share the
 reflow + sentence stage.
@@ -353,15 +357,73 @@ _REFS_HEAD_RE = re.compile(
 _CITATION_HINT_RE = re.compile(
     r"arXiv|In Proceedings|pages? \d+[-–]\d+|doi:|vol\.\s*\d+|[A-Z][a-z]+, [A-Z]\.")
 
+_TABLE_CAPTION_RE = re.compile(r"^Table\s+\d+\s*[:.]")
+TABLE_CHUNK_ROWS = 6        # rows per unit: 6 rows + caption stay well under
+                            # the 400-token per-unit cap applied at ingest
+_TABLE_LABEL_MAX_WORDS = 8  # interior section labels like "KV Cache Methods"
+
+
+def _table_runs(blocks):
+    """Maximal runs of consecutive table rows. Short non-table blocks join a
+    run when more rows follow (interior section labels). Each run is
+    (start, end, indices, caption_index): the nearest preceding "Table N:"
+    caption, else the one right after the run. Runs with fewer than two real
+    rows are not returned — a lone numeric line is noise, not a table."""
+    runs, i = [], 0
+    while i < len(blocks):
+        if blocks[i][0] != "table":
+            i += 1
+            continue
+        idx, j = [i], i + 1
+        while j < len(blocks):
+            kind, btext = blocks[j]
+            if kind == "table":
+                idx.append(j)
+            elif (len(btext.split()) <= _TABLE_LABEL_MAX_WORDS
+                  and j + 1 < len(blocks) and blocks[j + 1][0] == "table"):
+                idx.append(j)
+            else:
+                break
+            j += 1
+        if sum(1 for k in idx if blocks[k][0] == "table") >= 2:
+            cap = next((k for k in range(i - 1, max(i - 4, -1), -1)
+                        if blocks[k][0] == "caption"
+                        and _TABLE_CAPTION_RE.match(blocks[k][1])), None)
+            if cap is None:
+                cap = next((k for k in (j, j + 1) if k < len(blocks)
+                            and blocks[k][0] == "caption"
+                            and _TABLE_CAPTION_RE.match(blocks[k][1])), None)
+            runs.append((i, j, idx, cap))
+        i = j
+    return runs
+
+
+def _table_units(caption, rows):
+    """Chunk a table into ingestible units, each re-carrying the caption so
+    every chunk stays interpretable (and retrievable) on its own."""
+    prefix = (caption + " | ") if caption else "[table] | "
+    return [prefix + " | ".join(rows[k:k + TABLE_CHUNK_ROWS])
+            for k in range(0, len(rows), TABLE_CHUNK_ROWS)]
+
 
 def split_document_sentences(text):
     """Structured document text -> clean sentence units for trie ingestion.
 
     Reference-list entries (between a References/Bibliography heading —
-    numbered or not — and the next real heading) and table-like number rows
-    are dropped; headings stay whole units, bullet markers are stripped and
-    the items sentence-split (short units fall to the downstream filter)."""
+    numbered or not — and the next real heading) are dropped; headings stay
+    whole units, bullet markers are stripped and the items sentence-split
+    (short units fall to the downstream filter). Table rows are grouped per
+    table and emitted caption-first (see _table_runs/_table_units); their
+    caption block is consumed by the table units instead of being emitted
+    twice. Stray single numeric rows, and tables inside the reference zone,
+    are still dropped."""
     blocks = _reflow_blocks(_CTRL_RE.sub(" ", text).splitlines())
+    runs = {start: (idx, cap) for start, _, idx, cap in _table_runs(blocks)}
+    consumed = set()
+    for start, (idx, cap) in runs.items():
+        consumed.update(idx)
+        if cap is not None:
+            consumed.add(cap)
     out = []
     in_refs = False
     for bi, (kind, btext) in enumerate(blocks):
@@ -380,7 +442,13 @@ def split_document_sentences(text):
                 in_refs = False
             out.append(btext)
             continue
-        if in_refs or kind == "table":
+        if bi in runs and not in_refs:
+            idx, cap = runs[bi]
+            out.extend(_table_units(
+                blocks[cap][1] if cap is not None else "",
+                [blocks[k][1] for k in idx]))
+            continue
+        if bi in consumed or in_refs or kind == "table":
             continue
         if kind == "bullet":
             btext = _BULLET_RE.sub("", btext, count=1)
