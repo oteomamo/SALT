@@ -196,7 +196,7 @@ class SessionTrie:
         return hashlib.sha1(" ".join(text.lower().split()).encode("utf-8")).hexdigest()
 
     def add_turn(self, text, role="user", *, tokenizer, model, device="cpu",
-                 source=None, sentences=None):
+                 source=None, sentences=None, keep=None):
         """Split/filter/encode NEW text and append it to the growing corpus.
 
         Runs the dense-attention keyword pass and the BGE [CLS] embedding pass on
@@ -209,7 +209,14 @@ class SessionTrie:
         `sentences`, when given, is an already-segmented unit list (e.g. from
         `salt.chat.pdfio.split_document_sentences`) used INSTEAD of the
         built-in clean+split pass; the junk filter, cross-turn dedupe and the
-        per-unit token cap still apply.
+        per-unit token cap still apply. `keep` (a text predicate, e.g.
+        `pdfio.is_protected_unit`) exempts structural units — headings,
+        grouped tables, equations — from the junk filter.
+
+        Chat ingest keeps URL-bearing sentences (the URL itself becomes
+        <url>) and length-gates fragment-shaped junk patterns; the eval
+        compressor path (salt/engine/compressor.py) calls filter_texts with
+        its own stricter defaults and is unaffected.
         """
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
@@ -229,7 +236,8 @@ class SessionTrie:
             raw = embed_split_sentences(cleaned, max_tokens=400, tokenizer=tokenizer)
             all_texts = [s for s, _, _ in raw]
         sentences, *_ = filter_texts(all_texts, aggressive=True,
-                                     remove_urls=True, deduplicate=True)
+                                     remove_urls=True, deduplicate=True,
+                                     strip_urls=True, lenient=True, keep=keep)
         # cross-turn dedupe: drop sentences already present in the corpus
         fresh = []
         for s in sentences:

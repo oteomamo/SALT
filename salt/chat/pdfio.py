@@ -520,6 +520,28 @@ def _table_units(caption, rows, fallback="[table]"):
             for k in range(0, len(rows), TABLE_CHUNK_ROWS)]
 
 
+_MATH_CHARS = set("=∈∪∩⊂⊆≤≥×÷Σ∆√Γ∑∏∀∃⌊⌋−±")
+
+
+def is_protected_unit(text):
+    """Structural units document ingestion must keep even when short —
+    headings, grouped table/algorithm units, figure panel labels, and
+    equation-shaped lines — which the junk filter's length gates would
+    otherwise silently kill. Passed as filter_texts' keep= predicate by
+    the chat doc-ingestion path."""
+    t = text.strip()
+    if not t:
+        return False
+    if " | " in t and t.split(" | ", 1)[0].startswith(
+            ("Table", "Algorithm", "[table]", "[algorithm]")):
+        return True
+    if _is_heading(t) or _SUBCAP_RE.match(t):
+        return True
+    if len(t.split()) < 12 and any(c in _MATH_CHARS for c in t):
+        return True
+    return False
+
+
 _ALGO_CAPTION_RE = re.compile(r"^Algorithm\s+\d+\s*[:.]")
 
 

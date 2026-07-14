@@ -53,6 +53,12 @@ def contains_url(text: str) -> bool:
     return bool(_URL_PATTERN.search(text))
 
 
+def _url_placeholder(m):
+    # the URL pattern swallows trailing sentence punctuation; keep it
+    trail = re.search(r"[).,;:\]]+$", m.group(0))
+    return "<url>" + (trail.group(0) if trail else "")
+
+
 def is_url_dominated(text: str, threshold: float = 0.40) -> bool:
     text_stripped = text.strip()
     if not text_stripped:
@@ -223,7 +229,14 @@ def clean_wiki_markup(text: str) -> str:
     return text
 
 
-def is_junk(text: str) -> bool:
+# Fragment-shaped junk patterns that also match full prose sentences
+# ("Wang (2024) proposed ...", "2.61 for SALT versus ..."); under
+# lenient=True they only fire for genuinely short units.
+_LENIENT_GATED = {r'^[A-Z][a-z]+\s*\(\d{4}', r'^\d+\.\d+\s+for\s+'}
+_LENIENT_MIN_WORDS = 8
+
+
+def is_junk(text: str, lenient: bool = False) -> bool:
     """Check if a sentence is likely junk/noise."""
     text = text.strip()
 
@@ -235,6 +248,9 @@ def is_junk(text: str) -> bool:
 
     for pattern in JUNK_PATTERNS:
         if re.match(pattern, text, re.IGNORECASE):
+            if (lenient and pattern in _LENIENT_GATED
+                    and len(text.split()) >= _LENIENT_MIN_WORDS):
+                continue
             return True
 
     for pattern in JUNK_CONTAINS:
@@ -273,7 +289,15 @@ def filter_texts(
     aggressive: bool = False,
     remove_urls: bool = True,
     deduplicate: bool = True,
+    strip_urls: bool = False,
+    lenient: bool = False,
+    keep=None,
 ) -> tuple[list[str], int, int, int, int]:
+    """Drop junk texts. All new behavior is opt-in and off by default:
+    `strip_urls` replaces a URL with <url> and keeps the sentence (only
+    URL-dominated lines still drop wholesale); `lenient` length-gates the
+    fragment-shaped junk patterns; `keep` is a predicate exempting a unit
+    from every junk test (it is still deduplicated)."""
     kept = []
     n_junk = 0
     n_url = 0
@@ -282,17 +306,22 @@ def filter_texts(
     seen_normalized = set()
 
     for text in texts:
-        if is_junk(text):
-            n_junk += 1
-            continue
+        protected = keep is not None and keep(text)
 
-        if remove_urls and contains_url(text):
-            n_url += 1
-            continue
+        if not protected:
+            if is_junk(text, lenient=lenient):
+                n_junk += 1
+                continue
 
-        if aggressive and is_aggressive_junk(text):
-            n_aggressive += 1
-            continue
+            if remove_urls and contains_url(text):
+                if not strip_urls or is_url_dominated(text):
+                    n_url += 1
+                    continue
+                text = _URL_PATTERN.sub(_url_placeholder, text)
+
+            if aggressive and is_aggressive_junk(text):
+                n_aggressive += 1
+                continue
 
         if deduplicate:
             norm = _normalize_for_dedup(text)

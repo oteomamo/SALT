@@ -32,7 +32,8 @@ from pathlib import Path
 import torch
 
 from salt.chat.kvtrace import KVTrace
-from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError, read_document,
+from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
+                             is_protected_unit, read_document,
                              split_document_sentences)
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
@@ -284,10 +285,10 @@ def print_models(active=None):
               f"[{m['dtype']}, {state}]")
 
 
-def add_to_trie(state, text, role, source=None, sentences=None):
+def add_to_trie(state, text, role, source=None, sentences=None, keep=None):
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
                                model=state.bge_model, device=state.bge_device,
-                               source=source, sentences=sentences)
+                               source=source, sentences=sentences, keep=keep)
 
 
 def ingest_doc(state, path):
@@ -302,7 +303,8 @@ def ingest_doc(state, path):
         return
     merging = p.name in state.trie.attached_sources
     info = add_to_trie(state, text, "doc", source=p.name,
-                       sentences=split_document_sentences(text))
+                       sentences=split_document_sentences(text),
+                       keep=is_protected_unit)
     if info["added"] == 0:
         if merging:
             print(f"{p.name}: nothing new to add (already attached).")
