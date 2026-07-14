@@ -27,6 +27,13 @@ Usage (installed as the `salt` console command, also runnable as
     salt --data DATA.jsonl --output OUT.jsonl \
         [--device cpu] [--token-budget-pct 0.20] [--synthetic | --code] \
         [--selector legacy]
+
+Single-document mode: `--doc paper.pdf` (or .txt/.md) replaces --data,
+routing the file through the chat-grade PDF pipeline (salt.chat.pdfio:
+float re-joins, caption-grouped tables/algorithms, protected headings and
+equations, URL-keeping filter) before the same trie selection; `--query`
+biases it. The --data dataset path is untouched by this mode.
+    salt --doc paper.pdf --query "average accuracy?" --output OUT.jsonl
 """
 import argparse
 import time
@@ -43,7 +50,14 @@ def build_parser():
         prog="salt",
         description="SALT compressor: keyword-trie selection "
                     "(coverage/CELF by default, --selector legacy available).")
-    p.add_argument("--data", type=str, required=True)
+    p.add_argument("--data", type=str,
+                   help="dataset JSONL (LongBench-style records)")
+    p.add_argument("--doc", type=str, metavar="PATH",
+                   help="single document (.pdf/.txt/.md and friends) instead "
+                        "of --data: ingested through the chat-grade PDF "
+                        "pipeline, then compressed by the same selector")
+    p.add_argument("--query", type=str, default="",
+                   help="[--doc] optional question to bias the selection")
     p.add_argument("--output", type=str, required=True)
     p.add_argument("--selector", choices=["coverage", "legacy"],
                    default="coverage",
@@ -123,17 +137,57 @@ def build_parser():
     return p
 
 
+def prep_doc_sentences(text, tokenizer, token_budget_pct):
+    """--doc counterpart of compressor.prep_prose_sentences: pre-segmented
+    chat-grade units (grouped tables/algorithms, re-joined floats) with the
+    structural keep-filter, instead of the eval clean+split+filter pass."""
+    from salt.chat.pdfio import is_protected_unit, split_document_sentences
+    from salt.engine.sentence_filter import filter_texts
+    from salt.engine.session_trie import _chunk_by_tokens
+
+    all_texts = []
+    for u in split_document_sentences(text):
+        u = " ".join(u.split())
+        if u:
+            all_texts.extend(_chunk_by_tokens(u, tokenizer))
+    sentences, *_ = filter_texts(all_texts, aggressive=True, remove_urls=True,
+                                 deduplicate=True, strip_urls=True,
+                                 lenient=True, keep=is_protected_unit)
+    orig_words = sum(len(s.split()) for s in all_texts)
+    word_budget = int(orig_words * token_budget_pct)
+    return sentences, all_texts, orig_words, word_budget
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.code and args.selector != "coverage":
         parser.error("--code is coverage-only; drop --selector legacy "
                      "(or drop --code).")
+    if bool(args.data) == bool(args.doc):
+        parser.error("exactly one of --data or --doc is required.")
+    if args.doc and (args.synthetic or args.code or args.fewshot):
+        parser.error("--doc is plain-prose only; drop --synthetic/--code/"
+                     "--fewshot.")
     dataset_modes.resolve_mode_defaults(args)   # sets args.mode + mode defaults
 
-    print(f"Loading: {args.data}")
-    samples = compressor.load_samples(args.data, args.max_samples)
-    print(f"Loaded {len(samples)} samples")
+    if args.doc:
+        from pathlib import Path
+        from salt.chat.pdfio import ExtractionError, read_document
+        print(f"Loading document: {args.doc}")
+        try:
+            text, n_pages = read_document(Path(args.doc).expanduser())
+        except (ExtractionError, OSError) as exc:
+            print(exc)
+            return 1
+        samples = [{"context": text, "input": args.query,
+                    "dataset": "doc", "_id": Path(args.doc).name}]
+        print(f"Loaded 1 document ({n_pages} pages)" if n_pages
+              else "Loaded 1 document")
+    else:
+        print(f"Loading: {args.data}")
+        samples = compressor.load_samples(args.data, args.max_samples)
+        print(f"Loaded {len(samples)} samples")
 
     print(f"Loading {args.model}...")
     tokenizer, model = compressor.load_bge(args.model, args.device)
@@ -236,9 +290,10 @@ def main(argv=None):
             print(f"  [{si+1}/{len(samples)}] {sample_id[:20]}..."
                   f" [SYNTH:no-units] falling through to standard pipeline")
 
-        # --- Few-shot exemplars (skipped for code mode): uniform bypass, or
-        # trie-driven exemplar selection under --fewshot. ---
-        fs = None if args.mode == "code" else detect_fewshot(context)
+        # --- Few-shot exemplars (skipped for code and --doc modes): uniform
+        # bypass, or trie-driven exemplar selection under --fewshot. ---
+        fs = (None if (args.mode == "code" or args.doc)
+              else detect_fewshot(context))
         if fs is not None and fs.detected and fs.strategy == "bypass":
             if args.fewshot:
                 result, meta_rec, info = compressor.compress_fewshot_units(
@@ -260,8 +315,11 @@ def main(argv=None):
                   f"| {orig_words}->{info['used_words']} ({info['final_pct']:.1%}) | {time.time()-t0:.1f}s")
             continue
 
-        # --- Standard path: prose or code sentence building ---
-        if args.mode == "code":
+        # --- Standard path: doc, prose or code sentence building ---
+        if args.doc:
+            sentences, all_texts, orig_words, word_budget = \
+                prep_doc_sentences(context, tokenizer, args.token_budget_pct)
+        elif args.mode == "code":
             sentences, all_texts, orig_words, word_budget = \
                 dataset_modes.prep_code_sentences(context, args.token_budget_pct)
         else:
