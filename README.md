@@ -252,6 +252,16 @@ Defaults: 20% token budget (`--token-budget-pct`), GPU compression
 (`--device cpu` runs without one), `BAAI/bge-small-en-v1.5` as the
 compression model (`--model`).
 
+Compress a single file instead of a dataset with `--doc` — a `.pdf`,
+`.txt`, or `.md` goes through the same PDF pipeline the chatbot uses
+(tables and pseudocode grouped under their captions, sentences re-joined
+across figure interruptions, headings and equations preserved), then
+through the same selector; `--query` biases the selection:
+
+```bash
+salt --doc paper.pdf --query "average accuracy on LongBench?" --output out/paper.jsonl
+```
+
 When a sample carries a query, its keywords and proper nouns are matched against
 the document as surprisal-weighted lexical terms (rare, discriminative terms get
 more mass) alongside a semantic term scored by BGE query-sentence cosine. Both
@@ -343,8 +353,15 @@ Attached PDFs are read whole (images ignored) and cleaned into proper
 sentences before they reach the trie: repeated headers/footers, page numbers,
 and ACL/NeurIPS-style margin line numbers are stripped, ligatures and
 hyphenation repaired, wrapped lines reflowed into paragraphs, and reference
-lists and table rows filtered — sentence boundaries never break inside
-citations. A `salt@` file becomes **its own branch** of the session trie,
+lists filtered — sentence boundaries never break inside citations.
+Paragraphs interrupted mid-sentence by a figure caption, table, or footnote
+are re-joined across the float instead of being severed. Tables and
+algorithm pseudocode are kept, grouped under their captions as
+`|`-separated rows so numbers stay readable against their column names;
+section headings, panel labels, and equations survive ingestion (big
+operators pypdf flattens to Latin look-alikes are restored where
+unambiguous), and a sentence mentioning a URL keeps its prose with the
+link as `<url>`. A `salt@` file becomes **its own branch** of the session trie,
 hanging off the conversation's root — so multiple attachments never crowd
 each other out, and the per-turn budget (default 20%) spreads across files
 and conversation themes. An `attach@` file skips the trie entirely: its full

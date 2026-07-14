@@ -217,7 +217,9 @@ def _title_ratio(words):
     major = [w for w in words if w.lower() not in _MINOR_WORDS]
     if not major:
         return 0.0
-    return sum(1 for w in major if w[:1].isupper() or w[:1].isdigit()) / len(major)
+    return sum(1 for w in major
+               if w[:1].isupper() or w[:1].isdigit()
+               or (w[:1] == "(" and w[1:2].isupper())) / len(major)
 
 
 def _is_heading(line):
@@ -261,7 +263,7 @@ def _is_table_line(line):
 _TERMINAL_RE = re.compile(r"[.!?][\"'”’)\]]*$")
 _FOOTNOTE_RE = re.compile(r"^\d{1,2}[A-Z][a-z]")
 _ALGO_STEP_RE = re.compile(
-    r"^\d{1,2}\s+(?:return\b|\S+\s*←|(?:if|for|while|else|end)\b)")
+    r"^\d{1,2}\s+(?:return\b|(?:\S+,\s*)*\S+\s*←|(?:if|for|while|else|end)\b)")
 
 
 def _next_nonblank(lines, i):
@@ -364,9 +366,13 @@ def _reflow_blocks(lines):
         # pypdf can glue a table's interior label onto the END of a body
         # line broken mid-word ("...evaluation met-KV Cache Methods (20%)"):
         # split the label off so the hyphenated word can re-join later, and
-        # emit it after the body part so it rides the table run it labels
+        # emit it after the body part so it rides the table run it labels.
+        # Only with a table row directly below — on ordinary text the same
+        # shape is a hyphenated wrap ("...Long-Context Compression") and
+        # splitting it scrambles titles and headings
         m = re.match(r"^(.*[a-z]-)((?:[A-Z(][\w()%.-]*(?:\s+|$)){2,6})$", line)
-        if m and (kind or "body") == "body":
+        if (m and (kind or "body") == "body"
+                and _is_table_line(_next_nonblank(lines, i))):
             label = m.group(2).strip()
             line = m.group(1)
             if not buf:
@@ -389,9 +395,12 @@ def _reflow_blocks(lines):
             if (line[:1].islower() or held[-1:] in ",;:"
                     or re.search(r"[A-Za-z]-$", held)):
                 # pypdf sometimes glues a short title-case label (a table
-                # section header) onto the resuming line; split it off so
-                # the hyphen-broken word underneath can re-join
-                if re.search(r"[A-Za-z]-$", held) and not line[:1].islower():
+                # section header) onto the line resuming BELOW table rows;
+                # split it off so the hyphen-broken word underneath can
+                # re-join. Only right after a table row — elsewhere the
+                # title-case prefix is real sentence content
+                if (re.search(r"[A-Za-z]-$", held) and not line[:1].islower()
+                        and blocks and blocks[-1][0] == "table"):
                     m = re.match(r"((?:[A-Z(][\w().%-]*\s+){1,6})([a-z].*)$",
                                  line)
                     if m:
