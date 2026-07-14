@@ -293,7 +293,8 @@ def filter_texts(
     lenient: bool = False,
     keep=None,
 ) -> tuple[list[str], int, int, int, int]:
-    """Drop junk texts. All new behavior is opt-in and off by default:
+    """Drop junk texts. `strip_urls`, `lenient`, and `keep` are opt-in and
+    off by default:
     `strip_urls` replaces a URL with <url> and keeps the sentence (only
     URL-dominated lines still drop wholesale); `lenient` length-gates the
     fragment-shaped junk patterns; `keep` is a predicate exempting a unit

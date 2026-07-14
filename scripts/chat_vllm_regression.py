@@ -60,9 +60,8 @@ def load_events(session_dir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--gpu", type=int, default=1,
-                    help="CUDA GPU index (default 1: GPU 0 often drives "
-                         "the display)")
+    ap.add_argument("--gpu", type=int, default=0,
+                    help="CUDA GPU index")
     args = ap.parse_args()
 
     # 1. off-path: the CLI must be importable without touching vllm

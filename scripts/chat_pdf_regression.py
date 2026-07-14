@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Regression harness for the PDF-ingestion fixes (post-v2.7.0 series).
+"""Regression harness for PDF ingestion (salt/chat/pdfio.py + the filter).
 
 Asserts, against both synthetic snippets and the staged SALT.pdf, that the
-known PDF-ingestion failure modes stay fixed:
+following invariants hold:
 
   reflow    paragraphs held across float interruptions (captions, tables,
             footnotes) and resumed below, incl. hyphen re-joins and pypdf's
@@ -15,7 +15,8 @@ known PDF-ingestion failure modes stay fixed:
   filter    chat-mode ingest keeps headings/equations/table units (keep
             predicate), keeps URL sentences with <url>, length-gates the
             citation-start and decimal-for junk patterns; the eval-mode
-            call signature behaves exactly as before
+            call signature (no keep/lenient/strip_urls) keeps the default
+            drop behavior
   math      Σ/∪ restored from pypdf look-alikes inside equations, spaced
             decimals don't split sentences, (N) equation tags reattach,
             dangling "=" units absorb their severed right-hand side
@@ -23,9 +24,10 @@ known PDF-ingestion failure modes stay fixed:
             when followed by citation-scented text; citation-title lines
             keep it latched; references never leak
 
-CPU-only (no models); the trie-level path is covered by the theme/shift
-harnesses. SALT.pdf checks run twice: pypdf line extraction is
-nondeterministic and the fixes must hold on every variant.
+CPU-only (no models); the trie-level path is covered by
+scripts/chat_theme_regression.py. SALT.pdf checks run twice: pypdf line
+extraction is nondeterministic and the assertions must hold on every
+variant.
 """
 
 import sys
@@ -133,7 +135,7 @@ def synthetic_checks():
     ]
     old, *_ = filter_texts(sample, aggressive=True, remove_urls=True,
                            deduplicate=True)
-    check("eval-mode filter call behaves exactly as before",
+    check("eval-mode filter call keeps the default drop behavior",
           old == ["A perfectly normal prose sentence that should survive "
                   "every filter today."])
     kept, *_ = filter_texts(sample, aggressive=True, remove_urls=True,

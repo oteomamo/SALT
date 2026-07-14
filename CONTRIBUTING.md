@@ -46,8 +46,8 @@ needs no extra install.
 
 ## Git identity
 
-Before pushing, make sure Git is set to an email GitHub can link to your account —
-agentic coding tools and automation don't always inherit your shell config:
+Before pushing, make sure Git is set to an email GitHub can link to your
+account:
 
 ```bash
 git config user.name

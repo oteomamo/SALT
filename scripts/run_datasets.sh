@@ -29,7 +29,7 @@ SALT_PY="${SALT_PY:-$(conda info --base)/envs/salt/bin/python}"
 MODEL="${MODEL:-meta-llama/Llama-3.1-8B-Instruct}"
 RUN_EVAL="${RUN_EVAL:-1}"
 EVAL_BACKEND="${EVAL_BACKEND:-vllm}"      # vllm | hf
-MAX_INPUT_LEN="${MAX_INPUT_LEN:-14000}"   # cap so the 24GB A5000 does not OOM on the 128k window
+MAX_INPUT_LEN="${MAX_INPUT_LEN:-14000}"   # cap so a 24 GB GPU does not OOM on the 128k window
 
 # The 16 English LongBench tasks (matches salt/datasets/download_longbench.py).
 LONGBENCH_EN=(narrativeqa qasper multifieldqa_en hotpotqa 2wikimqa musique

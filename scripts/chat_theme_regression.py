@@ -15,7 +15,7 @@ plumbing itself lives in salt/chat/cli.py, outside this harness). Asserts:
      point), and each resurfacing re-increments its coverage -- so at any
      single turn the two runs can tie or flip. The default half-life of 2
      is deliberately aggressive: on this 14-exchange transcript it keeps
-     the margin wide (16 vs 12 at last calibration); gentler values
+     the margin wide; gentler values
      (e.g. 8, the suggested saltChat feel) shrink it toward one sentence.
   2. The decayed run carries strictly less total conversation-coverage
      suppression than the legacy run (the mechanism itself).

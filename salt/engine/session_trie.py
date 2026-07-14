@@ -85,14 +85,14 @@ DRIFT_EMA_ALPHA = 0.3
 
 # On a shift turn only STALE suppression is damped: coverage keys that were
 # incremented within the last SHIFT_FRESH_WINDOW compress calls keep their
-# full counts. Scaling the whole seed uniformly was measured to hand the
-# freed budget straight back to the topic being pivoted AWAY from — its
+# full counts. Scaling the whole seed uniformly would hand the freed
+# budget straight back to the topic being pivoted AWAY from — its
 # suppression is the largest and freshest, so lifting it too cancels the
 # very discount that was keeping it out. Freshness, not source, is the
 # discriminator: a stale attachment branch is damped like a stale
 # conversation theme, so a pivot back to a document also resurfaces it.
 #
-# Known granularity limits of the freshness proxy (accepted for now):
+# Known granularity limits of the freshness proxy:
 # staleness is per trie NODE, not per topic — a long single-topic phase
 # leaves its own early, already-covered nodes stale, so the pivot-away turn
 # also briefly relaxes them; and the damped turn's own selections re-stamp
