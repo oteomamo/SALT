@@ -459,11 +459,20 @@ Active goals and next steps:
 
 - **Summarization coverage** - extend the theme-coverage objective to better
   serve summarization, where recall across many minor themes matters most.
-- **Document processing** - broaden the pipeline toward general document
-  ingestion beyond benchmark-style contexts.
-- **Chatbot mode** - a first version ships as [`saltChat`](#-chatbot-mode);
-  next: smarter prompt budgeting and bounded trie eviction.
-- **More datasets** - additional benchmarks in the results table.
+- **Near-duplicate memory gate** - an opt-in similarity gate at chat ingest,
+  so restatements and re-asked questions stop inflating keyword frequencies
+  and minting spurious theme branches.
+- **Provenance-aware memory** - turn, role, and time labels on conversation
+  excerpts plus a compact conversation map, so answers can cite who said
+  what and when.
+- **Background ingestion** - move the per-turn keyword and embedding passes
+  off the REPL's critical path, so long pasted messages never delay the
+  next prompt.
+- **Bounded long sessions** - mask-based (never-delete) eviction and
+  growth-stable theme bookkeeping, so long-running sessions stay fast and
+  exact as conversations and attachments accumulate.
+- **Persistent serving** - a `vllm serve` chat backend, so the KV cache
+  survives restarts and sessions resume warm.
 
 ## 🤝 Contributing
 
