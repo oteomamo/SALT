@@ -503,6 +503,12 @@ _REFS_HEAD_RE = re.compile(
     r"(?:references|bibliography|works cited)\s*:?\s*$", re.IGNORECASE)
 _CITATION_HINT_RE = re.compile(
     r"arXiv|In Proceedings|pages? \d+[-–]\d+|doi:|vol\.\s*\d+|[A-Z][a-z]+, [A-Z]\.")
+# unambiguous section/appendix numbering: exits the refs zone regardless of
+# what the following text mentions ("A"/"I" stay ambiguous — citation titles
+# start with them — and keep the citation-hint lookahead)
+_STRUCT_HEAD_RE = re.compile(
+    r"^(?:\d+(?:\.\d+)*\.?|[B-HJ-Z]\.?|[A-Z]\.\d+(?:\.\d+)*\.?"
+    r"|Appendix\s+[A-Z]\d*\.?)\s+\S")
 
 _TABLE_CAPTION_RE = re.compile(r"^Table\s+\d+\s*[:.]")
 TABLE_CHUNK_ROWS = 6        # rows per unit: 6 rows + caption stay well under
@@ -629,14 +635,19 @@ def split_document_sentences(text):
                 in_refs = True
                 continue
             if in_refs:
-                # a wrapped citation-title line can look like a heading; only
-                # leave the zone if what follows doesn't read as a citation
-                nxt = next((b for k2, b in blocks[bi + 1:bi + 3]
-                            if k2 != "table"), "")
-                if (_CITATION_HINT_RE.search(btext)
-                        or _CITATION_HINT_RE.search(nxt[:400])):
-                    continue
-                in_refs = False
+                if (_STRUCT_HEAD_RE.match(btext)
+                        or btext.rstrip(":").lower() in _KNOWN_HEADS):
+                    in_refs = False
+                else:
+                    # a wrapped citation-title line can look like a heading;
+                    # only leave when neither it nor what follows reads as
+                    # a citation
+                    nxt = next((b for k2, b in blocks[bi + 1:bi + 3]
+                                if k2 != "table"), "")
+                    if (_CITATION_HINT_RE.search(btext)
+                            or _CITATION_HINT_RE.search(nxt[:400])):
+                        continue
+                    in_refs = False
             out.append(btext)
             continue
         if bi in runs and not in_refs:
