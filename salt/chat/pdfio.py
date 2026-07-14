@@ -430,6 +430,26 @@ _ABBR_RE = re.compile(
 _INITIAL_RE = re.compile(r"\b([A-Z])\.(?=\s)")
 _PH = "\x00"  # placeholder for protected periods; never appears in text
 _BOUND_RE = re.compile(r"([.!?]+[\"'”’)\]]*)\s+(?=[\"'“‘(\[]*[A-Z0-9])")
+# pypdf writes a spurious space inside decimals ("16. 70 GB"); suppress the
+# false sentence boundary (years like "2019. 40 people" stay boundaries)
+_SPLIT_DECIMAL_RE = re.compile(r"(?<=\d)(?<!19\d\d)(?<!20\d\d)\.(?=\s+\d)")
+# an equation's "(N)" tag orphaned onto the following sentence
+_EQTAG_RE = re.compile(r"^\((\d{1,2})\)\s+(.*)$", re.S)
+
+# pypdf renders big operators as Latin look-alikes; restore the safe cases
+# inside equation-shaped units (Σ extracted as X or P, ∪ as [)
+_SIGMA_X_RE = re.compile(r"\bX\s+(?=\S*∈)")
+_SIGMA_P_RE = re.compile(r"\bP(?=\S{0,4}\s+\S{1,4}=)")
+_UNION_BRACKET_RE = re.compile(r"(?<![\w])\[\s+(?=\S*∈)")
+
+
+def _restore_math_glyphs(text):
+    if "=" not in text or not any(c in _MATH_CHARS for c in text):
+        return text
+    text = _SIGMA_X_RE.sub("Σ ", text)
+    text = _SIGMA_P_RE.sub("Σ", text)
+    text = _UNION_BRACKET_RE.sub("∪ ", text)
+    return text
 
 
 def _split_block_sentences(text):
@@ -439,6 +459,7 @@ def _split_block_sentences(text):
     parentheses/brackets (citation lists, asides) are skipped."""
     prot = _ABBR_RE.sub(lambda m: m.group(0).replace(".", _PH), text)
     prot = _INITIAL_RE.sub(lambda m: m.group(1) + _PH, prot)
+    prot = _SPLIT_DECIMAL_RE.sub(_PH, prot)
 
     # gate only on properly nested brackets: equal counts with a stray ")"
     # before "(" would otherwise leave depth stuck > 0 for the block's tail
@@ -462,7 +483,19 @@ def _split_block_sentences(text):
         sents.append(prot[prev:m.end(1)])
         prev = m.end()
     sents.append(prot[prev:])
-    return [s.replace(_PH, ".").strip() for s in sents if s.strip()]
+    out = [s.replace(_PH, ".").strip() for s in sents if s.strip()]
+    # an equation's "(N)" tag belongs to the sentence it closes, not the
+    # one that happens to follow it
+    fixed = []
+    for s in out:
+        m = _EQTAG_RE.match(s)
+        if m and fixed:
+            fixed[-1] += f" ({m.group(1)})"
+            s = m.group(2).strip()
+            if not s:
+                continue
+        fixed.append(s)
+    return fixed
 
 
 _REFS_HEAD_RE = re.compile(
@@ -617,7 +650,16 @@ def split_document_sentences(text):
         if kind == "bullet":
             btext = _BULLET_RE.sub("", btext, count=1)
         out.extend(_split_block_sentences(btext))
-    return out
+    # a short math fragment after a unit ending "=" is that equation's
+    # severed right-hand side — re-join rather than emit a dangling stub
+    merged = []
+    for u in out:
+        if (merged and merged[-1].rstrip().endswith("=")
+                and (len(u) < 30 or len(u.split()) < 5)):
+            merged[-1] += " " + u
+            continue
+        merged.append(u)
+    return [_restore_math_glyphs(u) for u in merged]
 
 
 # ── PDF extraction ──────────────────────────────────────────────────────────

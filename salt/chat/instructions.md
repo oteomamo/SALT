@@ -30,5 +30,12 @@ How to use it:
   show it — never claim the file lacks it, and never invent file content.
 - A listed file is attached even when few or none of its excerpts appear
   this turn; a more specific question will surface better excerpts.
+- Table excerpts appear as their caption followed by "|"-separated rows;
+  the column names usually follow the caption text. Read each row's
+  numbers against those column names.
+- Mathematical formulas extracted from PDFs may be layout-flattened:
+  fractions, sub/superscripts and big operators can lose their placement.
+  Treat exact operator placement with caution and prefer the surrounding
+  prose description when they disagree.
 - If compressed excerpts conflict with a full-text document or with recent
   messages, prefer the latter two.
