@@ -117,15 +117,16 @@ class ChatState:
         self.runner = runner
         self.trie = trie
         self.budget = args.budget_pct
-        # coverage-decay + shift-damping knobs live here and travel as
-        # per-call kwargs to compress(): SessionTrie.load() overwrites config
-        # values from the persisted config.json, so trie config can't carry
-        # launch flags
+        # coverage-decay, shift-damping + near-dup knobs live here and
+        # travel as per-call kwargs to compress()/add_turn(): SessionTrie
+        # .load() overwrites config values from the persisted config.json,
+        # so trie config can't carry launch flags
         self.coverage_half_life = args.coverage_half_life
         self.coverage_decay_docs = args.coverage_decay_docs
         self.shift_damping = args.shift_damping
         self.shift_margin = args.shift_margin
         self.shift_query_boost = args.shift_query_boost
+        self.dedup_cos = args.dedup_cos
         # tail policy: grow append-only to tail_max exchanges, then compact
         # to tail_min in ONE stroke. A rolling window (deque) would drop the
         # oldest exchange every turn and break the prompt prefix each time;
@@ -288,7 +289,8 @@ def print_models(active=None):
 def add_to_trie(state, text, role, source=None, sentences=None, keep=None):
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
                                model=state.bge_model, device=state.bge_device,
-                               source=source, sentences=sentences, keep=keep)
+                               source=source, sentences=sentences, keep=keep,
+                               dedup_cos=state.dedup_cos)
 
 
 def ingest_doc(state, path):
@@ -531,6 +533,16 @@ def handle_command(line, state):
             print(f"shift damping: x{state.shift_damping:g} stale-seed "
                   f"scale on shift turns, query boost "
                   f"x{state.shift_query_boost:g}")
+        # count read from the trie, not last_stats: suppression happens at
+        # ingest, and a resumed session carries its count even when the
+        # gate is off this launch
+        if state.dedup_cos:
+            print(f"near-dup gate: skip conversation sentences at cos >= "
+                  f"{state.dedup_cos:g}; {t.n_near_dups} suppressed so far "
+                  f"(near_dups.jsonl has each one)")
+        elif t.n_near_dups:
+            print(f"near-dup gate: off this launch; {t.n_near_dups} "
+                  f"sentences suppressed earlier in this session")
         if s.get("drift_cos") is not None:
             base = s.get("drift_ema")
             base_str = (f"{base:.3f}" if base is not None
@@ -795,6 +807,13 @@ def build_parser():
                    help="multiplier (>= 1) on the query-mass ratio during a "
                         "shift turn while --shift-damping is active "
                         "(default: 1.5)")
+    p.add_argument("--dedup-cos", type=float, default=None, metavar="COS",
+                   help="skip a new user/assistant sentence whose embedding "
+                        "cosine against an earlier conversation sentence of "
+                        "the same role reaches this threshold (e.g. 0.92), "
+                        "so restatements and re-asked questions stop "
+                        "inflating theme statistics (default: off; attached "
+                        "files are never gated; /stats counts suppressions)")
     return p
 
 
@@ -851,6 +870,14 @@ def main(argv=None):
             and args.shift_query_boost >= 1):
         print("--shift-query-boost must be a finite multiplier >= 1 "
               "(1 leaves the query mass unchanged).", file=sys.stderr)
+        return 1
+    # strictly inside (0, 1): 1.0 can never fire on distinct sentences
+    # (exact repeats are already hash-deduped) and BGE cosines run hot, so
+    # a threshold at or below 0 would suppress every conversation sentence
+    if args.dedup_cos is not None and not (
+            math.isfinite(args.dedup_cos) and 0 < args.dedup_cos < 1):
+        print("--dedup-cos must be a cosine threshold strictly between 0 "
+              "and 1 (e.g. 0.92).", file=sys.stderr)
         return 1
     if not (math.isfinite(args.gpu_mem_util) and 0 < args.gpu_mem_util <= 1):
         print("--gpu-mem-util must be a fraction in (0, 1].", file=sys.stderr)
