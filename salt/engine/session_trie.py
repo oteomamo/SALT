@@ -154,6 +154,7 @@ class SessionTrie:
         self.drift_ema = None           # EMA of query-vs-recent-conversation cosine
         self.coverage_turn = {}         # dict[key -> compress call of last increment]
         self._n_compress = 0            # completed compress() calls (freshness clock)
+        self.n_near_dups = 0            # sentences suppressed by the near-dup gate
 
         # --- counters / config ---
         self.dim = None
@@ -196,7 +197,7 @@ class SessionTrie:
         return hashlib.sha1(" ".join(text.lower().split()).encode("utf-8")).hexdigest()
 
     def add_turn(self, text, role="user", *, tokenizer, model, device="cpu",
-                 source=None, sentences=None, keep=None):
+                 source=None, sentences=None, keep=None, dedup_cos=None):
         """Split/filter/encode NEW text and append it to the growing corpus.
 
         Runs the dense-attention keyword pass and the BGE [CLS] embedding pass on
@@ -217,12 +218,30 @@ class SessionTrie:
         <url>) and length-gates fragment-shaped junk patterns; the eval
         compressor path (salt/engine/compressor.py) calls filter_texts with
         its own stricter defaults and is unaffected.
+
+        `dedup_cos` (opt-in, None = off) is a near-duplicate gate for
+        conversation ingest: a new user/assistant sentence whose BGE cosine
+        against an earlier conversation sentence of the SAME role reaches
+        the threshold is not appended. Restatements and re-asked questions
+        otherwise inflate keyword document frequency — the statistic that
+        mints themes and orders the trie — so boilerplate phrasing can
+        become a theme branch and steal selection budget. Same-role-only
+        means an assistant restatement can never suppress the user's own
+        words; doc-role and attachment (`source` set) ingest is exempt.
+        A suppressed sentence's hash is withdrawn from the cross-turn
+        dedupe — the text lives in the corpus nowhere, so an exact re-send
+        is judged afresh (re-gated and logged while the gate is on,
+        ingestible again once it is off or the threshold raised). The turn
+        still advances; each suppression is appended to `near_dups.jsonl`
+        in the session dir (with its cosine, so the threshold can be tuned
+        against real data) and counted in the persisted `n_near_dups`.
         """
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
         text = (text or "").strip()
         if sentences is None and not text:
-            return {"added": 0, "filtered": 0, "n_total": self.n_sentences,
+            return {"added": 0, "filtered": 0, "near_dups": 0,
+                    "n_total": self.n_sentences,
                     "turn": self._next_turn_index}
 
         if sentences is not None:
@@ -249,8 +268,8 @@ class SessionTrie:
         if not fresh:
             turn = self._next_turn_index
             self._next_turn_index += 1
-            return {"added": 0, "filtered": n_filtered, "n_total": self.n_sentences,
-                    "turn": turn}
+            return {"added": 0, "filtered": n_filtered, "near_dups": 0,
+                    "n_total": self.n_sentences, "turn": turn}
 
         # --- the two expensive model passes, on NEW sentences only ---
         attn = run_dense_attention(
@@ -267,6 +286,45 @@ class SessionTrie:
             raise ValueError(
                 f"Embedding dim {bge.shape[1]} != session dim {self.dim}. "
                 f"Clear the cache dir if changing the embedding model.")
+
+        # Near-duplicate gate — deliberately AFTER the model passes (the
+        # kept sentences' attention contexts must not change with the gate
+        # on) and BEFORE the appends. Conversation roles only: documents
+        # are legitimately repetitive, and gating them would silently
+        # thin the very content attachments exist to preserve.
+        n_near_dups = 0
+        if (dedup_cos is not None and source is None
+                and role in ("user", "assistant")):
+            keep_rows, records = self._near_dup_gate(fresh, bge, role,
+                                                     dedup_cos)
+            n_near_dups = len(records)
+            if n_near_dups:
+                self.n_near_dups += n_near_dups
+                self._log_near_dups(records)
+                # A suppressed sentence lives in the corpus NOWHERE, so its
+                # hash must be withdrawn from the cross-turn dedupe: an
+                # exact re-send is then judged afresh — re-gated (and
+                # logged, and counted) while the gate is on, ingestible
+                # again once it is off or the threshold raised. Leaving the
+                # hash would drop re-sends silently forever, even across
+                # launches with the gate disabled. The hash was added THIS
+                # call (a pre-existing hash never reaches the gate), so the
+                # withdrawal cannot expose an older corpus sentence.
+                for r in records:
+                    self._seen_hashes.discard(self._norm_hash(r["text"]))
+                fresh = [fresh[i] for i in keep_rows]
+                attn = [attn[i] for i in keep_rows]
+                bge = bge[keep_rows]
+        if not fresh:
+            # every sentence was a near-duplicate: same contract as the
+            # all-deduped path above (the turn still advances), but the
+            # persisted counter changed, so save
+            turn = self._next_turn_index
+            self._next_turn_index += 1
+            self.save()
+            return {"added": 0, "filtered": n_filtered,
+                    "near_dups": n_near_dups,
+                    "n_total": self.n_sentences, "turn": turn}
 
         turn = self._next_turn_index
         for i, sent in enumerate(fresh):
@@ -290,7 +348,50 @@ class SessionTrie:
         self._evict_if_needed()
         self.save()
         return {"added": len(fresh), "filtered": n_filtered,
+                "near_dups": n_near_dups,
                 "n_total": self.n_sentences, "turn": turn}
+
+    def _near_dup_gate(self, fresh, bge, role, threshold):
+        """Rows of `fresh` to keep, plus one log record per suppressed
+        sentence. A sentence is suppressed when its max BGE cosine against
+        prior conversation sentences of the SAME role — or an earlier kept
+        sentence of this same batch — reaches `threshold`. Keep-first inside
+        the batch mirrors the cross-turn direction: the first phrasing wins,
+        the restatement is the duplicate. Embeddings are L2-normalized, so
+        cosine is a plain dot product."""
+        prior_idx = [j for j in range(self.n_sentences)
+                     if self.sources[j] is None and self.roles[j] == role]
+        prior = self.embeddings[prior_idx] if prior_idx else None
+        keep_rows, records = [], []
+        for i, v in enumerate(bge):
+            best, matched = -1.0, None
+            if prior is not None:
+                sims = prior @ v
+                j = int(np.argmax(sims))
+                best, matched = float(sims[j]), self.texts[prior_idx[j]]
+            for r in keep_rows:
+                c = float(np.dot(bge[r], v))
+                if c > best:
+                    best, matched = c, fresh[r]
+            if matched is not None and best >= threshold:
+                records.append({"turn": self._next_turn_index, "role": role,
+                                "cos": round(best, 4), "text": fresh[i],
+                                "matched": matched})
+            else:
+                keep_rows.append(i)
+        return keep_rows, records
+
+    def _log_near_dups(self, records):
+        # Append-only diagnostic, one JSON line per suppressed sentence,
+        # so the threshold can be tuned against real suppressions before
+        # it is trusted. Best-effort: a logging failure must never take
+        # down ingest.
+        try:
+            with open(self._p("near_dups.jsonl"), "a", encoding="utf-8") as fh:
+                for r in records:
+                    fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     def _evict_if_needed(self):
         """v1 keeps everything; `max_sentences` is a hook for a future bounded
@@ -531,6 +632,7 @@ class SessionTrie:
             "drift_ema": self.drift_ema,
             "coverage_turn": self.coverage_turn,
             "n_compress": self._n_compress,
+            "n_near_dups": self.n_near_dups,
             "next_sentence_index": self._next_sentence_index,
             "next_turn_index": self._next_turn_index,
         }
@@ -562,6 +664,8 @@ class SessionTrie:
         self.drift_ema = state.get("drift_ema")
         self.coverage_turn = state.get("coverage_turn", {})
         self._n_compress = state.get("n_compress", 0)
+        # sessions saved before the near-dup gate have no counter
+        self.n_near_dups = state.get("n_near_dups", 0)
         self._next_sentence_index = state["next_sentence_index"]
         self._next_turn_index = state["next_turn_index"]
         self.dim = cfg.get("dim")
