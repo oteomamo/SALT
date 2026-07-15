@@ -85,6 +85,7 @@ so it is the fastest way to find where a change belongs:
 │ │ grows every turn   │  │ memory + question  │  │ model registry     │   │
 │ │ cross-turn coverage│  │ instructions.md    │  │ GPU-pinned models  │   │
 │ │ + half-life decay  │  │                    │  │                    │   │
+│ │ + near-dup gate    │  │                    │  │                    │   │
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
@@ -422,6 +423,16 @@ accumulated, while the topic being left stays suppressed. Nothing is
 forgotten - the persisted counts are rebuilt from genuine increments, so
 the damping never reaches disk.
 
+And a **repetition** gate. `--dedup-cos 0.92` skips a new conversation
+sentence whose embedding similarity to an earlier sentence of the same
+speaker reaches the threshold, so restatements and re-asked questions
+stop inflating the theme statistics - the original phrasing stays in
+memory, and the repeat still rides the verbatim tail. Only like
+suppresses like (an assistant restatement can never displace the user's
+own words), and attached files are never gated. `/stats` counts the
+suppressions; each one is logged with its similarity score so the
+threshold can be tuned before it is trusted.
+
 ## 🔬 Results
 
 SALT (coverage/CELF selector) on LongBench with Llama-3.1-8B-Instruct at a 20%
@@ -459,9 +470,6 @@ Active goals and next steps:
 
 - **Summarization coverage** - extend the theme-coverage objective to better
   serve summarization, where recall across many minor themes matters most.
-- **Near-duplicate memory gate** - an opt-in similarity gate at chat ingest,
-  so restatements and re-asked questions stop inflating keyword frequencies
-  and minting spurious theme branches.
 - **Provenance-aware memory** - turn, role, and time labels on conversation
   excerpts plus a compact conversation map, so answers can cite who said
   what and when.
