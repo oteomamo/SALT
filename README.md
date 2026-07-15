@@ -424,14 +424,9 @@ forgotten - the persisted counts are rebuilt from genuine increments, so
 the damping never reaches disk.
 
 And a **repetition** gate. `--dedup-cos 0.92` skips a new conversation
-sentence whose embedding similarity to an earlier sentence of the same
-speaker reaches the threshold, so restatements and re-asked questions
-stop inflating the theme statistics - the original phrasing stays in
-memory, and the repeat still rides the verbatim tail. Only like
-suppresses like (an assistant restatement can never displace the user's
-own words), and attached files are never gated. `/stats` counts the
-suppressions; each one is logged with its similarity score so the
-threshold can be tuned before it is trusted.
+sentence too similar to an earlier one from the same speaker, so
+restatements and re-asked questions stop inflating the theme statistics.
+Attached files are never gated. `/stats` counts the suppressions.
 
 ## 🔬 Results
 
