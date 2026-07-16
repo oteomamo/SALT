@@ -701,6 +701,14 @@ def chat_turn(state, line):
     # unconditional: gating this on memory/attachments flips the system
     # prompt after turn 1 and invalidates the whole KV prefix
     instructions = load_instructions()
+    # Every trie read of this turn is done (compress, memory block,
+    # inventory — the last two iterate trie.sources), so the user line's
+    # encode can run on the worker WHILE the model generates — and a turn
+    # whose generation fails no longer loses the user's message from
+    # memory. Sync mode keeps the post-reply position below: --sync-ingest
+    # must not grow time-to-first-token.
+    if not state.sync_ingest:
+        submit_ingest(state, line, "user")
     messages = build_messages(memory_block, state.tail, line,
                               state.full_attachments, inventory, instructions)
     # cleared per turn so an interrupt before tokenization can't record the
@@ -719,6 +727,12 @@ def chat_turn(state, line):
     print("\n" if not interrupted else "  [interrupted]\n")
 
     reply = "".join(pieces).strip()
+    # NO drain here: on a short reply after a huge paste it would put the
+    # remaining encode right back on the prompt path. The user-line job
+    # may still be running while the ledger below reads the trie — safe,
+    # because record_turn touches only texts/n_words at the pre-turn
+    # selected indices and appends never move existing rows; its failure,
+    # if any, surfaces at the next barrier.
     extra = dict(drift_extra or {})
     extra.update(getattr(state.runner, "last_engine_stats", None) or {})
     try:
@@ -731,10 +745,13 @@ def chat_turn(state, line):
             extra=extra or None)
     except Exception as exc:
         print(f"[kvtrace] recording failed for this turn: {exc}")
-    # both sides of the exchange enter the trie off the critical path:
-    # the prompt returns as soon as the jobs are queued, and the encode
-    # overlaps the user reading the reply and typing
-    submit_ingest(state, line, "user")
+    # the assistant side enters the trie off the critical path: the
+    # prompt returns as soon as the job is queued, and the encode
+    # overlaps the user reading the reply and typing (the user side is
+    # already in — it rode the generation window above). --sync-ingest
+    # runs both sides inline here, at the pre-feature position.
+    if state.sync_ingest:
+        submit_ingest(state, line, "user")
     if reply:
         submit_ingest(state, reply, "assistant")  # seam: --no-assistant-memory
         # tail only grows in pairs so strict chat templates always see

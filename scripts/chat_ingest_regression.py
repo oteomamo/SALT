@@ -5,9 +5,12 @@ saltChat's per-turn keyword/embedding passes off the REPL's critical path).
 Replays a scripted transcript through SessionTrie three ways — direct calls
 (the pre-feature code path), an inline `synchronous=True` worker
 (--sync-ingest), and a real background worker — mirroring saltChat's
-chat_turn ordering exactly: drain barrier, compress(), then the user and
-assistant ingests submitted as jobs (the CLI barrier placement lives in
-salt/chat/cli.py, outside this harness). The transcript includes a long
+chat_turn ordering exactly: drain barrier, compress(), the user line
+submitted BEFORE the model generates (background mode; its encode
+overlaps generation, with no drain until the next turn's barrier), then
+the assistant ingest queued behind it FIFO; sync and direct run both
+sides at the pre-feature post-reply position (the CLI barrier placement
+lives in salt/chat/cli.py, outside this harness). The transcript includes a long
 pasted message and an engineered restatement so the near-dup gate
 (--dedup-cos) is exercised THROUGH the worker. Asserts:
 
@@ -20,7 +23,10 @@ pasted message and an engineered restatement so the near-dup gate
      embeddings (byte-identical), persisted coverage, drift EMA,
      selections, and the near-dup gate's decisions (same suppression
      count >= 1, same near_dups.jsonl records). Backgrounding must be
-     invisible to selection: this is the feature's core invariant.
+     invisible to selection: this is the feature's core invariant. The
+     background run also re-reads every pre-turn row from the main
+     thread WHILE the user-line job is in flight — kvtrace.record_turn's
+     documented index-stable exception, pinned as an assert.
   3. Deferred failure reporting: a job that raises is captured, not
      thrown; the failure comes back at the NEXT drain with its label and
      error; later jobs still ran (the worker survived) and the queue
@@ -50,6 +56,15 @@ pasted message and an engineered restatement so the near-dup gate
   9. atexit safety net (subprocess): an exit path that never calls
      close() still drains the queue before the daemon worker dies — a
      soft crash cannot hard-kill a half-written ingest.
+ 10. Failed-generation survival: in chat_turn's background order the
+     user line is submitted before generation, so a turn whose
+     generation raises (aborting before the assistant ingest) still has
+     the user's message in the trie at the next barrier — the
+     lost-user-message half of the old compress-commits-early failure
+     mode is closed. (--sync-ingest keeps today's abort purely by
+     cli.py statement order — the post-reply submit is never reached —
+     which lives outside this harness's scope, with the barrier
+     placement.)
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes well under a minute. The checks are
@@ -132,15 +147,41 @@ def run_transcript(mode, cache_dir, tok, mdl, device, budget):
             comp = trie.compress(query=user, budget_pct=budget,
                                  tokenizer=tok, model=mdl, device=device)
             sel = list(comp["selected_sent_idx"])
-        if worker is None:
-            trie.add_turn(user, "user", **kw)
-            trie.add_turn(assistant, "assistant", **kw)
-        else:
+        if mode == "background":
+            # chat_turn's order: the user line rides the generation
+            # window (no drain in between — a drain there would put the
+            # tail of a big paste's encode back on the prompt path).
+            # WHILE the job is in flight, the main thread re-reads every
+            # pre-turn row exactly like kvtrace.record_turn does — the
+            # documented index-stable I2 exception, pinned here as an
+            # assert instead of assumed (encode takes long enough on CPU
+            # that these reads genuinely interleave with the append).
+            n_pre = trie.n_sentences
+            pre_rows = [(trie.texts[i], trie.n_words[i])
+                        for i in range(n_pre)]
+            worker.submit(lambda u=user: trie.add_turn(u, "user", **kw),
+                          label="user-message ingest", payload=user)
+            while True:
+                busy = worker.pending > 0
+                for i in range(n_pre):
+                    assert (trie.texts[i], trie.n_words[i]) == pre_rows[i], (
+                        "a pre-turn row changed while the user-line job "
+                        "was in flight - record_turn's index-stability "
+                        "assumption is broken")
+                if not busy:            # one full settled pass, then stop
+                    break
+            worker.submit(lambda a=assistant: trie.add_turn(a, "assistant",
+                                                            **kw),
+                          label="assistant-message ingest", payload=assistant)
+        elif mode == "sync":
             worker.submit(lambda u=user: trie.add_turn(u, "user", **kw),
                           label="user-message ingest", payload=user)
             worker.submit(lambda a=assistant: trie.add_turn(a, "assistant",
                                                             **kw),
                           label="assistant-message ingest", payload=assistant)
+        else:
+            trie.add_turn(user, "user", **kw)
+            trie.add_turn(assistant, "assistant", **kw)
         per_turn.append({"sel": sel})
     if worker is not None:
         assert worker.drain() == [], f"{mode}: failures at final drain"
@@ -207,6 +248,29 @@ def main():
               f"{len(TRANSCRIPT)} turns ({base.n_sentences} sentences, "
               f"{base.n_near_dups} near-dup suppressed, embeddings "
               f"byte-identical)")
+
+        # assert 10: failed-generation survival (background order; the
+        # sync abort is cli.py statement order, out of harness scope)
+        line = ("Please remember that the maintenance window moves to "
+                "Sunday night for the pumping stations.")
+        tg = SessionTrie("genfail", cache_dir=tmp, model_name=BGE_MODEL)
+        wg = IngestWorker(journal_path=tg.cache_dir / "f.jsonl")
+        kw = dict(tokenizer=tok, model=mdl, device=args.device,
+                  dedup_cos=DEDUP_COS)
+        try:
+            assert wg.drain() == []
+            wg.submit(lambda: tg.add_turn(line, "user", **kw),
+                      label="user-message ingest", payload=line)
+            raise RuntimeError("simulated generation failure")
+            # the abort skips the assistant submit, exactly like chat_turn
+        except RuntimeError:
+            pass
+        assert wg.drain() == []
+        assert any("maintenance window" in t for t in tg.texts), (
+            "the user line was lost on a failed generation - the "
+            "rides-the-generation-window fix does not hold")
+        wg.close()
+        print("failed generation: the user line survives the abort")
 
         # asserts 3+4: deferred failure report + journal recovery
         jdir = tmp / "failsession"
