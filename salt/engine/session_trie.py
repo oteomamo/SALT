@@ -155,6 +155,8 @@ class SessionTrie:
         self.coverage_turn = {}         # dict[key -> compress call of last increment]
         self._n_compress = 0            # completed compress() calls (freshness clock)
         self.n_near_dups = 0            # sentences suppressed by the near-dup gate
+        self.dirty = False              # mutations made under add_turn(save=False)
+                                        # not yet on disk; RAM-only, save() clears
 
         # --- counters / config ---
         self.dim = None
@@ -197,7 +199,8 @@ class SessionTrie:
         return hashlib.sha1(" ".join(text.lower().split()).encode("utf-8")).hexdigest()
 
     def add_turn(self, text, role="user", *, tokenizer, model, device="cpu",
-                 source=None, sentences=None, keep=None, dedup_cos=None):
+                 source=None, sentences=None, keep=None, dedup_cos=None,
+                 save=True):
         """Split/filter/encode NEW text and append it to the growing corpus.
 
         Runs the dense-attention keyword pass and the BGE [CLS] embedding pass on
@@ -235,6 +238,14 @@ class SessionTrie:
         still advances; each suppression is appended to `near_dups.jsonl`
         in the session dir (with its cosine, so the threshold can be tuned
         against real data) and counted in the persisted `n_near_dups`.
+
+        `save=False` skips the end-of-call `save()` and marks the trie
+        `dirty` instead, so a caller ingesting both sides of an exchange
+        can persist once per turn rather than once per call — full-state
+        writes are the whole corpus, so halving them matters in long
+        sessions. `dirty` clears on the next `save()` (a later add_turn,
+        `compress()`, or an explicit call); the caller owns making sure
+        one happens.
         """
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
@@ -321,7 +332,10 @@ class SessionTrie:
             # persisted counter changed, so save
             turn = self._next_turn_index
             self._next_turn_index += 1
-            self.save()
+            if save:
+                self.save()
+            else:
+                self.dirty = True
             return {"added": 0, "filtered": n_filtered,
                     "near_dups": n_near_dups,
                     "n_total": self.n_sentences, "turn": turn}
@@ -346,7 +360,10 @@ class SessionTrie:
                            else np.vstack([self.embeddings, bge]))
         self._next_turn_index += 1
         self._evict_if_needed()
-        self.save()
+        if save:
+            self.save()
+        else:
+            self.dirty = True
         return {"added": len(fresh), "filtered": n_filtered,
                 "near_dups": n_near_dups,
                 "n_total": self.n_sentences, "turn": turn}
@@ -640,6 +657,7 @@ class SessionTrie:
                            lambda p: p.write_bytes(pickle.dumps(state)))
         self._atomic_write(self._p("config.json"),
                            lambda p: p.write_text(json.dumps(self.config, indent=2)))
+        self.dirty = False
 
     def load(self):
         sp = self._p("state.pkl")

@@ -8,9 +8,11 @@ Replays a scripted transcript through SessionTrie three ways — direct calls
 chat_turn ordering exactly: drain barrier, compress(), the user line
 submitted BEFORE the model generates (background mode; its encode
 overlaps generation, with no drain until the next turn's barrier), then
-the assistant ingest queued behind it FIFO; sync and direct run both
-sides at the pre-feature post-reply position (the CLI barrier placement
-lives in salt/chat/cli.py, outside this harness). The transcript includes a long
+the assistant ingest queued behind it FIFO and one coalesced
+conditional save job per turn (each background ingest runs save=False);
+sync and direct run both sides at the pre-feature post-reply position
+with the pre-feature save-per-call durability (the CLI barrier
+placement lives in salt/chat/cli.py, outside this harness). The transcript includes a long
 pasted message and an engineered restatement so the near-dup gate
 (--dedup-cos) is exercised THROUGH the worker. Asserts:
 
@@ -65,6 +67,12 @@ pasted message and an engineered restatement so the near-dup gate
      cli.py statement order — the post-reply submit is never reached —
      which lives outside this harness's scope, with the barrier
      placement.)
+ 11. Save coalescing: the background run persists once per turn (a
+     queued conditional save after both save=False ingests) and its
+     reloaded on-disk session is IDENTICAL to the direct run's
+     per-call-saved one; the error turn of assert 10 — whose save job
+     was never queued — leaves the trie dirty and its line OFF disk,
+     and the boundary save (what exit and /new run) then persists it.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes well under a minute. The checks are
@@ -159,7 +167,8 @@ def run_transcript(mode, cache_dir, tok, mdl, device, budget):
             n_pre = trie.n_sentences
             pre_rows = [(trie.texts[i], trie.n_words[i])
                         for i in range(n_pre)]
-            worker.submit(lambda u=user: trie.add_turn(u, "user", **kw),
+            worker.submit(lambda u=user: trie.add_turn(u, "user",
+                                                       save=False, **kw),
                           label="user-message ingest", payload=user)
             while True:
                 busy = worker.pending > 0
@@ -171,8 +180,11 @@ def run_transcript(mode, cache_dir, tok, mdl, device, budget):
                 if not busy:            # one full settled pass, then stop
                     break
             worker.submit(lambda a=assistant: trie.add_turn(a, "assistant",
+                                                            save=False,
                                                             **kw),
                           label="assistant-message ingest", payload=assistant)
+            worker.submit(lambda: trie.save() if trie.dirty else None,
+                          label="session save")
         elif mode == "sync":
             worker.submit(lambda u=user: trie.add_turn(u, "user", **kw),
                           label="user-message ingest", payload=user)
@@ -249,6 +261,25 @@ def main():
               f"{base.n_near_dups} near-dup suppressed, embeddings "
               f"byte-identical)")
 
+        # assert 11 (persistence half): the coalesced background session
+        # reloads identical to the per-call-saved direct session
+        disk_direct = SessionTrie("ingest-direct", cache_dir=tmp,
+                                  model_name=BGE_MODEL)
+        for mode in ("sync", "background"):
+            rl = SessionTrie(f"ingest-{mode}", cache_dir=tmp,
+                             model_name=BGE_MODEL)
+            assert rl.is_loaded, f"{mode}: session did not reload"
+            for attr in ("texts", "roles", "turns", "sources", "n_words",
+                         "keyword_weights", "coverage", "drift_ema",
+                         "n_near_dups", "n_turns", "_seen_hashes"):
+                assert getattr(rl, attr) == getattr(disk_direct, attr), (
+                    f"{mode}: reloaded {attr} differs from the direct "
+                    f"run's - coalesced saving lost state")
+            assert np.array_equal(rl.embeddings, disk_direct.embeddings), (
+                f"{mode}: reloaded embeddings differ from the direct run's")
+        print("persistence: coalesced background disk state reloads "
+              "identical to per-call-saved direct")
+
         # assert 10: failed-generation survival (background order; the
         # sync abort is cli.py statement order, out of harness scope)
         line = ("Please remember that the maintenance window moves to "
@@ -259,18 +290,34 @@ def main():
                   dedup_cos=DEDUP_COS)
         try:
             assert wg.drain() == []
-            wg.submit(lambda: tg.add_turn(line, "user", **kw),
+            wg.submit(lambda: tg.add_turn(line, "user", save=False, **kw),
                       label="user-message ingest", payload=line)
             raise RuntimeError("simulated generation failure")
-            # the abort skips the assistant submit, exactly like chat_turn
+            # the abort skips the assistant submit AND the coalesced
+            # save job, exactly like chat_turn
         except RuntimeError:
             pass
         assert wg.drain() == []
         assert any("maintenance window" in t for t in tg.texts), (
             "the user line was lost on a failed generation - the "
             "rides-the-generation-window fix does not hold")
+        # assert 11 (error-turn half): the ingest is RAM-only and marked
+        # dirty; the boundary save persists it
+        assert tg.dirty, "an unsaved error turn did not mark the trie dirty"
+        ghost = SessionTrie("genfail", cache_dir=tmp, model_name=BGE_MODEL)
+        assert not ghost.is_loaded, (
+            "an unsaved error turn already reached disk - the save=False "
+            "path is writing")
+        tg.save()                       # what exit and /new run when dirty
+        assert not tg.dirty
+        recovered = SessionTrie("genfail", cache_dir=tmp,
+                                model_name=BGE_MODEL)
+        assert recovered.is_loaded and any(
+            "maintenance window" in t for t in recovered.texts), (
+            "the boundary save did not persist the error turn's ingest")
         wg.close()
-        print("failed generation: the user line survives the abort")
+        print("failed generation: the user line survives the abort, "
+              "dirty until the boundary save persists it")
 
         # asserts 3+4: deferred failure report + journal recovery
         jdir = tmp / "failsession"
@@ -370,10 +417,11 @@ def main():
             "drain did not reset a leaked pending counter")
         wp.close()
 
-        # assert 8: bookkeeping on the identity runs
-        for mode in ("sync", "background"):
+        # assert 8: bookkeeping on the identity runs (background queues a
+        # third job per turn: the coalesced session save)
+        for mode, per_turn in (("sync", 2), ("background", 3)):
             wk = runs[mode][2]
-            assert wk.stats["jobs"] == 2 * len(TRANSCRIPT) \
+            assert wk.stats["jobs"] == per_turn * len(TRANSCRIPT) \
                 and wk.stats["failures"] == 0, (
                 f"{mode}: stats disagree with the transcript "
                 f"({wk.stats['jobs']} jobs)")
