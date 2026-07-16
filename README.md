@@ -86,6 +86,7 @@ so it is the fastest way to find where a change belongs:
 │ │ cross-turn coverage│  │ instructions.md    │  │ GPU-pinned models  │   │
 │ │ + half-life decay  │  │                    │  │                    │   │
 │ │ + near-dup gate    │  │                    │  │                    │   │
+│ │ + background ingest│  │                    │  │                    │   │
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
@@ -144,6 +145,7 @@ Where each stage lives:
 | Few-shot bypass (`trec`, `triviaqa`, `samsum`) | `salt/engine/fewshot.py` |
 | Dataset adapters (`--synthetic`, `--code`) | `salt/engine/dataset_modes.py` |
 | Multi-turn session store | `salt/engine/session_trie.py` |
+| Background ingest worker (chat) | `salt/chat/ingest.py` |
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat` |
@@ -428,6 +430,20 @@ sentence too similar to an earlier one from the same speaker, so
 restatements and re-asked questions stop inflating the theme statistics.
 Attached files are never gated. `/stats` counts the suppressions.
 
+And ingestion runs **in the background**. Indexing a message — the
+keyword and embedding passes — happens on a worker thread, off the
+REPL's critical path: your message is indexed while the model writes its
+reply, the reply is indexed while you read it, and a long pasted message
+never delays the next prompt. Selection is unaffected — every turn still
+sees the fully ingested conversation, because the REPL waits for the
+worker before it reads anything — and the ingested session is persisted
+once per turn instead of once per message. If an ingest ever fails, the
+message text is preserved in `ingest_failures.jsonl` in the session dir
+and the error is reported at the next prompt; `/stats` shows the work
+kept off the prompt path. A side benefit: a turn whose generation fails
+no longer loses your message from the conversation memory.
+`--sync-ingest` restores the old inline behavior.
+
 ## 🔬 Results
 
 SALT (coverage/CELF selector) on LongBench with Llama-3.1-8B-Instruct at a 20%
@@ -468,9 +484,6 @@ Active goals and next steps:
 - **Provenance-aware memory** - turn, role, and time labels on conversation
   excerpts plus a compact conversation map, so answers can cite who said
   what and when.
-- **Background ingestion** - move the per-turn keyword and embedding passes
-  off the REPL's critical path, so long pasted messages never delay the
-  next prompt.
 - **Bounded long sessions** - mask-based (never-delete) eviction and
   growth-stable theme bookkeeping, so long-running sessions stay fast and
   exact as conversations and attachments accumulate.
