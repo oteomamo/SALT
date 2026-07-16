@@ -111,8 +111,9 @@ class IngestWorker:
 
     def drain(self):
         """Block until every submitted job has finished, then return the
-        failure records accumulated since the last drain (already
-        journaled; the caller only needs to report them).
+        failure records accumulated since the last drain (journaled
+        best-effort — each record's `journaled` field says whether its
+        line reached the file; the caller only needs to report them).
 
         This is THE barrier: main-thread code may touch the state jobs
         mutate only after a drain. `Queue.join()` is task_done-exact and
@@ -185,7 +186,7 @@ class IngestWorker:
                     self._failures.append(
                         {"ts": "", "label": label, "payload": payload,
                          "error": "failure recording itself failed",
-                         "traceback": ""})
+                         "traceback": "", "journaled": False})
         finally:
             with self._lock:
                 self.stats["busy_s"] += time.monotonic() - t0
@@ -206,21 +207,26 @@ class IngestWorker:
         # never cost the drain() report too. `deliver=False` (sync mode)
         # journals and counts only — the exception itself propagates, so
         # queuing it for drain would report the same failure twice.
+        # Setting `journaled` after the append is safe: drain() cannot
+        # return this record before the job's task_done(), which follows
+        # this whole method.
         with self._lock:
             self.stats["failures"] += 1
             if deliver:
                 self._failures.append(rec)
-        self._journal(rec)
+        rec["journaled"] = self._journal(rec)
 
     def _journal(self, rec):
         # Best-effort, like SessionTrie's near-dup log: journaling must
         # never take down the worker — Exception also covers a payload
         # json can't serialize and MemoryError/RecursionError on a
-        # pathological one.
+        # pathological one. Returns whether the line reached the file, so
+        # the failure report can say "text preserved" truthfully.
         if self.journal_path is None:
-            return
+            return False
         try:
             with open(self.journal_path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            return True
         except Exception:
-            pass
+            return False

@@ -31,6 +31,7 @@ from pathlib import Path
 
 import torch
 
+from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
                              is_protected_unit, read_document,
@@ -127,6 +128,7 @@ class ChatState:
         self.shift_margin = args.shift_margin
         self.shift_query_boost = args.shift_query_boost
         self.dedup_cos = args.dedup_cos
+        self.sync_ingest = args.sync_ingest
         # tail policy: grow append-only to tail_max exchanges, then compact
         # to tail_min in ONE stroke. A rolling window (deque) would drop the
         # oldest exchange every turn and break the prompt prefix each time;
@@ -140,6 +142,12 @@ class ChatState:
         self.load_full_attachments()
         self.kvtrace = KVTrace(self.trie.cache_dir,
                                self.trie.conversation_id)
+        # per-turn conversation ingest runs on this worker, off the REPL's
+        # critical path; every command dispatch drains it first, so no
+        # reader ever sees a trie with ingest in flight
+        self.ingest = IngestWorker(
+            journal_path=self.trie.cache_dir / "ingest_failures.jsonl",
+            synchronous=args.sync_ingest)
 
     def compact_tail(self):
         """Cut the tail back to tail_min exchanges once it exceeds tail_max.
@@ -149,9 +157,22 @@ class ChatState:
             del self.tail[: len(self.tail) - 2 * self.tail_min]
 
     def new_trie(self, conversation_id):
-        self.trie = SessionTrie(conversation_id, cache_dir=SESSIONS_DIR,
-                                model_name=BGE_MODEL,
-                                budget_pct_default=self.budget)
+        # Build BOTH replacements before touching the live pair: /new keeps
+        # the current session when a ctor raises (corrupt state.pkl on
+        # resume, thread-start failure), and a closed worker or half-swapped
+        # trie would brick ingest for the session that survived. The
+        # dispatch barrier has already drained, so the close is instant and
+        # no job can be aimed at a swapped-out (or, on /clear, wiped)
+        # session dir.
+        trie = SessionTrie(conversation_id, cache_dir=SESSIONS_DIR,
+                           model_name=BGE_MODEL,
+                           budget_pct_default=self.budget)
+        worker = IngestWorker(
+            journal_path=trie.cache_dir / "ingest_failures.jsonl",
+            synchronous=self.sync_ingest)
+        self.ingest.close()
+        self.trie = trie
+        self.ingest = worker
         self.tail.clear()
         self.last_stats = None
         self.load_full_attachments()
@@ -291,6 +312,38 @@ def add_to_trie(state, text, role, source=None, sentences=None, keep=None):
                                model=state.bge_model, device=state.bge_device,
                                source=source, sentences=sentences, keep=keep,
                                dedup_cos=state.dedup_cos)
+
+
+def submit_ingest(state, text, role):
+    """Queue one side of an exchange for background ingest; the prompt
+    returns while the encode runs. With --sync-ingest this executes
+    inline and a failure raises here — exactly the direct add_to_trie
+    call it replaces."""
+    state.ingest.submit(lambda: add_to_trie(state, text, role),
+                        label=f"{role}-message ingest", payload=text)
+
+
+def report_ingest_failures(failures):
+    # the worker never prints (it would corrupt the prompt line), so the
+    # report lands here, at the first barrier after the failure; the
+    # journal write is best-effort, so say only what actually happened
+    for f in failures:
+        kept = ("message text kept in ingest_failures.jsonl"
+                if f.get("journaled") else
+                "the journal write ALSO failed, text not preserved")
+        print(f"[ingest] {f['label']} failed: {f['error']} - {kept}")
+
+
+def close_ingest(state):
+    """Drain + stop the worker at exit, surviving an impatient Ctrl-C:
+    the first interrupt reports what is still queued (the worker's
+    atexit hook keeps finishing it while the interpreter exits); only
+    another Ctrl-C there abandons the queue."""
+    try:
+        report_ingest_failures(state.ingest.close())
+    except KeyboardInterrupt:
+        print(f"\n[ingest] interrupted - {state.ingest.pending} queued "
+              f"job(s) still finishing on exit")
 
 
 def ingest_doc(state, path):
@@ -543,6 +596,20 @@ def handle_command(line, state):
         elif t.n_near_dups:
             print(f"near-dup gate: off this launch; {t.n_near_dups} "
                   f"sentences suppressed earlier in this session")
+        ing = state.ingest.stats
+        fail_note = (f", {ing['failures']} failed (ingest_failures.jsonl)"
+                     if ing["failures"] else "")
+        if state.sync_ingest:
+            print(f"ingest: synchronous (--sync-ingest) - {ing['jobs']} "
+                  f"jobs, {ing['busy_s']:.1f}s inline{fail_note}")
+        else:
+            # pending is 0 at any prompt (the dispatch barrier drained);
+            # shown only if a future call site reads stats mid-turn
+            print(f"ingest: background - {ing['jobs']} jobs, "
+                  f"{ing['busy_s']:.1f}s of encode kept off the prompt "
+                  f"path{fail_note}"
+                  + (f", {state.ingest.pending} in flight"
+                     if state.ingest.pending else ""))
         if s.get("drift_cos") is not None:
             base = s.get("drift_ema")
             base_str = (f"{base:.3f}" if base is not None
@@ -603,6 +670,11 @@ def chat_turn(state, line):
     if state.runner is None:
         print("No chat model loaded - /model <name> to load one.")
         return
+    # Barrier before this turn's trie reads (compress, memory block,
+    # inventory): the previous turn's ingest normally finished while the
+    # user typed, so this is a no-op wait — but correctness never depends
+    # on that timing.
+    report_ingest_failures(state.ingest.drain())
     ts_start = datetime.now().isoformat(timespec="seconds")
     # trie holds turns 1..N-1 here (this message is added after generation):
     # the verbatim tail covers recent turns, the trie covers older ones
@@ -659,9 +731,12 @@ def chat_turn(state, line):
             extra=extra or None)
     except Exception as exc:
         print(f"[kvtrace] recording failed for this turn: {exc}")
-    add_to_trie(state, line, "user")
+    # both sides of the exchange enter the trie off the critical path:
+    # the prompt returns as soon as the jobs are queued, and the encode
+    # overlaps the user reading the reply and typing
+    submit_ingest(state, line, "user")
     if reply:
-        add_to_trie(state, reply, "assistant")  # seam: --no-assistant-memory
+        submit_ingest(state, reply, "assistant")  # seam: --no-assistant-memory
         # tail only grows in pairs so strict chat templates always see
         # alternating roles (a replyless user turn still reaches the trie)
         state.tail.append({"role": "user", "content": line})
@@ -708,6 +783,10 @@ def repl(state):
         if not line:
             continue
         try:
+            # one barrier ahead of EVERY dispatch: commands and turns only
+            # ever see a trie with no ingest in flight (normally a no-op —
+            # the queue emptied while the user typed)
+            report_ingest_failures(state.ingest.drain())
             if line.startswith("salt@"):
                 handle_salt_at(state, line)
             elif line.startswith("attach@"):
@@ -722,7 +801,6 @@ def repl(state):
         except Exception as exc:
             # the REPL must survive any command/turn failure
             print(f"[error] {type(exc).__name__}: {exc}")
-    print(f"Session saved under {state.trie.cache_dir}")
 
 
 def build_parser():
@@ -814,6 +892,13 @@ def build_parser():
                         "so restatements and re-asked questions stop "
                         "inflating theme statistics (default: off; attached "
                         "files are never gated; /stats counts suppressions)")
+    p.add_argument("--sync-ingest", action="store_true",
+                   help="run the per-turn keyword/embedding ingest on the "
+                        "REPL thread as before, instead of in the "
+                        "background: the prompt then waits for it and an "
+                        "ingest error raises at the call site (default: "
+                        "ingest runs on a background worker and long "
+                        "pasted messages never delay the next prompt)")
     return p
 
 
@@ -940,7 +1025,14 @@ def main(argv=None):
     for doc in args.doc:
         ingest_doc(state, doc)
 
-    repl(state)
+    try:
+        repl(state)
+    finally:
+        # every exit path — Ctrl-D, /exit, an escaping error — finishes
+        # the queued ingest before the interpreter starts dying; the
+        # worker's own atexit hook covers only paths that skip this
+        close_ingest(state)
+        print(f"Session saved under {state.trie.cache_dir}")
     return 0
 
 
