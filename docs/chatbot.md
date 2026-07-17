@@ -40,6 +40,30 @@ leaving room for the BGE encoder on the same GPU). `--max-model-len` caps
 the context window when the model's full window would not fit in the KV
 cache. `/model` switching works on both backends.
 
+## Persistent serving
+
+Both backends above load the model inside the saltChat process, so the
+model and its cache disappear when you exit. `saltServe` starts the model
+as its own long-lived server instead:
+
+```bash
+saltServe qwen05 --gpu 1
+```
+
+The command resolves the same registry entry, prints the full `vllm serve`
+invocation it runs, and serves an OpenAI compatible API on
+`http://127.0.0.1:8000` (change it with `--port`). The server keeps the
+model loaded and its prefix cache warm across saltChat runs. Stop it with
+Ctrl-C when you want the GPU back.
+
+`--gpu-mem-util` sets the share of GPU memory the server claims (default
+`0.90`, the BGE encoder no longer shares its GPU). On cards older than
+Ampere the launcher serves `bfloat16` models in `float16`, which those
+GPUs require. `--vllm-bin` points at another environment's vllm, so the
+server can run whichever vLLM release fits your hardware while the SALT
+install stays unchanged. Anything after `--` is passed to `vllm serve`
+unchanged.
+
 ## REPL commands
 
 | Command | Effect |

@@ -203,16 +203,18 @@ hf auth login
 
 Or skip the CLI and export the token directly: `export HF_TOKEN=hf_...`.
 
-**5. (Optional) vLLM backend.** `eval.py` defaults to vLLM, and
-`saltChat --backend vllm` uses it for prefix caching. Install it into the
-same `salt` env - there is only one environment:
+**5. (Optional) vLLM backend.** `eval.py` defaults to vLLM,
+`saltChat --backend vllm` uses it for prefix caching, and `saltServe`
+launches a persistent model server with it. Install it into the `salt`
+env:
 
 ```bash
 pip install vllm==0.11.0
 ```
 
 Skip this and run `eval.py --backend hf` for a portable run that needs no
-vLLM. `saltChat` already defaults to its HF backend.
+vLLM. `saltChat` already defaults to its HF backend. `saltServe` can also
+run a vLLM installed in a separate environment through `--vllm-bin`.
 
 > `bash scripts/setup_env.sh` does steps 2–3 in one shot (add `WITH_VLLM=1` to
 > include vLLM).

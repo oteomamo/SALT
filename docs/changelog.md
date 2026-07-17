@@ -11,6 +11,10 @@ pasted messages never delay the next prompt. Failed ingests keep the message
 text in `ingest_failures.jsonl`. The session is saved once per turn instead
 of once per message. `--sync-ingest` restores the old inline behavior.
 
+Patch releases: 2.9.4 adds `saltServe`, a command that launches a
+persistent `vllm serve` process from registered weights, so the model and
+its cache outlive individual chat sessions.
+
 ## 2.8.0 (2026-07-15)
 
 Near-duplicate memory gate. Opt-in `--dedup-cos` skips a new conversation
