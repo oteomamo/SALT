@@ -841,7 +841,7 @@ every turn (install vLLM first, see
 <p><code>--gpu-mem-util</code> caps the engine's share of GPU memory (default <code>0.85</code>,
 leaving room for the BGE encoder on the same GPU). <code>--max-model-len</code> caps
 the context window when the model's full window would not fit in the KV
-cache. <code>/model</code> switching works on both backends.</p>
+cache. <code>/model</code> switching works on both in-process backends.</p>
 <h2 id="persistent-serving">Persistent serving</h2>
 <p>Both backends above load the model inside the saltChat process, so the
 model and its cache disappear when you exit. <code>saltServe</code> starts the model
@@ -860,6 +860,17 @@ GPUs require. <code>--vllm-bin</code> points at another environment's vllm, so t
 server can run whichever vLLM release fits your hardware while the SALT
 install stays unchanged. Anything after <code>--</code> is passed to <code>vllm serve</code>
 unchanged.</p>
+<p>Connect saltChat to the running server:</p>
+<div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen05<span class="w"> </span>--backend<span class="w"> </span>vllm-serve
+</code></pre></div>
+<p><code>--server-url</code> points at a server on another port or machine (default
+<code>http://127.0.0.1:8000</code>). The prompt is rendered and tokenized in
+saltChat itself, so the text the server caches is exactly the text the
+kv ledger counts. Exit, come back later, resume the conversation by its
+id: the model is still loaded and the stable prompt head is still
+cached, so the first turn only prefills what changed. One server serves
+one model, so switching with <code>/model</code> needs a second server on another
+port. <code>/stats</code> shows the measured reuse every turn.</p>
 <h2 id="repl-commands">REPL commands</h2>
 <table>
 <thead>

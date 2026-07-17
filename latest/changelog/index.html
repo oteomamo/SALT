@@ -912,7 +912,10 @@ text in <code>ingest_failures.jsonl</code>. The session is saved once per turn i
 of once per message. <code>--sync-ingest</code> restores the old inline behavior.</p>
 <p>Patch releases: 2.9.4 adds <code>saltServe</code>, a command that launches a
 persistent <code>vllm serve</code> process from registered weights, so the model and
-its cache outlive individual chat sessions.</p>
+its cache outlive individual chat sessions. 2.9.5 adds
+<code>saltChat --backend vllm-serve</code> with <code>--server-url</code>, the client side of
+persistent serving, so a chat can connect to the running server and
+<code>/stats</code> reports the server's measured prefix-cache reuse.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
