@@ -1,3 +1,5 @@
+<div align="center">
+
 # SALT
 
 <p align="center">
@@ -5,6 +7,12 @@
 </p>
 
 ## Salience-Aware Lexical Trie for Long-Context Compression
+
+[![][docs-shield]][docs-link]
+[![][version-shield]][release-link]
+[![][license-shield]][license-link]
+
+</div>
 
 SALT shrinks a long document down to a fixed size before it is sent to a language
 model, keeping the sentences that carry the most information. It works with any
@@ -26,9 +34,6 @@ before choosing sentences, so minor themes keep their share instead of being
 crowded out. Because the theme map is built once, it can be reused across the
 turns of a conversation without re-reading the document.
 
-[![][docs-shield]][docs-link]
-[![][version-shield]][release-link]
-[![][license-shield]][license-link]
 
 ## 📑 Table of contents
 
