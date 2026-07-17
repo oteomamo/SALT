@@ -7,24 +7,30 @@ the serve seam end to end:
   1. Off-path: importing the CLI imports neither vllm nor the serve client.
   2. Launcher refusals: unknown model, bad --vllm-bin, and a bad port fail
      with actionable messages before anything starts.
-  3. saltServe boots the server: /v1/models answers under the alias and
+  3. Stub fault injection (a local fake server, no GPU): mid-stream error
+     frames surface as errors instead of a silently truncated reply,
+     U+2028-class codepoints stream intact, closing the stream severs the
+     request server-side, and an over-window prompt sends exactly the
+     last budget token ids.
+  4. saltServe boots the server: /v1/models answers under the alias and
      carries the context window.
-  4. Client errors: a dead port and a wrong model fail with messages that
+  5. Client errors: a dead port and a wrong model fail with messages that
      name the fix.
-  5. Prompt parity: the serve client's post-truncation token counts match a
+  6. Prompt parity: the serve client's post-truncation token counts match a
      direct local render, including the over-window keep-the-tail path,
      and the server's usage echoes the same count (replies are never
      compared).
-  6. Streaming + abort: pieces arrive incrementally, and closing the
+  7. Streaming + abort: pieces arrive incrementally, and closing the
      stream mid-reply leaves the client and the server healthy.
-  7. APC over the wire: a scripted REPL session records engine_backend
+  8. APC over the wire: a scripted REPL session records engine_backend
      vllm-serve with real cache hits from turn 2, format v1, additive keys.
-  8. Warm resume: a second REPL process on the same conversation renders
-     its restored tail (larger first prompt) and is served mostly from the
-     still-warm cache; tail.json holds the alternating exchanges.
-  9. Resume stability: attachment order and the saved tail reload exactly;
+  9. Warm resume: a second REPL process on the same conversation renders
+     its restored tail (the first prompt grows by at least the tail),
+     served mostly from the still-warm cache; tail.json holds the
+     alternating exchanges.
+ 10. Resume stability: attachment order and the saved tail reload exactly;
      malformed tail files fall back to the empty-tail behavior.
- 10. The server outlives its clients: after every client exited,
+ 11. The server outlives its clients: after every client exited,
      /v1/models still answers.
 
 Skips with exit 0 when vLLM, a GPU, the qwen05 registry entry, or the
@@ -39,12 +45,57 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import requests
 
 MODEL_ALIAS = "qwen05"
+
+
+class _StubHandler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def _frame(self, obj):
+        self.wfile.write(b"data: " + json.dumps(obj, ensure_ascii=False)
+                         .encode("utf-8") + b"\n\n")
+        self.wfile.flush()
+
+    def do_GET(self):
+        body = json.dumps({"data": [{"id": MODEL_ALIAS,
+                                     "max_model_len": 4096}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        req = json.loads(self.rfile.read(
+            int(self.headers.get("Content-Length", 0))))
+        self.server.last_prompt = req.get("prompt")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        mode = self.server.mode
+        if mode == "unicode-then-error":
+            self._frame({"choices": [{"text": "line1\u2028line2"}]})
+            self._frame({"error": {"message": "engine boom"}})
+            self.wfile.write(b"data: [DONE]\n\n")
+        elif mode == "echo":
+            self._frame({"choices": [{"text": "ok"}]})
+            self._frame({"usage": {"prompt_tokens": len(req["prompt"])},
+                         "choices": []})
+            self.wfile.write(b"data: [DONE]\n\n")
+        elif mode == "endless":
+            try:
+                for i in range(300):
+                    self._frame({"choices": [{"text": f"t{i} "}]})
+                    time.sleep(0.05)
+            except (BrokenPipeError, ConnectionResetError):
+                self.server.aborted.set()
 
 if not __debug__:
     sys.exit("chat_serve_regression is assert-based; run without -O")
@@ -116,6 +167,15 @@ def main():
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(("127.0.0.1", args.port))
     except OSError:
+        try:
+            resp = requests.get(f"{url}/v1/models", timeout=3)
+            stale = (resp.status_code == 200
+                     and resp.json()["data"][0]["id"] == MODEL_ALIAS)
+        except Exception:
+            stale = False
+        if stale:
+            sys.exit(f"port {args.port} is held by a stale {MODEL_ALIAS} "
+                     f"server from an earlier run - kill it and rerun")
         skip(f"port {args.port} is busy")
 
     r = serve_cmd("no-such-model")
@@ -128,6 +188,43 @@ def main():
 
     from salt.chat.cli import ChatState, SESSIONS_DIR
     from salt.chat.runner import make_runner, render_prompt
+
+    stub = ThreadingHTTPServer(("127.0.0.1", 0), _StubHandler)
+    stub.mode, stub.last_prompt = "unicode-then-error", None
+    stub.aborted = threading.Event()
+    threading.Thread(target=stub.serve_forever, daemon=True).start()
+    stub_url = f"http://127.0.0.1:{stub.server_address[1]}"
+    sr = make_runner(cfg, "cuda", "vllm-serve", server_url=stub_url)
+    pieces, err = [], None
+    try:
+        for p in sr.stream_chat([{"role": "user", "content": "hi"}],
+                                max_new_tokens=8, temperature=0.0,
+                                do_sample=False):
+            pieces.append(p)
+    except RuntimeError as exc:
+        err = str(exc)
+    assert "\u2028" in "".join(pieces), "U+2028 sheared the SSE frame"
+    assert err and "engine boom" in err, "mid-stream error frame swallowed"
+    stub.mode = "echo"
+    long_msgs = [{"role": "user", "content": "pad " * 6000 + "Say OK."}]
+    list(sr.stream_chat(long_msgs, max_new_tokens=8, temperature=0.0,
+                        do_sample=False))
+    text, used = render_prompt(sr.tokenizer, long_msgs)
+    ids = sr.tokenizer(text, add_special_tokens=not used).input_ids
+    budget = sr.input_budget(8)
+    assert sr.last_prompt_tokens == budget
+    assert stub.last_prompt == ids[-budget:], \
+        "client did not send exactly the last budget token ids"
+    stub.mode = "endless"
+    gen = sr.stream_chat([{"role": "user", "content": "go"}],
+                         max_new_tokens=8, temperature=0.0, do_sample=False)
+    next(gen), next(gen)
+    gen.close()
+    assert stub.aborted.wait(10), "closing the stream did not sever it"
+    sr.unload()
+    stub.shutdown()
+    print("3. stub fault injection: error frames surface, U+2028 streams "
+          "intact, abort severs the request, truncation keeps the tail")
 
     log = tempfile.NamedTemporaryFile(prefix="saltserve-reg-", suffix=".log",
                                       delete=False)
@@ -152,9 +249,10 @@ def main():
             except requests.RequestException:
                 pass
             time.sleep(3)
-        assert card, "server never became ready"
+        assert card, ("server never became ready; log tail:\n"
+                      + Path(log.name).read_text()[-2000:])
         assert card["id"] == MODEL_ALIAS and card.get("max_model_len")
-        print(f"3. saltServe serves {card['id']} "
+        print(f"4. saltServe serves {card['id']} "
               f"(window {card['max_model_len']})")
 
         try:
@@ -170,7 +268,7 @@ def main():
             raise AssertionError("wrong model did not raise")
         except RuntimeError as exc:
             assert MODEL_ALIAS in str(exc) and "other-model" in str(exc), exc
-        print("4. client errors: dead port and wrong model are actionable")
+        print("5. client errors: dead port and wrong model are actionable")
 
         runner = make_runner(cfg, "cuda", "vllm-serve", server_url=url)
         turns = [
@@ -189,53 +287,55 @@ def main():
             assert runner.last_prompt_tokens == expect, \
                 (runner.last_prompt_tokens, expect)
             assert runner.last_engine_stats["apc_prompt_tokens"] == expect
-        print(f"5. prompt parity: local render, truncation to "
+        print(f"6. prompt parity: local render, truncation to "
               f"input_budget, and the server's count all agree ({expect})")
 
         gen = runner.stream_chat(
             [{"role": "user", "content": "Count from 1 to 40, one per line."}],
             temperature=0.0, do_sample=False)
-        pieces = [next(gen), next(gen), next(gen)]
+        next(gen), next(gen), next(gen)
         gen.close()
-        assert all(pieces)
         after = "".join(runner.stream_chat(
             [{"role": "user", "content": "Say OK."}],
             temperature=0.0, do_sample=False, max_new_tokens=8))
         assert after.strip(), "client dead after aborted stream"
         runner.unload()
-        print("6. streaming + abort: incremental pieces, clean recovery")
+        print("7. streaming + abort: incremental pieces, clean recovery")
 
         cid = "servereg-apc"
         session = SESSIONS_DIR / cid
         shutil.rmtree(session, ignore_errors=True)
-        try:
-            run_repl(["my favorite color is teal, remember it",
-                      "name one planet, one word"], cid, args.gpu, url)
-            ev = load_events(session)
-            assert all(e["v"] == 1 for e in ev)
-            assert all(e["engine_backend"] == "vllm-serve" for e in ev)
-            assert all("usage" in e and "input_cached_tokens" in e["usage"]
-                       for e in ev)
-            frac = ev[1]["apc_cached_tokens"] / ev[1]["apc_prompt_tokens"]
-            assert frac >= 0.3, f"turn-1 reuse only {frac:.0%}"
-            print(f"7. APC over the wire: turn-1 reuse {frac:.0%}, "
-                  f"format v1, additive keys")
+        fox = "The quick brown fox jumps over the lazy dog. " * 8
+        run_repl([f"My favorite color is teal. {fox}Remember it.",
+                  "name one planet, one word"], cid, args.gpu, url)
+        ev = load_events(session)
+        assert all(e["v"] == 1 for e in ev)
+        assert all(e["engine_backend"] == "vllm-serve" for e in ev)
+        assert all("usage" in e and "input_cached_tokens" in e["usage"]
+                   for e in ev)
+        frac = ev[1]["apc_cached_tokens"] / ev[1]["apc_prompt_tokens"]
+        assert frac >= 0.3, f"turn-1 reuse only {frac:.0%}"
+        print(f"8. APC over the wire: turn-1 reuse {frac:.0%}, "
+              f"format v1, additive keys")
 
-            tail = json.loads((session / "tail.json").read_text())
-            assert [m["role"] for m in tail] == \
-                ["user", "assistant"] * (len(tail) // 2)
-            run_repl(["what is my favorite color, one word"],
-                     cid, args.gpu, url)
-            ev2 = load_events(session)
-            resumed = ev2[len(ev)]
-            assert resumed["apc_prompt_tokens"] > ev[0]["apc_prompt_tokens"], \
-                "resumed prompt did not include the restored tail"
-            rfrac = resumed["apc_cached_tokens"] / resumed["apc_prompt_tokens"]
-            assert rfrac >= 0.5, f"warm resume only {rfrac:.0%}"
-            print(f"8. warm resume: restored tail in the prompt, "
-                  f"{rfrac:.0%} of it served from the warm cache")
-        finally:
-            shutil.rmtree(session, ignore_errors=True)
+        tail = json.loads((session / "tail.json").read_text())
+        assert [m["role"] for m in tail] == \
+            ["user", "assistant"] * (len(tail) // 2)
+        run_repl(["what is my favorite color, one word"],
+                 cid, args.gpu, url)
+        ev2 = load_events(session)
+        resumed = ev2[len(ev)]
+        # a dropped tail cannot fake this: without it the resumed prompt
+        # is SHORTER than turn 0 (whose question was the long fox line)
+        delta = resumed["apc_prompt_tokens"] - ev[0]["apc_prompt_tokens"]
+        assert delta >= 40, f"restored tail added only {delta} tokens"
+        rfrac = resumed["apc_cached_tokens"] / resumed["apc_prompt_tokens"]
+        assert rfrac >= 0.5, f"warm resume only {rfrac:.0%}"
+        print(f"9. warm resume: restored tail adds {delta} prompt tokens, "
+              f"{rfrac:.0%} served from the warm cache")
+        # kept on assert failure so events.jsonl stays inspectable; the
+        # next run's pre-clean removes it
+        shutil.rmtree(session, ignore_errors=True)
 
         with tempfile.TemporaryDirectory() as tmp:
             st = ChatState.__new__(ChatState)
@@ -262,11 +362,11 @@ def main():
             st3.tail, st3.tail_min, st3.tail_max = [], 4, 8
             st3.load_tail()
             assert st3.tail == []
-        print("9. resume stability: attach order and tail reload exactly, "
+        print("10. resume stability: attach order and tail reload exactly, "
               "malformed tail falls back to empty")
 
         assert requests.get(f"{url}/v1/models", timeout=5).status_code == 200
-        print("10. the server outlived every client")
+        print("11. the server outlived every client")
     finally:
         server.terminate()
         try:
