@@ -82,7 +82,8 @@ same expectations apply to everyone, including us:
 - **You are the author of record.** Review every line before pushing. If you
   cannot explain a change, do not submit it.
 - **Disclose substantial AI involvement** in the PR description. A sentence is
-  enough.
+  enough. Maintainer changes pushed without a PR are covered by the standing
+  note above: the maintainers use AI tools.
 - **AI output follows the same organization rules.** Small commits, clear
   explanations, verification you actually ran. AI makes it easy to produce a
   large diff quickly, which is exactly why the explanation matters more, not
