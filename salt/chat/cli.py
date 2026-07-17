@@ -175,11 +175,11 @@ class ChatState:
         self.tail = tail
         self.compact_tail()
 
-    def save_tail(self):
+    def save_tail(self, tail=None):
         # mirrored to disk every turn so a resumed session renders the
         # same prompt bytes the server's cache already holds
         tmp = self.trie.cache_dir / "tail.json.tmp"
-        tmp.write_text(json.dumps(self.tail))
+        tmp.write_text(json.dumps(self.tail if tail is None else tail))
         os.replace(tmp, self.trie.cache_dir / "tail.json")
 
     def new_trie(self, conversation_id, save_old=True):
@@ -249,13 +249,13 @@ class ChatState:
         d = self.attachments_dir()
         d.mkdir(parents=True, exist_ok=True)
         (d / (name + ".txt")).write_text(text, encoding="utf-8")
-        order = self._attach_order()
-        if name not in order:
-            order.append(name)
-            tmp = d / "order.json.tmp"
-            tmp.write_text(json.dumps(order))
-            os.replace(tmp, d / "order.json")
         self.full_attachments[name] = text
+        # the live dict is the order the prompt renders, so it is the
+        # order that must persist - order.json alone can lag it (sessions
+        # that predate it, or a torn earlier write)
+        tmp = d / "order.json.tmp"
+        tmp.write_text(json.dumps(list(self.full_attachments)))
+        os.replace(tmp, d / "order.json")
 
     def count_tokens(self, text):
         if self.runner is None:
@@ -383,6 +383,14 @@ def submit_session_save(state):
     state.ingest.submit(
         lambda: state.trie.save() if state.trie.dirty else None,
         label="session save")
+
+
+def submit_tail_save(state):
+    """Queued FIFO behind the exchange's ingests, so tail.json can never
+    hold a pair the trie has not absorbed."""
+    snapshot = list(state.tail)
+    state.ingest.submit(lambda: state.save_tail(snapshot),
+                        label="tail save")
 
 
 def report_ingest_failures(failures):
@@ -560,6 +568,11 @@ def switch_model(state, name):
         return
     if state.runner is not None and cfg["alias"] == state.runner.alias:
         print(f"{cfg['alias']} is already active.")
+        return
+    if state.backend == "vllm-serve":
+        print(f"The vllm-serve backend connects to one server per launch. "
+              f"Start saltServe {cfg['alias']} on another port and relaunch "
+              f"saltChat with --server-url pointing at it.")
         return
     prev_cfg = state.runner.cfg
     state.runner.unload()  # free before load: never two LLMs on the GPU
@@ -820,10 +833,7 @@ def chat_turn(state, line):
         state.tail.append({"role": "user", "content": line})
         state.tail.append({"role": "assistant", "content": reply})
         state.compact_tail()
-        try:
-            state.save_tail()
-        except OSError as exc:
-            print(f"[tail] could not save the recent exchanges: {exc}")
+        submit_tail_save(state)
     if not state.sync_ingest:
         submit_session_save(state)
 

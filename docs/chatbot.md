@@ -59,7 +59,9 @@ Ctrl-C when you want the GPU back.
 `--gpu-mem-util` sets the share of GPU memory the server claims (default
 `0.90`, the BGE encoder no longer shares its GPU). On cards older than
 Ampere the launcher serves `bfloat16` models in `float16`, which those
-GPUs require. `--vllm-bin` points at another environment's vllm, so the
+GPUs require (it says so when the GPU generation cannot be detected, and
+`-- --dtype float16` forces it). `--vllm-bin` points at another
+environment's vllm, so the
 server can run whichever vLLM release fits your hardware while the SALT
 install stays unchanged. Anything after `--` is passed to `vllm serve`
 unchanged.
@@ -76,8 +78,9 @@ saltChat itself, so the text the server caches is exactly the text the
 kv ledger counts. Exit, come back later, resume the conversation by its
 id: the model is still loaded and the stable prompt head is still
 cached, so the first turn only prefills what changed. One server serves
-one model, so switching with `/model` needs a second server on another
-port. `/stats` shows the measured reuse every turn.
+one model. To chat with a different model, start a second server with
+`saltServe` and launch saltChat again with its `--server-url`. `/stats`
+shows the measured reuse every turn.
 
 ## REPL commands
 

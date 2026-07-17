@@ -21,7 +21,10 @@ attachments in their attach order when a session resumes, so the prompt
 renders the same bytes across restarts and stays warm in the server
 cache. 2.9.7 saves the recent exchanges with the session, so a resumed
 conversation remembers its last turns verbatim instead of starting from
-compressed memory alone.
+compressed memory alone. 2.9.9 surfaces server errors that arrive
+mid-reply instead of presenting a truncated answer as complete, streams
+any unicode safely, keeps long prompts within the server's window, and
+hardens the launcher's GPU detection.
 
 ## 2.8.0 (2026-07-15)
 

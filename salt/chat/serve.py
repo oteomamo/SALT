@@ -44,8 +44,9 @@ def target_gpu(gpu_arg):
         return gpu_arg
     vis = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     first = vis.split(",")[0].strip()
-    if first.isdigit():
-        return int(first)
+    if first:
+        # nvidia-smi -i accepts GPU-<uuid> and MIG ids directly
+        return int(first) if first.isdigit() else first
     return 0 if not vis else None
 
 
@@ -63,16 +64,18 @@ def build_parser():
     ap.add_argument("--port", type=int, default=8000,
                     help="listen port (default 8000)")
     ap.add_argument("--gpu", type=int, default=None,
-                    help="CUDA GPU index the server runs on")
+                    help="GPU index the server runs on (PCI bus order, the "
+                         "same numbering nvidia-smi shows)")
     ap.add_argument("--gpu-mem-util", type=float, default=0.90,
                     help="fraction of GPU memory the server claims "
                          "(default 0.90)")
     ap.add_argument("--max-model-len", type=int, default=0,
                     help="cap the context window (0 = the model's own)")
     ap.add_argument("--vllm-bin", default=None,
-                    help="vllm executable to run (default: vllm on PATH); "
-                         "point it at another environment's vllm to serve "
-                         "with a different vLLM release")
+                    help="vllm executable to run (default: the vllm next "
+                         "to saltServe, then PATH); point it at another "
+                         "environment's vllm to serve with a different "
+                         "vLLM release")
     return ap
 
 
@@ -128,10 +131,14 @@ def main(argv=None):
                      "point --vllm-bin at another environment's vllm")
 
     dtype = cfg.get("dtype", "bfloat16")
-    served_dtype = resolve_dtype(dtype, compute_capability(target_gpu(args.gpu)))
+    cap = compute_capability(target_gpu(args.gpu))
+    served_dtype = resolve_dtype(dtype, cap)
     if served_dtype != dtype:
         print(f"note: this GPU predates bfloat16 support - serving "
               f"{cfg['alias']} in float16")
+    elif dtype == "bfloat16" and cap is None:
+        print("note: could not detect the GPU's compute capability - if "
+              "the server rejects bfloat16, add: -- --dtype float16")
 
     cmd = [vllm_bin, "serve", cfg["path"],
            "--served-model-name", cfg["alias"],
@@ -146,6 +153,9 @@ def main(argv=None):
 
     env = os.environ.copy()
     if args.gpu is not None:
+        # PCI order makes --gpu N mean the same card nvidia-smi (and the
+        # capability probe above) call N
+        env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         env["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 
     print(f"Serving {cfg['alias']} ({cfg['hf_id']}) at "

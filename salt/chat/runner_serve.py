@@ -85,6 +85,11 @@ class VLLMServeChatRunner:
                   f"window - truncated to the last {max_input} tokens, "
                   f"earliest content (system prompt first) dropped")
         self.last_prompt_tokens = len(ids)
+        if self.max_input_len:
+            # the server rejects prompt+reply past the window outright;
+            # shrink the reply room like the in-process backends do
+            max_new_tokens = min(max_new_tokens,
+                                 self.max_input_len - len(ids))
 
         payload = {"model": self.served_model, "prompt": ids,
                    "max_tokens": max_new_tokens, "stream": True,
@@ -105,13 +110,25 @@ class VLLMServeChatRunner:
                 resp.close()
                 raise RuntimeError("vLLM server rejected the request "
                                    f"(HTTP {resp.status_code}): {detail}")
-            for line in resp.iter_lines(decode_unicode=True):
-                if not line or not line.startswith("data:"):
+            # bytes on purpose: only \n and \r\n end SSE lines, while str
+            # splitting would also break on U+2028-class codepoints inside
+            # the streamed text and shear the JSON frame
+            for raw in resp.iter_lines():
+                if not raw:
+                    continue
+                line = raw.decode("utf-8", errors="replace")
+                if not line.startswith("data:"):
                     continue
                 data = line[len("data:"):].strip()
                 if data == "[DONE]":
                     break
                 chunk = json.loads(data)
+                error = chunk.get("error")
+                if error:
+                    msg = (error.get("message") if isinstance(error, dict)
+                           else None) or str(error)
+                    raise RuntimeError(
+                        f"vLLM server error mid-reply: {msg[:300]}")
                 if chunk.get("usage"):
                     usage = chunk["usage"]
                 for choice in chunk.get("choices") or []:
