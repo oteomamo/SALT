@@ -73,7 +73,11 @@ def make_runner(cfg, device="cuda", backend="hf", **backend_opts):
     if backend == "vllm":
         from salt.chat.runner_vllm import VLLMChatRunner  # lazy: optional dep
         return VLLMChatRunner(cfg, device=device, **backend_opts)
-    raise ValueError(f"Unknown chat backend {backend!r} (available: hf, vllm)")
+    if backend == "vllm-serve":
+        from salt.chat.runner_serve import VLLMServeChatRunner
+        return VLLMServeChatRunner(cfg, device=device, **backend_opts)
+    raise ValueError(f"Unknown chat backend {backend!r} "
+                     "(available: hf, vllm, vllm-serve)")
 
 
 class _StopFlag(StoppingCriteria):
