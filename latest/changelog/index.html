@@ -918,7 +918,9 @@ persistent serving, so a chat can connect to the running server and
 <code>/stats</code> reports the server's measured prefix-cache reuse. 2.9.6 keeps
 attachments in their attach order when a session resumes, so the prompt
 renders the same bytes across restarts and stays warm in the server
-cache.</p>
+cache. 2.9.7 saves the recent exchanges with the session, so a resumed
+conversation remembers its last turns verbatim instead of starting from
+compressed memory alone.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
