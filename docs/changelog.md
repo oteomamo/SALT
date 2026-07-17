@@ -16,7 +16,10 @@ persistent `vllm serve` process from registered weights, so the model and
 its cache outlive individual chat sessions. 2.9.5 adds
 `saltChat --backend vllm-serve` with `--server-url`, the client side of
 persistent serving, so a chat can connect to the running server and
-`/stats` reports the server's measured prefix-cache reuse.
+`/stats` reports the server's measured prefix-cache reuse. 2.9.6 keeps
+attachments in their attach order when a session resumes, so the prompt
+renders the same bytes across restarts and stays warm in the server
+cache.
 
 ## 2.8.0 (2026-07-15)
 

@@ -21,7 +21,9 @@ among registered models without touching the session).
 
 import argparse
 import gc
+import json
 import math
+import os
 import re
 import shutil
 import sys
@@ -193,10 +195,27 @@ class ChatState:
     def load_full_attachments(self):
         self.full_attachments = {}
         d = self.attachments_dir()
-        if d.is_dir():
-            for f in sorted(d.glob("*.txt")):
-                self.full_attachments[f.name[:-4]] = f.read_text(
+        if not d.is_dir():
+            return
+        files = {f.name[:-4]: f for f in d.glob("*.txt")}
+        # persisted attach order first: the system message must render the
+        # same bytes across a restart or a warm server cache misses on it
+        for name in self._attach_order():
+            f = files.pop(name, None)
+            if f is not None:
+                self.full_attachments[name] = f.read_text(
                     encoding="utf-8", errors="replace")
+        for name in sorted(files):
+            self.full_attachments[name] = files[name].read_text(
+                encoding="utf-8", errors="replace")
+
+    def _attach_order(self):
+        try:
+            order = json.loads(
+                (self.attachments_dir() / "order.json").read_text())
+        except (OSError, ValueError):
+            return []
+        return [n for n in order if isinstance(n, str)]
 
     def save_full_attachment(self, name, text):
         # pypdf can emit lone surrogates from broken font CMaps; make the
@@ -206,6 +225,12 @@ class ChatState:
         d = self.attachments_dir()
         d.mkdir(parents=True, exist_ok=True)
         (d / (name + ".txt")).write_text(text, encoding="utf-8")
+        order = self._attach_order()
+        if name not in order:
+            order.append(name)
+            tmp = d / "order.json.tmp"
+            tmp.write_text(json.dumps(order))
+            os.replace(tmp, d / "order.json")
         self.full_attachments[name] = text
 
     def count_tokens(self, text):
