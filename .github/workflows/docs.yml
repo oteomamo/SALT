@@ -1,0 +1,46 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "mkdocs.yml", ".github/workflows/docs.yml"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install "mkdocs-material>=9" "mike>=2"
+
+      - name: Configure git for gh-pages commits
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages --depth=1 || true
+
+      - name: Deploy a frozen version (tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: mike deploy --push --update-aliases "${GITHUB_REF_NAME#v}" latest
+
+      - name: Deploy latest (main push)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: mike deploy --push latest
+
+      - name: Ensure the default version is set
+        run: mike set-default --push latest
