@@ -1,0 +1,1032 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Salience-Aware Lexical Trie for Long-Context Compression">
+      
+      
+      
+        <link rel="canonical" href="https://oteomamo.github.io/SALT/2.9.0/chatbot/">
+      
+      
+        <link rel="prev" href="../usage/">
+      
+      
+        <link rel="next" href="../architecture/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Chatbot mode - SALT</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#chatbot-mode" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="SALT" class="md-header__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            SALT
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Chatbot mode
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="SALT" class="md-nav__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    SALT
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chatbot mode
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chatbot mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#starting-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting a session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repl-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REPL commands
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attachments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attachments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-pdfs-are-cleaned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How PDFs are cleaned
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-model-sees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the model sees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-prompt-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The prompt layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-knobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory knobs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#background-ingestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background ingestion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-kv-ledger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The kv ledger
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#starting-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting a session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repl-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REPL commands
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attachments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attachments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-pdfs-are-cleaned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How PDFs are cleaned
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-model-sees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the model sees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-prompt-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The prompt layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-knobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory knobs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#background-ingestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background ingestion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-kv-ledger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The kv ledger
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="chatbot-mode">🤖 Chatbot mode</h1>
+<p><code>saltChat</code> is an interactive chat REPL where SALT is the conversation memory:
+one persistent trie per conversation grows with every exchange (and any
+attached documents), and each turn it compresses the accumulated history into
+a query-biased context block under the token budget. The BGE encoder and the
+chat model stay resident on the GPU for the whole session. The trie lives in
+process memory and autosaves to disk, so any conversation can be resumed
+later by its id.</p>
+<h2 id="starting-a-session">Starting a session</h2>
+<p>Register a model by its HuggingFace name - weights are symlinked from your HF
+cache into <code>salt/models/</code>, never copied (see
+<a href="https://github.com/oteomamo/SALT/blob/main/salt/models/README.md"><code>salt/models/README.md</code></a>):</p>
+<div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--add<span class="w"> </span>Qwen/Qwen2.5-0.5B-Instruct<span class="w"> </span>--alias<span class="w"> </span>qwen05
+</code></pre></div>
+<p>Chat, optionally seeding the trie with a document:</p>
+<div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen05<span class="w"> </span>--conversation-id<span class="w"> </span>demo1<span class="w"> </span>--doc<span class="w"> </span>report.txt
+</code></pre></div>
+<p>The default backend runs the model through HF transformers and works
+anywhere. <code>--backend vllm</code> serves the same registered weights through an
+in-process vLLM engine with automatic prefix caching, so the stable prompt
+head and tail are reused from the GPU KV cache instead of being re-prefilled
+every turn (install vLLM first, see
+<a href="../installation/">Installation step 5</a>):</p>
+<div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen05<span class="w"> </span>--backend<span class="w"> </span>vllm<span class="w"> </span>--gpu<span class="w"> </span><span class="m">1</span>
+</code></pre></div>
+<p><code>--gpu-mem-util</code> caps the engine's share of GPU memory (default <code>0.85</code>,
+leaving room for the BGE encoder on the same GPU). <code>--max-model-len</code> caps
+the context window when the model's full window would not fit in the KV
+cache. <code>/model</code> switching works on both backends.</p>
+<h2 id="repl-commands">REPL commands</h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>salt@</code></td>
+<td>list attachable files staged in <code>salt/files/</code></td>
+</tr>
+<tr>
+<td><code>salt@&lt;file&gt;</code></td>
+<td>attach a <code>.pdf</code>/<code>.txt</code>/<code>.md</code>/<code>.rst</code>: whole text, own trie branch</td>
+</tr>
+<tr>
+<td><code>attach@&lt;file&gt;</code></td>
+<td>attach in full: uncompressed text rides in every prompt</td>
+</tr>
+<tr>
+<td><code>/model</code></td>
+<td>list registered models, <code>/model &lt;name&gt;</code> switches (session kept)</td>
+</tr>
+<tr>
+<td><code>/add &lt;hf_id&gt; [alias]</code></td>
+<td>download and register another model</td>
+</tr>
+<tr>
+<td><code>/doc &lt;path&gt;</code></td>
+<td>ingest a text or PDF file into the trie</td>
+</tr>
+<tr>
+<td><code>/budget &lt;pct&gt;</code></td>
+<td>set the memory budget (<code>0.3</code> or <code>30</code>)</td>
+</tr>
+<tr>
+<td><code>/stats</code></td>
+<td>session, attachments, compression, and GPU-memory stats</td>
+</tr>
+<tr>
+<td><code>/new [id]</code>, <code>/clear</code></td>
+<td>start another conversation, wipe this one</td>
+</tr>
+<tr>
+<td><code>/exit</code></td>
+<td>leave (the session is saved and resumable by id)</td>
+</tr>
+</tbody>
+</table>
+<p>TAB completes <code>/commands</code>, <code>salt@&lt;file&gt;</code>, and <code>attach@&lt;file&gt;</code> names (see
+<a href="https://github.com/oteomamo/SALT/blob/main/salt/files/README.md"><code>salt/files/README.md</code></a>).</p>
+<h2 id="attachments">Attachments</h2>
+<p>A <code>salt@</code> file becomes <strong>its own branch</strong> of the session trie, hanging off the
+conversation's root - so multiple attachments never crowd each other out, and
+the per-turn budget (default 20%) spreads across files and conversation
+themes. An <code>attach@</code> file skips the trie entirely: its full text rides
+uncompressed in every prompt.</p>
+<h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
+<p>Attached PDFs are read whole (images ignored) and cleaned into proper
+sentences before they reach the trie: repeated headers/footers, page numbers,
+and ACL/NeurIPS-style margin line numbers are stripped, ligatures and
+hyphenation repaired, wrapped lines reflowed into paragraphs, and reference
+lists filtered - sentence boundaries never break inside citations.
+Paragraphs interrupted mid-sentence by a figure caption, table, or footnote
+are re-joined across the float instead of being severed. Tables and
+algorithm pseudocode are kept, grouped under their captions as
+<code>|</code>-separated rows so numbers stay readable against their column names.
+Section headings, panel labels, and equations survive ingestion (big
+operators pypdf flattens to Latin look-alikes are restored where
+unambiguous), and a sentence mentioning a URL keeps its prose with the
+link as <code>&lt;url&gt;</code>.</p>
+<h2 id="what-the-model-sees">What the model sees</h2>
+<p>The chat model is told what it is looking at: the system prompt carries a
+reading guide from
+<a href="https://github.com/oteomamo/SALT/blob/main/salt/chat/instructions.md"><code>salt/chat/instructions.md</code></a>
+(edit it to tune the wording - it is re-read every turn, even mid-session)
+plus an inventory of every attached file, and the compressed memory arrives
+at the top of the newest user message, grouped by origin - <code>[from attached
+file 'paper.pdf' - 42 of 358 indexed sentences]</code> versus <code>[from the earlier
+conversation]</code> - so answers can cite their source file and the model knows
+the excerpts are partial.</p>
+<h2 id="the-prompt-layout">The prompt layout</h2>
+<p>The prompt is deliberately <strong>KV-cache shaped</strong>: everything stable (system
+prompt, <code>attach@</code> full texts, the verbatim tail) comes first, and the only
+per-turn content - the SALT memory selection and the question - comes last.
+The tail grows append-only and compacts <strong>in blocks</strong> (back to <code>--tail</code>
+exchanges once it hits twice that) instead of rolling every turn, so the
+prompt prefix stays byte-identical between compactions. Nothing is lost,
+since every sentence already entered the trie the moment it was spoken.
+With the default HF backend each turn still prefills the whole prompt.
+<code>--backend vllm</code> cashes the layout in. The engine's automatic prefix caching
+serves the stable prefix straight from the GPU KV cache and prefills only
+the fresh suffix - in practice ~95% of prompt tokens on quiet turns. Each
+turn's real hit count is recorded in the kvtrace ledger (<code>apc_cached_tokens</code>,
+next to the selection-overlap split, which measures a different thing), and
+<code>/stats</code> prints it live.</p>
+<h2 id="memory-knobs">Memory knobs</h2>
+<p>Cross-turn memory has a <strong>forgetting</strong> knob. By default a theme that
+has been surfaced stays discounted for the whole session, so the memory
+block keeps favoring new material - even when the conversation circles back.
+<code>--coverage-half-life 8</code> makes that suppression fade instead, halving every
+8 turns a theme goes unmentioned, so a topic you return to after a long
+detour resurfaces gradually rather than staying buried. Attached files are
+exempt (selection keeps advancing through a document) unless
+<code>--coverage-decay-docs</code> is set. <code>/stats</code> reports the decay state.</p>
+<p>And a <strong>pivot</strong> knob. Every query turn, the question's similarity to the
+recent conversation is measured against the session's own running baseline
+(<code>/stats</code> shows the reading, so the margin can be tuned before trusting
+it). With <code>--shift-damping 0.25</code>, a turn that drops <code>--shift-margin</code> below
+that baseline - a topic shift - hands the selector a seed whose <strong>stale</strong>
+suppression (themes untouched for a few turns) is scaled down for that
+turn only, and the query channels get a <code>--shift-query-boost</code> bump: a
+pivot back to a long-quiet topic stops being fought by the discount it
+accumulated, while the topic being left stays suppressed. Nothing is
+forgotten - the persisted counts are rebuilt from genuine increments, so
+the damping never reaches disk.</p>
+<p>And a <strong>repetition</strong> gate. <code>--dedup-cos 0.92</code> skips a new conversation
+sentence too similar to an earlier one from the same speaker, so
+restatements and re-asked questions stop inflating the theme statistics.
+Attached files are never gated. <code>/stats</code> counts the suppressions.</p>
+<h2 id="background-ingestion">Background ingestion</h2>
+<p>Ingestion runs <strong>in the background</strong>. After every message SALT has
+to index what was said (the keyword and embedding passes) so it can be
+recalled later. That work used to run right before the next prompt, so
+a long pasted message made the next <code>you&gt;</code> slow to appear. It now runs
+on a worker thread: your message is indexed while the model writes its
+reply, and the reply is indexed while you read it. The next prompt
+appears immediately, however long the message was. Answers do not
+change, because the REPL always waits for the worker to finish before
+it reads the conversation memory. If indexing ever fails, the message
+text is kept in <code>ingest_failures.jsonl</code> in the session folder and the
+error is shown at the next prompt, so nothing is lost silently. A nice
+side effect: even when a reply fails halfway, your message has already
+reached the memory. <code>/stats</code> shows how much work stayed off the prompt
+path, and <code>--sync-ingest</code> restores the old inline behavior.</p>
+<h2 id="the-kv-ledger">The kv ledger</h2>
+<p>Every turn is recorded in a per-conversation KV ledger under
+<code>salt/chat/sessions/&lt;id&gt;/kvtrace/</code>: an append-only <code>events.jsonl</code> whose usage
+keys follow the cached-token convention (<code>input</code> = freshly prefilled
+sentences, <code>input_cached_tokens</code> = context re-selected from the previous
+turn, <code>output</code> = generated tokens) plus a per-token <code>tokens.npy</code> matrix.
+<code>/stats</code> shows the running totals. On <code>--backend vllm</code> every event also
+records the engine's measured prefix-cache reuse (<code>apc_cached_tokens</code> /
+<code>apc_prompt_tokens</code>) - the positional ground truth next to the ledger's
+content-overlap split.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
