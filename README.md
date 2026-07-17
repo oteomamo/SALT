@@ -50,9 +50,9 @@ under a token budget, returned in original document order, query-biased or not.
  INDEXING  ── once per document, reused across turns and budgets
    document → split + junk filter
            → per-sentence keywords   (BGE-small [CLS] attention + knee cutoff)
-           → theme salience          (SF = #sentences keeping a word; top quantile)
+           → theme salience          (SF = #sentences keeping a word, top quantile)
            → keyword trie            (each sentence's themes, SF-ordered, form a
-                                      root-to-leaf path; leaves hold sentence ids)
+                                      root-to-leaf path, leaves hold sentence ids)
 
  SELECTION ── per budget, with or without a query
    maximize theme coverage with CELF lazy-greedy: a pick's value shrinks as its
@@ -206,7 +206,7 @@ pip install vllm==0.11.0
 ```
 
 Skip this and run `eval.py --backend hf` for a portable run that needs no
-vLLM; `saltChat` already defaults to its HF backend.
+vLLM. `saltChat` already defaults to its HF backend.
 
 > `bash scripts/setup_env.sh` does steps 2–3 in one shot (add `WITH_VLLM=1` to
 > include vLLM).
@@ -267,7 +267,7 @@ Compress a single file instead of a dataset with `--doc` - a `.pdf`,
 `.txt`, or `.md` goes through the same PDF pipeline the chatbot uses
 (tables and pseudocode grouped under their captions, sentences re-joined
 across figure interruptions, headings and equations preserved), then
-through the same selector; `--query` biases the selection:
+through the same selector. `--query` biases the selection:
 
 ```bash
 salt --doc paper.pdf --query "average accuracy on LongBench?" --output out/paper.jsonl
@@ -280,13 +280,13 @@ re-weight the keyword trie, and the coverage selector picks the sentences that
 best cover it under the budget.
 
 `--synthetic` treats `Paragraph N:` units as the selection records so every
-paragraph label survives compression; `--code` treats physical lines as records
+paragraph label survives compression. `--code` treats physical lines as records
 with identifier keywords and file/function structure, keeping the completion-site
 tail. Both modes are chosen automatically by `scripts/run_datasets.sh`.
 
 ### Evaluate
 
-vLLM by default (install it per step 5); pass `--backend hf` for a portable
+vLLM by default (install it per step 5). Pass `--backend hf` for a portable
 HF-transformers run that needs no vLLM install:
 
 ```bash
@@ -302,7 +302,7 @@ python eval.py \
 one persistent trie per conversation grows with every exchange (and any
 attached documents), and each turn it compresses the accumulated history into
 a query-biased context block under the token budget. The BGE encoder and the
-chat model stay resident on the GPU for the whole session; the trie lives in
+chat model stay resident on the GPU for the whole session. The trie lives in
 process memory and autosaves to disk, so any conversation can be resumed
 later by its id.
 
@@ -331,7 +331,7 @@ saltChat --model qwen05 --backend vllm --gpu 1
 ```
 
 `--gpu-mem-util` caps the engine's share of GPU memory (default `0.85`,
-leaving room for the BGE encoder on the same GPU); `--max-model-len` caps
+leaving room for the BGE encoder on the same GPU). `--max-model-len` caps
 the context window when the model's full window would not fit in the KV
 cache. `/model` switching works on both backends.
 
@@ -342,19 +342,19 @@ Inside the REPL:
 | `salt@` | list attachable files staged in `salt/files/` |
 | `salt@<file>` | attach a `.pdf`/`.txt`/`.md`/`.rst`: whole text, own trie branch |
 | `attach@<file>` | attach in full: uncompressed text rides in every prompt |
-| `/model` | list registered models; `/model <name>` switches (session kept) |
+| `/model` | list registered models, `/model <name>` switches (session kept) |
 | `/add <hf_id> [alias]` | download and register another model |
 | `/doc <path>` | ingest a text or PDF file into the trie |
 | `/budget <pct>` | set the memory budget (`0.3` or `30`) |
 | `/stats` | session, attachments, compression, and GPU-memory stats |
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
-| `/exit` | leave; the session is saved and resumable by id |
+| `/exit` | leave (the session is saved and resumable by id) |
 
 Every turn is recorded in a per-conversation KV ledger under
 `salt/chat/sessions/<id>/kvtrace/`: an append-only `events.jsonl` whose usage
 keys follow the cached-token convention (`input` = freshly prefilled
 sentences, `input_cached_tokens` = context re-selected from the previous
-turn, `output` = generated tokens) plus a per-token `tokens.npy` matrix;
+turn, `output` = generated tokens) plus a per-token `tokens.npy` matrix.
 `/stats` shows the running totals. On `--backend vllm` every event also
 records the engine's measured prefix-cache reuse (`apc_cached_tokens` /
 `apc_prompt_tokens`) - the positional ground truth next to the ledger's
@@ -368,8 +368,8 @@ lists filtered - sentence boundaries never break inside citations.
 Paragraphs interrupted mid-sentence by a figure caption, table, or footnote
 are re-joined across the float instead of being severed. Tables and
 algorithm pseudocode are kept, grouped under their captions as
-`|`-separated rows so numbers stay readable against their column names;
-section headings, panel labels, and equations survive ingestion (big
+`|`-separated rows so numbers stay readable against their column names.
+Section headings, panel labels, and equations survive ingestion (big
 operators pypdf flattens to Latin look-alikes are restored where
 unambiguous), and a sentence mentioning a URL keeps its prose with the
 link as `<url>`. A `salt@` file becomes **its own branch** of the session trie,
@@ -394,9 +394,9 @@ prompt, `attach@` full texts, the verbatim tail) comes first, and the only
 per-turn content - the SALT memory selection and the question - comes last.
 The tail grows append-only and compacts **in blocks** (back to `--tail`
 exchanges once it hits twice that) instead of rolling every turn, so the
-prompt prefix stays byte-identical between compactions; nothing is lost,
+prompt prefix stays byte-identical between compactions. Nothing is lost,
 since every sentence already entered the trie the moment it was spoken.
-With the default HF backend each turn still prefills the whole prompt;
+With the default HF backend each turn still prefills the whole prompt.
 `--backend vllm` cashes the layout in. The engine's automatic prefix caching
 serves the stable prefix straight from the GPU KV cache and prefills only
 the fresh suffix - in practice ~95% of prompt tokens on quiet turns. Each
@@ -411,7 +411,7 @@ block keeps favoring new material - even when the conversation circles back.
 8 turns a theme goes unmentioned, so a topic you return to after a long
 detour resurfaces gradually rather than staying buried. Attached files are
 exempt (selection keeps advancing through a document) unless
-`--coverage-decay-docs` is set; `/stats` reports the decay state.
+`--coverage-decay-docs` is set. `/stats` reports the decay state.
 
 And a **pivot** knob. Every query turn, the question's similarity to the
 recent conversation is measured against the session's own running baseline
@@ -430,19 +430,20 @@ sentence too similar to an earlier one from the same speaker, so
 restatements and re-asked questions stop inflating the theme statistics.
 Attached files are never gated. `/stats` counts the suppressions.
 
-And ingestion runs **in the background**. Indexing a message — the
-keyword and embedding passes — happens on a worker thread, off the
-REPL's critical path: your message is indexed while the model writes its
-reply, the reply is indexed while you read it, and a long pasted message
-never delays the next prompt. Selection is unaffected — every turn still
-sees the fully ingested conversation, because the REPL waits for the
-worker before it reads anything — and the ingested session is persisted
-once per turn instead of once per message. If an ingest ever fails, the
-message text is preserved in `ingest_failures.jsonl` in the session dir
-and the error is reported at the next prompt; `/stats` shows the work
-kept off the prompt path. A side benefit: a turn whose generation fails
-no longer loses your message from the conversation memory.
-`--sync-ingest` restores the old inline behavior.
+And ingestion runs **in the background**. After every message SALT has
+to index what was said (the keyword and embedding passes) so it can be
+recalled later. That work used to run right before the next prompt, so
+a long pasted message made the next `you>` slow to appear. It now runs
+on a worker thread: your message is indexed while the model writes its
+reply, and the reply is indexed while you read it. The next prompt
+appears immediately, however long the message was. Answers do not
+change, because the REPL always waits for the worker to finish before
+it reads the conversation memory. If indexing ever fails, the message
+text is kept in `ingest_failures.jsonl` in the session folder and the
+error is shown at the next prompt, so nothing is lost silently. A nice
+side effect: even when a reply fails halfway, your message has already
+reached the memory. `/stats` shows how much work stayed off the prompt
+path, and `--sync-ingest` restores the old inline behavior.
 
 ## 🔬 Results
 

@@ -1,82 +1,31 @@
 # -*- coding: utf-8 -*-
-"""Regression harness for background ingestion (the IngestWorker that takes
-saltChat's per-turn keyword/embedding passes off the REPL's critical path).
+"""Regression harness for saltChat's background ingestion (IngestWorker).
 
-Replays a scripted transcript through SessionTrie three ways — direct calls
-(the pre-feature code path), an inline `synchronous=True` worker
-(--sync-ingest), and a real background worker — mirroring saltChat's
-chat_turn ordering exactly: drain barrier, compress(), the user line
-submitted BEFORE the model generates (background mode; its encode
-overlaps generation, with no drain until the next turn's barrier), then
-the assistant ingest queued behind it FIFO and one coalesced
-conditional save job per turn (each background ingest runs save=False);
-sync and direct run both sides at the pre-feature post-reply position
-with the pre-feature save-per-call durability (the CLI barrier
-placement lives in salt/chat/cli.py, outside this harness). The transcript includes a long
-pasted message and an engineered restatement so the near-dup gate
-(--dedup-cos) is exercised THROUGH the worker. Asserts:
+Replays a scripted transcript through SessionTrie three ways - direct
+calls, an inline synchronous worker (--sync-ingest), and a background
+worker mirroring chat_turn's order - and asserts:
 
-  1. Overlap: submit returns while a gated job is still running (the
-     prompt-return property) and drain blocks until it finishes; a queued
-     burst executes strictly FIFO — the trie keeps a single mutator in
-     submission order.
-  2. Identity: after every turn's barrier, all three runs agree — corpus
-     (texts, roles, turns, sources, word counts, keyword weights),
-     embeddings (byte-identical), persisted coverage, drift EMA,
-     selections, and the near-dup gate's decisions (same suppression
-     count >= 1, same near_dups.jsonl records). Backgrounding must be
-     invisible to selection: this is the feature's core invariant. The
-     background run also re-reads every pre-turn row from the main
-     thread WHILE the user-line job is in flight — kvtrace.record_turn's
-     documented index-stable exception, pinned as an assert.
-  3. Deferred failure reporting: a job that raises is captured, not
-     thrown; the failure comes back at the NEXT drain with its label and
-     error; later jobs still ran (the worker survived) and the queue
-     stays usable.
-  4. Journal recovery: each failure is one parseable ingest_failures.jsonl
-     record carrying the payload text VERBATIM — an ingest error can never
-     silently lose a user's words. Delivery survives an unwritable journal
-     path: the drain report must not depend on the journal write, and each
-     record's `journaled` field tells the truth about whether its line
-     reached the file (True on the writable path, False on the unwritable
-     one), so the REPL's failure report never claims preservation that
-     did not happen.
-  5. Sync-mode contract: `synchronous=True` runs the job inline (no
-     thread, effects visible immediately); a failing job is journaled and
-     then RE-RAISED at the submit site — today's control flow, so
-     --sync-ingest aborts a turn exactly where the direct call did; a
-     KeyboardInterrupt propagates untouched and is NOT logged as a
-     failure.
-  6. close(): finishes queued work first, returns undelivered failure
-     records, is idempotent, and rejects later submits with RuntimeError
-     — a job aimed at a torn-down session fails loudly, never silently.
-  7. Counter self-heal: an interrupted submit (simulated) leaves `pending`
-     nonzero with an empty queue; the next drain returns normally and
-     resets it — the /stats reading cannot drift for a session's life.
-  8. Bookkeeping: stats jobs/failures match ground truth per run and
-     busy_s accumulates the real encode time.
-  9. atexit safety net (subprocess): an exit path that never calls
-     close() still drains the queue before the daemon worker dies — a
-     soft crash cannot hard-kill a half-written ingest.
- 10. Failed-generation survival: in chat_turn's background order the
-     user line is submitted before generation, so a turn whose
-     generation raises (aborting before the assistant ingest) still has
-     the user's message in the trie at the next barrier — the
-     lost-user-message half of the old compress-commits-early failure
-     mode is closed. (--sync-ingest keeps today's abort purely by
-     cli.py statement order — the post-reply submit is never reached —
-     which lives outside this harness's scope, with the barrier
-     placement.)
- 11. Save coalescing: the background run persists once per turn (a
-     queued conditional save after both save=False ingests) and its
-     reloaded on-disk session is IDENTICAL to the direct run's
-     per-call-saved one; the error turn of assert 10 — whose save job
-     was never queued — leaves the trie dirty and its line OFF disk,
-     and the boundary save (what exit and /new run) then persists it.
+  1. submit() returns while a job runs, drain() blocks, strict FIFO.
+  2. All three runs end identical: corpus, embeddings, coverage, drift
+     EMA, selections, near-dup decisions. Pre-turn rows never move
+     while a job is in flight (record_turn's index-stability).
+  3. A failing job is reported at the next drain(), the worker survives.
+  4. Failures are journaled verbatim in ingest_failures.jsonl and the
+     `journaled` flag tells the truth even when the write fails.
+  5. Sync mode runs inline, journals, and re-raises at the submit site.
+     KeyboardInterrupt passes through unlogged.
+  6. close() finishes queued work, reports, is idempotent, rejects
+     later submits.
+  7. A leaked pending counter self-heals at the next drain().
+  8. stats counts jobs, failures, and busy_s exactly.
+  9. atexit drains the queue on exits that bypass close() (subprocess).
+ 10. A turn whose generation fails still has the user line in the trie.
+ 11. Background mode saves once per turn and reloads identical to the
+     per-call-saved direct run. An error turn stays dirty until the
+     boundary save persists it.
 
-Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
-the default device; the run takes well under a minute. The checks are
-assert statements: the harness refuses to run under `python -O`.
+Needs the BGE encoder (fetched to the HF cache on first use). The CPU
+run takes under a minute. Refuses to run under `python -O`.
 
 Usage:
     python scripts/chat_ingest_regression.py [--device cpu]
@@ -134,9 +83,8 @@ TRANSCRIPT = [
 
 
 def run_transcript(mode, cache_dir, tok, mdl, device, budget):
-    """One full session in the given mode; returns (trie, per-turn log,
-    worker-or-None). Mirrors chat_turn: barrier, compress, then the two
-    ingests — direct calls in 'direct' mode, submitted jobs otherwise."""
+    """One full session in the given mode, mirroring chat_turn's order.
+    Returns (trie, per-turn log, worker-or-None)."""
     trie = SessionTrie(f"ingest-{mode}", cache_dir=cache_dir,
                        model_name=BGE_MODEL)
     kw = dict(tokenizer=tok, model=mdl, device=device, dedup_cos=DEDUP_COS)
@@ -156,14 +104,9 @@ def run_transcript(mode, cache_dir, tok, mdl, device, budget):
                                  tokenizer=tok, model=mdl, device=device)
             sel = list(comp["selected_sent_idx"])
         if mode == "background":
-            # chat_turn's order: the user line rides the generation
-            # window (no drain in between — a drain there would put the
-            # tail of a big paste's encode back on the prompt path).
-            # WHILE the job is in flight, the main thread re-reads every
-            # pre-turn row exactly like kvtrace.record_turn does — the
-            # documented index-stable I2 exception, pinned here as an
-            # assert instead of assumed (encode takes long enough on CPU
-            # that these reads genuinely interleave with the append).
+            # chat_turn's order: the user line encodes during generation
+            # while the main thread re-reads pre-turn rows, exactly like
+            # kvtrace.record_turn
             n_pre = trie.n_sentences
             pre_rows = [(trie.texts[i], trie.n_words[i])
                         for i in range(n_pre)]
@@ -233,7 +176,7 @@ def main():
     tok, mdl = load_bge(BGE_MODEL, args.device)
     tmp = Path(tempfile.mkdtemp(prefix="salt_ingest_regression_"))
     try:
-        # assert 2: three-way identity — direct vs sync worker vs background
+        # assert 2: three-way identity - direct vs sync worker vs background
         runs = {m: run_transcript(m, tmp, tok, mdl, args.device, args.budget)
                 for m in ("direct", "sync", "background")}
         base, base_turns, _ = runs["direct"]
@@ -261,8 +204,7 @@ def main():
               f"{base.n_near_dups} near-dup suppressed, embeddings "
               f"byte-identical)")
 
-        # assert 11 (persistence half): the coalesced background session
-        # reloads identical to the per-call-saved direct session
+        # assert 11 (persistence half)
         disk_direct = SessionTrie("ingest-direct", cache_dir=tmp,
                                   model_name=BGE_MODEL)
         for mode in ("sync", "background"):
@@ -280,8 +222,7 @@ def main():
         print("persistence: coalesced background disk state reloads "
               "identical to per-call-saved direct")
 
-        # assert 10: failed-generation survival (background order; the
-        # sync abort is cli.py statement order, out of harness scope)
+        # assert 10: failed-generation survival (background order)
         line = ("Please remember that the maintenance window moves to "
                 "Sunday night for the pumping stations.")
         tg = SessionTrie("genfail", cache_dir=tmp, model_name=BGE_MODEL)
@@ -293,16 +234,13 @@ def main():
             wg.submit(lambda: tg.add_turn(line, "user", save=False, **kw),
                       label="user-message ingest", payload=line)
             raise RuntimeError("simulated generation failure")
-            # the abort skips the assistant submit AND the coalesced
-            # save job, exactly like chat_turn
         except RuntimeError:
             pass
         assert wg.drain() == []
         assert any("maintenance window" in t for t in tg.texts), (
             "the user line was lost on a failed generation - the "
             "rides-the-generation-window fix does not hold")
-        # assert 11 (error-turn half): the ingest is RAM-only and marked
-        # dirty; the boundary save persists it
+        # assert 11 (error-turn half): dirty until the boundary save
         assert tg.dirty, "an unsaved error turn did not mark the trie dirty"
         ghost = SessionTrie("genfail", cache_dir=tmp, model_name=BGE_MODEL)
         assert not ghost.is_loaded, (
@@ -362,7 +300,7 @@ def main():
         print("failure path: deferred report, worker survives, journal "
               "verbatim, report independent of journal")
 
-        # assert 5: sync-mode contract — inline, journaled, re-raised
+        # assert 5: sync-mode contract - inline, journaled, re-raised
         js = jdir / "sync_failures.jsonl"
         ws = IngestWorker(journal_path=js, synchronous=True)
         seen = []
@@ -417,8 +355,7 @@ def main():
             "drain did not reset a leaked pending counter")
         wp.close()
 
-        # assert 8: bookkeeping on the identity runs (background queues a
-        # third job per turn: the coalesced session save)
+        # assert 8: bookkeeping (background queues a third job per turn)
         for mode, per_turn in (("sync", 2), ("background", 3)):
             wk = runs[mode][2]
             assert wk.stats["jobs"] == per_turn * len(TRANSCRIPT) \

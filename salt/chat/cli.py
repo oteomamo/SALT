@@ -142,9 +142,7 @@ class ChatState:
         self.load_full_attachments()
         self.kvtrace = KVTrace(self.trie.cache_dir,
                                self.trie.conversation_id)
-        # per-turn conversation ingest runs on this worker, off the REPL's
-        # critical path; every command dispatch drains it first, so no
-        # reader ever sees a trie with ingest in flight
+        # drained at every dispatch: no reader sees ingest in flight
         self.ingest = IngestWorker(
             journal_path=self.trie.cache_dir / "ingest_failures.jsonl",
             synchronous=args.sync_ingest)
@@ -157,32 +155,19 @@ class ChatState:
             del self.tail[: len(self.tail) - 2 * self.tail_min]
 
     def new_trie(self, conversation_id, save_old=True):
-        # Boundary save FIRST, before anything is constructed or closed
-        # (the dispatch barrier has drained, so the worker is idle and a
-        # main-thread save is safe): an error turn's coalesced ingest
-        # must not die with a /new swap, the ctor below load()s THIS
-        # session's state.pkl when its own id is passed to /new — so
-        # disk must be current before it reads — and a failing save must
-        # abort with the old pair still fully installed. /clear passes
-        # save_old=False: it shares the conversation id, so saving here
-        # would write the just-wiped session straight back.
+        # save first: the ctor below loads this session's own state.pkl
+        # when /new is given the same id. /clear passes save_old=False
+        # (same id - saving would resurrect the wiped session).
         if save_old and self.trie.dirty:
             try:
                 self.trie.save()
             except Exception as exc:
-                # name the real culprit: /new's handler prints the NEW id,
-                # and "could not open session <new>" would misdiagnose a
-                # failure that belongs to the CURRENT session's disk
                 raise RuntimeError(
                     f"could not save the current session "
                     f"{self.trie.conversation_id!r} before switching: "
                     f"{exc}") from exc
-        # Build BOTH replacements before touching the live pair: /new keeps
-        # the current session when a ctor raises (corrupt state.pkl on
-        # resume, thread-start failure), and a closed worker or half-swapped
-        # trie would brick ingest for the session that survived. The
-        # dispatch barrier also means the close is instant and no job can
-        # be aimed at a swapped-out (or, on /clear, wiped) session dir.
+        # build both replacements before touching the live pair, so a
+        # failed ctor leaves the current session fully usable
         trie = SessionTrie(conversation_id, cache_dir=SESSIONS_DIR,
                            model_name=BGE_MODEL,
                            budget_pct_default=self.budget)
@@ -335,32 +320,22 @@ def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
 
 
 def submit_ingest(state, text, role, save=True):
-    """Queue one side of an exchange for background ingest; the prompt
-    returns while the encode runs. With --sync-ingest this executes
-    inline and a failure raises here — exactly the direct add_to_trie
-    call it replaces. `save=False` defers persistence to the turn's
-    coalesced save job (background mode only)."""
+    """Queue one side of an exchange for background ingest (inline under
+    --sync-ingest, where a failure raises here)."""
     state.ingest.submit(lambda: add_to_trie(state, text, role, save=save),
                         label=f"{role}-message ingest", payload=text)
 
 
 def submit_session_save(state):
-    """One coalesced save per turn instead of one per ingest — a full-
-    state write is the whole corpus, so this halves the per-turn disk
-    work. Runs on the worker AFTER the turn's encodes (FIFO); a no-op
-    when nothing marked the trie dirty. A turn that dies before queuing
-    it leaves the trie dirty; the boundary saves (exit, /new, /clear)
-    cover that."""
+    """One coalesced save per turn, queued FIFO behind the turn's
+    encodes. A no-op when the trie is not dirty."""
     state.ingest.submit(
         lambda: state.trie.save() if state.trie.dirty else None,
         label="session save")
 
 
 def report_ingest_failures(failures):
-    # the worker never prints (it would corrupt the prompt line), so the
-    # report lands here, at the first barrier after the failure; the
-    # journal write is best-effort, so say only what actually happened —
-    # and only message-carrying jobs have text to preserve
+    # the worker never prints - failures surface here, at the next barrier
     for f in failures:
         if f.get("payload") is None:
             note = ("traceback in ingest_failures.jsonl"
@@ -373,24 +348,14 @@ def report_ingest_failures(failures):
 
 
 def close_ingest(state):
-    """Drain + stop the worker at exit, surviving an impatient Ctrl-C:
-    the first interrupt reports what is still queued (the worker's
-    atexit hook keeps finishing it while the interpreter exits); only
-    another Ctrl-C there abandons the queue. Returns True when the queue
-    finished cleanly — the caller may then trust `trie.dirty` to decide
-    whether the session really reached disk."""
+    """Drain and stop the worker at exit. Returns True when the queue
+    finished cleanly, so the caller may trust `trie.dirty`."""
     try:
-        # boundary save, routed through the worker so it runs AFTER any
-        # in-flight ingest (single mutator) and still happens via the
-        # atexit hook if the close below is interrupted: an error turn
-        # never queued its coalesced save, and its ingest must not die
-        # with the process
+        # boundary save: an error turn never queued its coalesced save
         submit_session_save(state)
     except RuntimeError:
         pass                            # already closed (repeat call)
     except KeyboardInterrupt:
-        # Ctrl-C on the submit itself: the save job was never queued, so
-        # dirty state stays RAM-only — say so instead of exiting mute
         print("\n[ingest] interrupted before the final save was queued")
         return False
     try:
@@ -659,8 +624,6 @@ def handle_command(line, state):
             print(f"ingest: synchronous (--sync-ingest) - {ing['jobs']} "
                   f"jobs, {ing['busy_s']:.1f}s inline{fail_note}")
         else:
-            # pending is 0 at any prompt (the dispatch barrier drained);
-            # shown only if a future call site reads stats mid-turn
             print(f"ingest: background - {ing['jobs']} jobs, "
                   f"{ing['busy_s']:.1f}s of encode kept off the prompt "
                   f"path{fail_note}"
@@ -726,10 +689,7 @@ def chat_turn(state, line):
     if state.runner is None:
         print("No chat model loaded - /model <name> to load one.")
         return
-    # Barrier before this turn's trie reads (compress, memory block,
-    # inventory): the previous turn's ingest normally finished while the
-    # user typed, so this is a no-op wait — but correctness never depends
-    # on that timing.
+    # barrier: this turn's trie reads need the previous turn's ingest done
     report_ingest_failures(state.ingest.drain())
     ts_start = datetime.now().isoformat(timespec="seconds")
     # trie holds turns 1..N-1 here (this message is added after generation):
@@ -757,12 +717,8 @@ def chat_turn(state, line):
     # unconditional: gating this on memory/attachments flips the system
     # prompt after turn 1 and invalidates the whole KV prefix
     instructions = load_instructions()
-    # Every trie read of this turn is done (compress, memory block,
-    # inventory — the last two iterate trie.sources), so the user line's
-    # encode can run on the worker WHILE the model generates — and a turn
-    # whose generation fails no longer loses the user's message from
-    # memory. Sync mode keeps the post-reply position below: --sync-ingest
-    # must not grow time-to-first-token.
+    # this turn's trie reads are done, so the user line encodes while
+    # the model generates (sync mode keeps the post-reply position below)
     if not state.sync_ingest:
         submit_ingest(state, line, "user", save=False)
     messages = build_messages(memory_block, state.tail, line,
@@ -783,12 +739,9 @@ def chat_turn(state, line):
     print("\n" if not interrupted else "  [interrupted]\n")
 
     reply = "".join(pieces).strip()
-    # NO drain here: on a short reply after a huge paste it would put the
-    # remaining encode right back on the prompt path. The user-line job
-    # may still be running while the ledger below reads the trie — safe,
-    # because record_turn touches only texts/n_words at the pre-turn
-    # selected indices and appends never move existing rows; its failure,
-    # if any, surfaces at the next barrier.
+    # no drain here (it would put a big paste's leftover encode back on
+    # the prompt path): record_turn reads only pre-turn rows, and
+    # appends never move them
     extra = dict(drift_extra or {})
     extra.update(getattr(state.runner, "last_engine_stats", None) or {})
     try:
@@ -801,12 +754,7 @@ def chat_turn(state, line):
             extra=extra or None)
     except Exception as exc:
         print(f"[kvtrace] recording failed for this turn: {exc}")
-    # the assistant side enters the trie off the critical path: the
-    # prompt returns as soon as the job is queued, and the encode
-    # overlaps the user reading the reply and typing (the user side is
-    # already in — it rode the generation window above). --sync-ingest
-    # runs both sides inline here, at the pre-feature position, with the
-    # pre-feature save-per-call durability (no coalescing).
+    # sync mode ingests both sides here, post-reply, as before the worker
     if state.sync_ingest:
         submit_ingest(state, line, "user")
     if reply:
@@ -860,9 +808,7 @@ def repl(state):
         if not line:
             continue
         try:
-            # one barrier ahead of EVERY dispatch: commands and turns only
-            # ever see a trie with no ingest in flight (normally a no-op —
-            # the queue emptied while the user typed)
+            # barrier: no dispatch sees a trie with ingest in flight
             report_ingest_failures(state.ingest.drain())
             if line.startswith("salt@"):
                 handle_salt_at(state, line)
@@ -1105,11 +1051,8 @@ def main(argv=None):
     try:
         repl(state)
     finally:
-        # every exit path — Ctrl-D, /exit, an escaping error — finishes
-        # the queued ingest before the interpreter starts dying; the
-        # worker's own atexit hook covers only paths that skip this.
-        # "Session saved" must be TRUE: a failed or interrupted final
-        # save gets the warning instead of the reassurance.
+        # "Session saved" must be true: a failed or interrupted final
+        # save gets the warning instead
         if close_ingest(state) and not state.trie.dirty:
             print(f"Session saved under {state.trie.cache_dir}")
         else:

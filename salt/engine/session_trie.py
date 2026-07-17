@@ -155,8 +155,7 @@ class SessionTrie:
         self.coverage_turn = {}         # dict[key -> compress call of last increment]
         self._n_compress = 0            # completed compress() calls (freshness clock)
         self.n_near_dups = 0            # sentences suppressed by the near-dup gate
-        self.dirty = False              # mutations made under add_turn(save=False)
-                                        # not yet on disk; RAM-only, save() clears
+        self.dirty = False              # unsaved add_turn(save=False) mutations
 
         # --- counters / config ---
         self.dim = None
@@ -240,12 +239,8 @@ class SessionTrie:
         against real data) and counted in the persisted `n_near_dups`.
 
         `save=False` skips the end-of-call `save()` and marks the trie
-        `dirty` instead, so a caller ingesting both sides of an exchange
-        can persist once per turn rather than once per call — full-state
-        writes are the whole corpus, so halving them matters in long
-        sessions. `dirty` clears on the next `save()` (a later add_turn,
-        `compress()`, or an explicit call); the caller owns making sure
-        one happens.
+        `dirty` instead. The caller owns persisting the batch: `dirty`
+        clears on the next `save()`.
         """
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
@@ -327,9 +322,7 @@ class SessionTrie:
                 attn = [attn[i] for i in keep_rows]
                 bge = bge[keep_rows]
         if not fresh:
-            # every sentence was a near-duplicate: same contract as the
-            # all-deduped path above (the turn still advances), but the
-            # persisted counter changed, so save
+            # all near-duplicates: the turn still advances, counter changed
             turn = self._next_turn_index
             self._next_turn_index += 1
             if save:
