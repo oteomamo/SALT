@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -575,13 +575,15 @@ see <a href="../usage/">Usage</a>) and <code>saltChat</code> (interactive chat, 
 <div class="highlight"><pre><span></span><code>hf<span class="w"> </span>auth<span class="w"> </span>login
 </code></pre></div>
 <p>Or skip the CLI and export the token directly: <code>export HF_TOKEN=hf_...</code>.</p>
-<p><strong>5. (Optional) vLLM backend.</strong> <code>eval.py</code> defaults to vLLM, and
-<code>saltChat --backend vllm</code> uses it for prefix caching. Install it into the
-same <code>salt</code> env - there is only one environment:</p>
+<p><strong>5. (Optional) vLLM backend.</strong> <code>eval.py</code> defaults to vLLM,
+<code>saltChat --backend vllm</code> uses it for prefix caching, and <code>saltServe</code>
+launches a persistent model server with it. Install it into the <code>salt</code>
+env:</p>
 <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="nv">vllm</span><span class="o">==</span><span class="m">0</span>.11.0
 </code></pre></div>
 <p>Skip this and run <code>eval.py --backend hf</code> for a portable run that needs no
-vLLM. <code>saltChat</code> already defaults to its HF backend.</p>
+vLLM. <code>saltChat</code> already defaults to its HF backend. <code>saltServe</code> can also
+run a vLLM installed in a separate environment through <code>--vllm-bin</code>.</p>
 <blockquote>
 <p><code>bash scripts/setup_env.sh</code> does steps 2–3 in one shot (add <code>WITH_VLLM=1</code> to
 include vLLM).</p>
@@ -644,7 +646,7 @@ include vLLM).</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

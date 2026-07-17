@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -416,6 +416,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#persistent-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent serving
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repl-commands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -684,6 +695,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#persistent-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent serving
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repl-commands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -820,6 +842,24 @@ every turn (install vLLM first, see
 leaving room for the BGE encoder on the same GPU). <code>--max-model-len</code> caps
 the context window when the model's full window would not fit in the KV
 cache. <code>/model</code> switching works on both backends.</p>
+<h2 id="persistent-serving">Persistent serving</h2>
+<p>Both backends above load the model inside the saltChat process, so the
+model and its cache disappear when you exit. <code>saltServe</code> starts the model
+as its own long-lived server instead:</p>
+<div class="highlight"><pre><span></span><code>saltServe<span class="w"> </span>qwen05<span class="w"> </span>--gpu<span class="w"> </span><span class="m">1</span>
+</code></pre></div>
+<p>The command resolves the same registry entry, prints the full <code>vllm serve</code>
+invocation it runs, and serves an OpenAI compatible API on
+<code>http://127.0.0.1:8000</code> (change it with <code>--port</code>). The server keeps the
+model loaded and its prefix cache warm across saltChat runs. Stop it with
+Ctrl-C when you want the GPU back.</p>
+<p><code>--gpu-mem-util</code> sets the share of GPU memory the server claims (default
+<code>0.90</code>, the BGE encoder no longer shares its GPU). On cards older than
+Ampere the launcher serves <code>bfloat16</code> models in <code>float16</code>, which those
+GPUs require. <code>--vllm-bin</code> points at another environment's vllm, so the
+server can run whichever vLLM release fits your hardware while the SALT
+install stays unchanged. Anything after <code>--</code> is passed to <code>vllm serve</code>
+unchanged.</p>
 <h2 id="repl-commands">REPL commands</h2>
 <table>
 <thead>
@@ -1025,7 +1065,7 @@ content-overlap split.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
