@@ -1,0 +1,44 @@
+site_name: SALT
+site_description: Salience-Aware Lexical Trie for Long-Context Compression
+site_url: https://oteomamo.github.io/SALT/
+repo_url: https://github.com/oteomamo/SALT
+repo_name: oteomamo/SALT
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.top
+    - content.code.copy
+
+extra:
+  version:
+    provider: mike
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage: usage.md
+  - Chatbot mode: chatbot.md
+  - Architecture: architecture.md
+  - Datasets: datasets.md
+  - Results: results.md
+  - Changelog: changelog.md
+  - Roadmap: roadmap.md

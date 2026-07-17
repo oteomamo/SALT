@@ -27,6 +27,7 @@ dependencies = [
 
 [project.optional-dependencies]
 vllm = ["vllm==0.11.0"]
+docs = ["mkdocs-material>=9", "mike>=2"]
 
 [project.scripts]
 salt = "salt.compress:main"

@@ -13,6 +13,7 @@ dist/
 runs/
 out/
 cache/
+site/
 *.pkl
 *.log
 salt/models/*
@@ -28,3 +29,4 @@ salt/datasets/niah/
 *.png
 *.pdf
 !salt/assets/banner.png
+!docs/assets/banner.png
