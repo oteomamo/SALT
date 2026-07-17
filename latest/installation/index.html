@@ -579,11 +579,13 @@ see <a href="../usage/">Usage</a>) and <code>saltChat</code> (interactive chat, 
 <code>saltChat --backend vllm</code> uses it for prefix caching, and <code>saltServe</code>
 launches a persistent model server with it. Install it into the <code>salt</code>
 env:</p>
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="nv">vllm</span><span class="o">==</span><span class="m">0</span>.11.0
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;vllm==0.11.0&quot;</span><span class="w"> </span><span class="s2">&quot;prometheus-fastapi-instrumentator&gt;=8.0.1&quot;</span>
 </code></pre></div>
-<p>Skip this and run <code>eval.py --backend hf</code> for a portable run that needs no
-vLLM. <code>saltChat</code> already defaults to its HF backend. <code>saltServe</code> can also
-run a vLLM installed in a separate environment through <code>--vllm-bin</code>.</p>
+<p>The second pin keeps the server's routes healthy next to newer fastapi
+releases. Skip this and run <code>eval.py --backend hf</code> for a portable run
+that needs no vLLM. <code>saltChat</code> already defaults to its HF backend.
+<code>saltServe</code> can also run a vLLM installed in a separate environment
+through <code>--vllm-bin</code>.</p>
 <blockquote>
 <p><code>bash scripts/setup_env.sh</code> does steps 2–3 in one shot (add <code>WITH_VLLM=1</code> to
 include vLLM).</p>
