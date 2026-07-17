@@ -962,6 +962,9 @@ The tail grows append-only and compacts <strong>in blocks</strong> (back to <cod
 exchanges once it hits twice that) instead of rolling every turn, so the
 prompt prefix stays byte-identical between compactions. Nothing is lost,
 since every sentence already entered the trie the moment it was spoken.
+Attachments render in the order they were attached, and that order is
+saved with the session, so a resumed conversation rebuilds the same
+prompt bytes and a persistent server can serve them from its warm cache.
 With the default HF backend each turn still prefills the whole prompt.
 <code>--backend vllm</code> cashes the layout in. The engine's automatic prefix caching
 serves the stable prefix straight from the GPU KV cache and prefills only

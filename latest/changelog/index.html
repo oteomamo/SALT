@@ -915,7 +915,10 @@ persistent <code>vllm serve</code> process from registered weights, so the model
 its cache outlive individual chat sessions. 2.9.5 adds
 <code>saltChat --backend vllm-serve</code> with <code>--server-url</code>, the client side of
 persistent serving, so a chat can connect to the running server and
-<code>/stats</code> reports the server's measured prefix-cache reuse.</p>
+<code>/stats</code> reports the server's measured prefix-cache reuse. 2.9.6 keeps
+attachments in their attach order when a session resumes, so the prompt
+renders the same bytes across restarts and stays warm in the server
+cache.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
