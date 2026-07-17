@@ -38,7 +38,7 @@ saltChat --model qwen05 --backend vllm --gpu 1
 `--gpu-mem-util` caps the engine's share of GPU memory (default `0.85`,
 leaving room for the BGE encoder on the same GPU). `--max-model-len` caps
 the context window when the model's full window would not fit in the KV
-cache. `/model` switching works on both backends.
+cache. `/model` switching works on both in-process backends.
 
 ## Persistent serving
 
@@ -63,6 +63,21 @@ GPUs require. `--vllm-bin` points at another environment's vllm, so the
 server can run whichever vLLM release fits your hardware while the SALT
 install stays unchanged. Anything after `--` is passed to `vllm serve`
 unchanged.
+
+Connect saltChat to the running server:
+
+```bash
+saltChat --model qwen05 --backend vllm-serve
+```
+
+`--server-url` points at a server on another port or machine (default
+`http://127.0.0.1:8000`). The prompt is rendered and tokenized in
+saltChat itself, so the text the server caches is exactly the text the
+kv ledger counts. Exit, come back later, resume the conversation by its
+id: the model is still loaded and the stable prompt head is still
+cached, so the first turn only prefills what changed. One server serves
+one model, so switching with `/model` needs a second server on another
+port. `/stats` shows the measured reuse every turn.
 
 ## REPL commands
 

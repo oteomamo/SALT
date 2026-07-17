@@ -13,7 +13,10 @@ of once per message. `--sync-ingest` restores the old inline behavior.
 
 Patch releases: 2.9.4 adds `saltServe`, a command that launches a
 persistent `vllm serve` process from registered weights, so the model and
-its cache outlive individual chat sessions.
+its cache outlive individual chat sessions. 2.9.5 adds
+`saltChat --backend vllm-serve` with `--server-url`, the client side of
+persistent serving, so a chat can connect to the running server and
+`/stats` reports the server's measured prefix-cache reuse.
 
 ## 2.8.0 (2026-07-15)
 

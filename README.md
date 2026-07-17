@@ -88,9 +88,9 @@ so it is the fastest way to find where a change belongs:
 │ │                    │  │                    │  │                    │   │
 │ │ per-conversation   │  │ stable prefix first│  │ HF streaming       │   │
 │ │ lives in DRAM      │  │ append-only tail   │  │ vLLM + APC (opt-in)│   │
-│ │ grows every turn   │  │ memory + question  │  │ model registry     │   │
-│ │ cross-turn coverage│  │ instructions.md    │  │ GPU-pinned models  │   │
-│ │ + half-life decay  │  │                    │  │                    │   │
+│ │ grows every turn   │  │ memory + question  │  │ vllm-serve client  │   │
+│ │ cross-turn coverage│  │ instructions.md    │  │ model registry     │   │
+│ │ + half-life decay  │  │                    │  │ GPU-pinned models  │   │
 │ │ + near-dup gate    │  │                    │  │                    │   │
 │ │ + background ingest│  │                    │  │                    │   │
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
@@ -129,12 +129,12 @@ so it is the fastest way to find where a change belongs:
 │ │                    kvtrace - per-turn KV ledger                    │   │
 │ │ read (reused) / write (fresh) / output · events.jsonl + tokens.npy │   │
 │ │ usage keys: input (write) · input_cached_tokens (read) · output    │   │
-│ │ apc fields: engine-measured prefix-cache reuse (--backend vllm)    │   │
+│ │ apc fields: engine-measured prefix-cache reuse (vllm + vllm-serve) │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
 │ │                            Entry points                            │   │
-│ │ salt (one-shot: --data / --doc) · saltChat (chat REPL) · eval.py   │   │
+│ │ salt (one-shot: --data / --doc) · saltChat · saltServe · eval.py   │   │
 │ │ salt@ trie attach · attach@ full text · /doc /model /budget /stats │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────────┘

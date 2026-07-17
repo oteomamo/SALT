@@ -98,11 +98,13 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 
 
 def backend_opts(args):
-    """Engine knobs that only the vllm backend understands."""
-    if args.backend != "vllm":
-        return {}
-    return {"gpu_memory_utilization": args.gpu_mem_util,
-            "max_model_len": args.max_model_len}
+    """Per-backend knobs the shared CLI surface funnels to make_runner."""
+    if args.backend == "vllm":
+        return {"gpu_memory_utilization": args.gpu_mem_util,
+                "max_model_len": args.max_model_len}
+    if args.backend == "vllm-serve":
+        return {"server_url": args.server_url}
+    return {}
 
 
 class ChatState:
@@ -656,6 +658,10 @@ def handle_command(line, state):
             n = (kv.last_event or {}).get("apc_prompt_tokens") or 0
             print(f"APC: {apc}/{n} prompt tokens served from the engine's "
                   f"prefix cache" + (f" ({apc / n:.0%})" if n else ""))
+        elif (kv.last_event or {}).get("engine_backend") == "vllm-serve":
+            print("APC: the server reported no cache stats this turn - if "
+                  "this persists, start it with "
+                  "--enable-prompt-tokens-details (saltServe passes it)")
         if torch.cuda.is_available():
             dev = state.device if str(state.device).startswith("cuda") else None
             print(f"GPU memory allocated ({state.device}): "
@@ -857,11 +863,18 @@ def build_parser():
                         "separate GPUs.")
     p.add_argument("--bge-device", default=None,
                    help="device for the BGE encoder (default: --device)")
-    p.add_argument("--backend", default="hf", choices=["hf", "vllm"],
+    p.add_argument("--backend", default="hf",
+                   choices=["hf", "vllm", "vllm-serve"],
                    help="inference backend for the chat model (default: hf; "
                         "vllm reuses the stable prompt prefix from the GPU "
                         "KV cache across turns - needs the optional vLLM "
-                        "install, README step 5)")
+                        "install, README step 5; vllm-serve connects to a "
+                        "persistent server started with saltServe, so the "
+                        "cache survives restarts)")
+    p.add_argument("--server-url", default="http://127.0.0.1:8000",
+                   metavar="URL",
+                   help="vLLM server address for --backend vllm-serve "
+                        "(default: http://127.0.0.1:8000)")
     p.add_argument("--gpu-mem-util", type=float, default=0.85,
                    help="fraction of GPU memory the vLLM engine may manage "
                         "(vllm backend only; default: 0.85, leaving room "
@@ -992,6 +1005,10 @@ def main(argv=None):
         return 1
     if args.max_model_len < 0:
         print("--max-model-len must be >= 0 (0 = the model's own window).",
+              file=sys.stderr)
+        return 1
+    if not args.server_url.startswith(("http://", "https://")):
+        print("--server-url must start with http:// or https://",
               file=sys.stderr)
         return 1
 
