@@ -26,9 +26,9 @@ before choosing sentences, so minor themes keep their share instead of being
 crowded out. Because the theme map is built once, it can be reused across the
 turns of a conversation without re-reading the document.
 
-📖 **Documentation:** the full guides (usage, the chatbot manual, datasets,
-results, changelog, roadmap) live at
-**[oteomamo.github.io/SALT](https://oteomamo.github.io/SALT/)**.
+[![][docs-shield]][docs-link]
+[![][version-shield]][release-link]
+[![][license-shield]][license-link]
 
 ## 📑 Table of contents
 
@@ -279,3 +279,10 @@ PRs welcome - see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## 📄 License
 
 SALT is released under the [MIT License](LICENSE).
+
+[docs-shield]: https://img.shields.io/badge/docs-oteomamo.github.io%2FSALT-blue
+[docs-link]: https://oteomamo.github.io/SALT/
+[version-shield]: https://img.shields.io/github/v/tag/oteomamo/SALT?label=version&sort=semver
+[release-link]: https://github.com/oteomamo/SALT/tags
+[license-shield]: https://img.shields.io/github/license/oteomamo/SALT
+[license-link]: LICENSE
