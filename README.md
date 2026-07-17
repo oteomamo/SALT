@@ -209,12 +209,14 @@ launches a persistent model server with it. Install it into the `salt`
 env:
 
 ```bash
-pip install vllm==0.11.0
+pip install "vllm==0.11.0" "prometheus-fastapi-instrumentator>=8.0.1"
 ```
 
-Skip this and run `eval.py --backend hf` for a portable run that needs no
-vLLM. `saltChat` already defaults to its HF backend. `saltServe` can also
-run a vLLM installed in a separate environment through `--vllm-bin`.
+The second pin keeps the server's routes healthy next to newer fastapi
+releases. Skip this and run `eval.py --backend hf` for a portable run
+that needs no vLLM. `saltChat` already defaults to its HF backend.
+`saltServe` can also run a vLLM installed in a separate environment
+through `--vllm-bin`.
 
 > `bash scripts/setup_env.sh` does steps 2–3 in one shot (add `WITH_VLLM=1` to
 > include vLLM).
@@ -251,9 +253,12 @@ a query-biased context block under the token budget.
 saltChat --model qwen05 --conversation-id demo1 --doc report.txt
 ```
 
-Attachments, PDF cleaning, the KV-cache-shaped prompt layout, the memory
-knobs, background ingestion, and the per-turn KV ledger are all covered in
-the [Chatbot mode guide](https://oteomamo.github.io/SALT/chatbot/).
+A persistent server started with `saltServe` keeps the model loaded and
+its cache warm between chats, so a resumed conversation picks up without
+re-reading its documents. Attachments, PDF cleaning, the KV-cache-shaped
+prompt layout, persistent serving, the memory knobs, background
+ingestion, and the per-turn KV ledger are all covered in the
+[Chatbot mode guide](https://oteomamo.github.io/SALT/chatbot/).
 
 ## 🔬 Results
 
@@ -273,8 +278,6 @@ Active goals and next steps:
 - **Bounded long sessions** - mask-based (never-delete) eviction and
   growth-stable theme bookkeeping, so long-running sessions stay fast and
   exact as conversations and attachments accumulate.
-- **Persistent serving** - a `vllm serve` chat backend, so the KV cache
-  survives restarts and sessions resume warm.
 - **MCP server** - a `salt-mcp` entry point exposing compression and session
   memory as tools, so AI clients (Claude Code, Claude Desktop, Cursor) can use
   SALT as their conversation memory without the REPL.

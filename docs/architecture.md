@@ -92,6 +92,27 @@ so it is the fastest way to find where a change belongs:
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Persistent serving
+
+The chat model can run as its own long-lived server instead of inside
+saltChat. `saltServe` resolves a registered model and starts a
+`vllm serve` process that owns the GPU, and `saltChat --backend
+vllm-serve` connects to it as a thin client. The client renders and
+tokenizes every prompt itself with the same shared helpers as the
+in-process backends and sends token ids over the wire, so the text the
+server caches is byte-identical to the text the kv ledger counts.
+
+The design leans on the KV-cache-shaped prompt layout above. The stable
+head (instructions, file inventory, `attach@` full texts) and the
+verbatim tail are cached by the server's automatic prefix caching, and
+both persist with the session: attachments reload in attach order and
+the tail reloads verbatim, so a resumed conversation renders the same
+prompt bytes the server already holds. Exiting saltChat costs neither
+the cache nor the model load. The server reports its measured reuse per
+turn through the additive apc fields in the ledger, and the client needs
+no vLLM install of its own, so the server can run whichever vLLM release
+fits the GPU, even from a separate environment.
+
 Where each stage lives:
 
 | Stage | Code |
@@ -106,4 +127,5 @@ Where each stage lives:
 | Background ingest worker (chat) | `salt/chat/ingest.py` |
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
+| Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat` |

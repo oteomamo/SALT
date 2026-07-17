@@ -38,7 +38,7 @@ conda run -n "$SALT_ENV" python -m pip install -e "$REPO_ROOT"
 
 if [ "$WITH_VLLM" = "1" ]; then
   echo ">> installing vLLM eval backend into '$SALT_ENV'"
-  conda run -n "$SALT_ENV" python -m pip install "vllm==0.11.0"
+  conda run -n "$SALT_ENV" python -m pip install "vllm==0.11.0" "prometheus-fastapi-instrumentator>=8.0.1"
 fi
 
 echo

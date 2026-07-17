@@ -51,12 +51,14 @@ launches a persistent model server with it. Install it into the `salt`
 env:
 
 ```bash
-pip install vllm==0.11.0
+pip install "vllm==0.11.0" "prometheus-fastapi-instrumentator>=8.0.1"
 ```
 
-Skip this and run `eval.py --backend hf` for a portable run that needs no
-vLLM. `saltChat` already defaults to its HF backend. `saltServe` can also
-run a vLLM installed in a separate environment through `--vllm-bin`.
+The second pin keeps the server's routes healthy next to newer fastapi
+releases. Skip this and run `eval.py --backend hf` for a portable run
+that needs no vLLM. `saltChat` already defaults to its HF backend.
+`saltServe` can also run a vLLM installed in a separate environment
+through `--vllm-bin`.
 
 > `bash scripts/setup_env.sh` does steps 2–3 in one shot (add `WITH_VLLM=1` to
 > include vLLM).
