@@ -19,7 +19,9 @@ persistent serving, so a chat can connect to the running server and
 `/stats` reports the server's measured prefix-cache reuse. 2.9.6 keeps
 attachments in their attach order when a session resumes, so the prompt
 renders the same bytes across restarts and stays warm in the server
-cache.
+cache. 2.9.7 saves the recent exchanges with the session, so a resumed
+conversation remembers its last turns verbatim instead of starting from
+compressed memory alone.
 
 ## 2.8.0 (2026-07-15)
 

@@ -6,7 +6,7 @@ attached documents), and each turn it compresses the accumulated history into
 a query-biased context block under the token budget. The BGE encoder and the
 chat model stay resident on the GPU for the whole session. The trie lives in
 process memory and autosaves to disk, so any conversation can be resumed
-later by its id.
+later by its id, recent exchanges included.
 
 ## Starting a session
 
@@ -145,6 +145,9 @@ since every sentence already entered the trie the moment it was spoken.
 Attachments render in the order they were attached, and that order is
 saved with the session, so a resumed conversation rebuilds the same
 prompt bytes and a persistent server can serve them from its warm cache.
+The tail is saved with the session too, so resuming restores the recent
+exchanges verbatim and the whole stable prefix can stay warm on a
+persistent server.
 With the default HF backend each turn still prefills the whole prompt.
 `--backend vllm` cashes the layout in. The engine's automatic prefix caching
 serves the stable prefix straight from the GPU KV cache and prefills only

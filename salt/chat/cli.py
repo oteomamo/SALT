@@ -144,6 +144,7 @@ class ChatState:
         self.last_stats = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
+        self.load_tail()
         self.kvtrace = KVTrace(self.trie.cache_dir,
                                self.trie.conversation_id)
         # drained at every dispatch: no reader sees ingest in flight
@@ -157,6 +158,29 @@ class ChatState:
         it was spoken — compaction only bounds the verbatim window."""
         if len(self.tail) > 2 * self.tail_max:
             del self.tail[: len(self.tail) - 2 * self.tail_min]
+
+    def load_tail(self):
+        self.tail = []
+        try:
+            tail = json.loads((self.trie.cache_dir / "tail.json").read_text())
+        except (OSError, ValueError):
+            return
+        if not (isinstance(tail, list) and len(tail) % 2 == 0):
+            return
+        roles = ("user", "assistant")
+        for i, m in enumerate(tail):
+            if not (isinstance(m, dict) and m.get("role") == roles[i % 2]
+                    and isinstance(m.get("content"), str)):
+                return
+        self.tail = tail
+        self.compact_tail()
+
+    def save_tail(self):
+        # mirrored to disk every turn so a resumed session renders the
+        # same prompt bytes the server's cache already holds
+        tmp = self.trie.cache_dir / "tail.json.tmp"
+        tmp.write_text(json.dumps(self.tail))
+        os.replace(tmp, self.trie.cache_dir / "tail.json")
 
     def new_trie(self, conversation_id, save_old=True):
         # save first: the ctor below loads this session's own state.pkl
@@ -181,9 +205,9 @@ class ChatState:
         self.ingest.close()
         self.trie = trie
         self.ingest = worker
-        self.tail.clear()
         self.last_stats = None
         self.load_full_attachments()
+        self.load_tail()
         self.kvtrace = KVTrace(self.trie.cache_dir,
                                self.trie.conversation_id)
         return self.trie
@@ -796,6 +820,10 @@ def chat_turn(state, line):
         state.tail.append({"role": "user", "content": line})
         state.tail.append({"role": "assistant", "content": reply})
         state.compact_tail()
+        try:
+            state.save_tail()
+        except OSError as exc:
+            print(f"[tail] could not save the recent exchanges: {exc}")
     if not state.sync_ingest:
         submit_session_save(state)
 
