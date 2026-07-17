@@ -36,7 +36,7 @@ jobs:
 
       - name: Deploy a frozen version (tag push)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: mike deploy --push --update-aliases "${GITHUB_REF_NAME#v}" latest
+        run: mike deploy --push "${GITHUB_REF_NAME#v}"
 
       - name: Deploy latest (main push)
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
