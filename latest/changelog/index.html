@@ -947,7 +947,11 @@ strongest keywords, so a long session's coverage is visible at a glance.
 memory block so the model can see a topic came up on a given turn even
 when none of that turn's sentences were selected. 2.9.24 adds how long ago
 to those labels, so the model can answer questions about when something
-was said instead of only about what and by whom.</p>
+was said instead of only about what and by whom. 2.9.26 and 2.9.27 refine
+the map. Keyword ranking no longer favors short sentences over the long
+ones that carry a turn's actual topic, and the map header states how many
+turns it covers, so a long conversation showing only its recent turns
+never reads as proof that an older topic was never discussed.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
