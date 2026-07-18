@@ -928,8 +928,10 @@ split a model's weights across several cards (tensor parallel), so a model
 too big for one card still serves. Every card in the group is capped at
 0.80 of its memory by default. 2.9.13 extends <code>--gpu</code> on saltChat to a
 card list too. The <code>--backend vllm</code> engine tensor-parallels the model
-across the cards and the BGE encoder rides the last one, off the cards
-holding the model.</p>
+across the cards and the BGE encoder rides the last one, which the 0.80
+memory cap keeps room for. 2.9.14 pins the same PCI card order for the
+encoder and the model, so a <code>--gpu</code> index means the same physical card
+for both.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
