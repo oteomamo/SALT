@@ -438,6 +438,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#scripted-turns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scripted turns
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#attachments" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -717,6 +728,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#scripted-turns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scripted turns
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#attachments" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -957,6 +979,20 @@ last one, inside that same reserved headroom.</p>
 </table>
 <p>TAB completes <code>/commands</code>, <code>salt@&lt;file&gt;</code>, and <code>attach@&lt;file&gt;</code> names (see
 <a href="https://github.com/oteomamo/SALT/blob/main/salt/files/README.md"><code>salt/files/README.md</code></a>).</p>
+<h2 id="scripted-turns">Scripted turns</h2>
+<p>Instead of typing, <code>--turns FILE</code> runs a whole conversation from a file,
+one turn after the next, into the same session so the memory builds across
+them exactly as it would live. The file is a JSON array or a JSONL file
+(one JSON value per line). A string item is a user message. An object item
+takes its message from a common key it finds (<code>question</code>, <code>puzzle</code>,
+<code>prompt</code>, and a few others), or from <code>--turns-field KEY</code> when you name the
+key yourself.</p>
+<div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>QwQ-32B<span class="w"> </span>--backend<span class="w"> </span>vllm-serve<span class="w"> </span>--turns<span class="w"> </span>puzzles.json
+</code></pre></div>
+<p>Every backend works, so the same file can drive a persistent server. Each
+turn prints its id and the model's reply. Add <code>--turns-out results.jsonl</code>
+to also append <code>{id, turn, question, answer}</code> per turn, so the run can be
+reviewed or scored afterward.</p>
 <h2 id="attachments">Attachments</h2>
 <p>A <code>salt@</code> file becomes <strong>its own branch</strong> of the session trie, hanging off the
 conversation's root - so multiple attachments never crowd each other out, and

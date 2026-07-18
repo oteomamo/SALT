@@ -933,7 +933,10 @@ memory cap keeps room for. 2.9.14 pins the same PCI card order for the
 encoder and the model, so a <code>--gpu</code> index means the same physical card
 for both. 2.9.16 extends the <code>--gpu</code> list to the hf backend, which shards
 the model across the cards with a balanced device_map (the BGE encoder
-still rides the last card).</p>
+still rides the last card). 2.9.19 adds <code>--turns FILE</code>, which runs a
+scripted conversation from a JSON or JSONL file one turn after the next
+into the same session, so a canned set of questions builds SALT's memory
+just like a live chat. <code>--turns-out</code> records each answer as JSONL.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
