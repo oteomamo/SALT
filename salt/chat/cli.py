@@ -860,6 +860,87 @@ def chat_turn(state, line):
         submit_tail_save(state)
     if not state.sync_ingest:
         submit_session_save(state)
+    return reply
+
+
+_TURN_TEXT_KEYS = ("prompt", "question", "puzzle", "text", "content",
+                   "message", "user", "turn")
+
+
+def _parse_turns_file(raw):
+    """A --turns file is a JSON array of items, or JSONL (one JSON value per
+    non-blank line). Returns the list of items."""
+    raw = raw.strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return [json.loads(l) for l in raw.splitlines() if l.strip()]
+    return data if isinstance(data, list) else [data]
+
+
+def _turn_text(item, field, i):
+    """The user message for one turn item: a bare string, or a field of an
+    object (explicit --turns-field, else a common key, else its lone string
+    field)."""
+    if isinstance(item, str):
+        return item
+    if not isinstance(item, dict):
+        raise ValueError(f"turn {i} is neither a string nor an object")
+    if field is not None:
+        if field not in item:
+            raise ValueError(f"turn {i} has no field {field!r}")
+        return str(item[field])
+    for k in _TURN_TEXT_KEYS:
+        if isinstance(item.get(k), str):
+            return item[k]
+    strings = [k for k, v in item.items() if isinstance(v, str) and k != "id"]
+    if len(strings) == 1:
+        return item[strings[0]]
+    raise ValueError(
+        f"turn {i}: no obvious message text - pass --turns-field with the "
+        f"key that holds it")
+
+
+def load_turns(path, field=None):
+    """Read a --turns file into an ordered list of (id, text) user turns."""
+    items = _parse_turns_file(Path(path).read_text(encoding="utf-8"))
+    turns = []
+    for i, item in enumerate(items):
+        turn_id = item.get("id") if isinstance(item, dict) else None
+        turns.append((turn_id, _turn_text(item, field, i)))
+    return turns
+
+
+def run_turns(state, turns, out_path=None):
+    """Feed a scripted list of user turns through the chat path one after
+    another, so SALT's memory builds across them exactly as in a live
+    session. Every backend works, including --backend vllm-serve. With
+    out_path, each answer is appended to a JSONL file."""
+    out = open(out_path, "w", encoding="utf-8") if out_path else None
+    try:
+        for i, (turn_id, text) in enumerate(turns):
+            label = turn_id if turn_id is not None else i
+            print(f"\n=== turn {i + 1}/{len(turns)} [{label}] ===")
+            print(f"you> {text}")
+            report_ingest_failures(state.ingest.drain())
+            reply = None
+            try:
+                reply = chat_turn(state, text)
+            except KeyboardInterrupt:
+                print("\n[interrupted - stopping the run]")
+                break
+            except Exception as exc:
+                print(f"[turn {label} failed: {exc}]")
+            if out is not None:
+                out.write(json.dumps(
+                    {"id": turn_id, "turn": i, "question": text,
+                     "answer": reply}, ensure_ascii=False) + "\n")
+                out.flush()
+    finally:
+        if out is not None:
+            out.close()
 
 
 def _setup_completion():
@@ -1026,6 +1107,21 @@ def build_parser():
                         "ingest error raises at the call site (default: "
                         "ingest runs on a background worker and long "
                         "pasted messages never delay the next prompt)")
+    p.add_argument("--turns", metavar="FILE",
+                   help="run a scripted conversation from a JSON array or "
+                        "JSONL file instead of the interactive REPL. Each "
+                        "item is one user turn, fed in order into the same "
+                        "session so SALT's memory builds across them. A "
+                        "string item is the message; an object item takes "
+                        "its message from --turns-field (default: a common "
+                        "key such as question/puzzle/prompt). Works with "
+                        "every backend, including --backend vllm-serve.")
+    p.add_argument("--turns-field", metavar="KEY", default=None,
+                   help="for object items in --turns, the key holding the "
+                        "user message (default: auto-detect)")
+    p.add_argument("--turns-out", metavar="FILE", default=None,
+                   help="append each --turns answer to this JSONL file as "
+                        "{id, turn, question, answer}")
     return p
 
 
@@ -1114,6 +1210,19 @@ def main(argv=None):
               file=sys.stderr)
         return 1
 
+    # load a scripted-turns file up front so a bad path or format fails
+    # before the model is loaded
+    turns = None
+    if args.turns:
+        try:
+            turns = load_turns(args.turns, args.turns_field)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"--turns: {exc}", file=sys.stderr)
+            return 1
+        if not turns:
+            print(f"--turns: {args.turns} has no turns", file=sys.stderr)
+            return 1
+
     models = list_models()
     if args.model:
         try:
@@ -1168,7 +1277,10 @@ def main(argv=None):
         ingest_doc(state, doc)
 
     try:
-        repl(state)
+        if turns is not None:
+            run_turns(state, turns, args.turns_out)
+        else:
+            repl(state)
     finally:
         # "Session saved" must be true: a failed or interrupted final
         # save gets the warning instead

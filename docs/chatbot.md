@@ -134,6 +134,25 @@ last one, inside that same reserved headroom.
 TAB completes `/commands`, `salt@<file>`, and `attach@<file>` names (see
 [`salt/files/README.md`](https://github.com/oteomamo/SALT/blob/main/salt/files/README.md)).
 
+## Scripted turns
+
+Instead of typing, `--turns FILE` runs a whole conversation from a file,
+one turn after the next, into the same session so the memory builds across
+them exactly as it would live. The file is a JSON array or a JSONL file
+(one JSON value per line). A string item is a user message. An object item
+takes its message from a common key it finds (`question`, `puzzle`,
+`prompt`, and a few others), or from `--turns-field KEY` when you name the
+key yourself.
+
+```bash
+saltChat --model QwQ-32B --backend vllm-serve --turns puzzles.json
+```
+
+Every backend works, so the same file can drive a persistent server. Each
+turn prints its id and the model's reply. Add `--turns-out results.jsonl`
+to also append `{id, turn, question, answer}` per turn, so the run can be
+reviewed or scored afterward.
+
 ## Attachments
 
 A `salt@` file becomes **its own branch** of the session trie, hanging off the

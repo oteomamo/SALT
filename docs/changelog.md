@@ -34,7 +34,10 @@ memory cap keeps room for. 2.9.14 pins the same PCI card order for the
 encoder and the model, so a `--gpu` index means the same physical card
 for both. 2.9.16 extends the `--gpu` list to the hf backend, which shards
 the model across the cards with a balanced device_map (the BGE encoder
-still rides the last card).
+still rides the last card). 2.9.19 adds `--turns FILE`, which runs a
+scripted conversation from a JSON or JSONL file one turn after the next
+into the same session, so a canned set of questions builds SALT's memory
+just like a live chat. `--turns-out` records each answer as JSONL.
 
 ## 2.8.0 (2026-07-15)
 

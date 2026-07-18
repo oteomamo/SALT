@@ -172,6 +172,32 @@ def main():
     w.close()
     print("overlap + FIFO: submit non-blocking, drain exact, 101 jobs in order")
 
+    # --turns file parsing (pure, no encoder): json array, jsonl, bare
+    # strings, field auto-detect + override, and the ambiguous-item refusal
+    from salt.chat.cli import load_turns, _turn_text
+    with tempfile.TemporaryDirectory() as td:
+        arr = Path(td) / "a.json"
+        arr.write_text(json.dumps([{"id": "test-0", "puzzle": "solve me"},
+                                   {"id": "test-1", "puzzle": "and me"}]))
+        assert load_turns(str(arr)) == [("test-0", "solve me"),
+                                        ("test-1", "and me")]
+        jl = Path(td) / "b.jsonl"
+        jl.write_text('{"id":"a","question":"Q1"}\n'
+                      '{"id":"b","question":"Q2"}\n')
+        assert load_turns(str(jl)) == [("a", "Q1"), ("b", "Q2")]
+        strs = Path(td) / "c.json"
+        strs.write_text(json.dumps(["hi", "there"]))
+        assert load_turns(str(strs)) == [(None, "hi"), (None, "there")]
+    assert _turn_text({"id": "x", "body": "B"}, "body", 0) == "B"
+    assert _turn_text({"prompt": "P", "text": "T"}, None, 0) == "P"
+    try:
+        _turn_text({"a": "1", "b": "2"}, None, 0)
+        raise AssertionError("ambiguous turn item did not raise")
+    except ValueError:
+        pass
+    print("--turns parsing: json array, jsonl, bare strings, field "
+          "auto-detect and override, ambiguous item rejected")
+
     print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
     tok, mdl = load_bge(BGE_MODEL, args.device)
     tmp = Path(tempfile.mkdtemp(prefix="salt_ingest_regression_"))
