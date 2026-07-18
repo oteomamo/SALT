@@ -936,7 +936,11 @@ the model across the cards with a balanced device_map (the BGE encoder
 still rides the last card). 2.9.19 adds <code>--turns FILE</code>, which runs a
 scripted conversation from a JSON or JSONL file one turn after the next
 into the same session, so a canned set of questions builds SALT's memory
-just like a live chat. <code>--turns-out</code> records each answer as JSONL.</p>
+just like a live chat. <code>--turns-out</code> records each answer as JSONL. 2.9.21
+labels every conversation excerpt in the memory block with the turn it was
+said on and who said it, so the model can tell your words from its own and
+can see which of two conflicting statements came later.
+<code>--no-turn-labels</code> restores the plain unlabeled header.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so

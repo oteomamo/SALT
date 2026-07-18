@@ -1021,8 +1021,15 @@ reading guide from
 plus an inventory of every attached file, and the compressed memory arrives
 at the top of the newest user message, grouped by origin - <code>[from attached
 file 'paper.pdf' - 42 of 358 indexed sentences]</code> versus <code>[from the earlier
-conversation]</code> - so answers can cite their source file and the model knows
-the excerpts are partial.</p>
+conversation - turn 12, user]</code> - so answers can cite their source file and
+the model knows the excerpts are partial.</p>
+<p>Conversation excerpts carry their <strong>provenance</strong>. Each one is headed with
+the turn it was said on and who said it, so the model can tell your words
+from its own and can see which of two conflicting statements came later.
+The excerpts are split into one section per turn, and because sentences are
+selected in the order they were spoken, the sections read in order too.
+<code>--no-turn-labels</code> goes back to the plain <code>[from the earlier conversation]</code>
+header if you would rather spend those few tokens on content.</p>
 <h2 id="the-prompt-layout">The prompt layout</h2>
 <p>The prompt is deliberately <strong>KV-cache shaped</strong>: everything stable (system
 prompt, <code>attach@</code> full texts, the verbatim tail) comes first, and the only
