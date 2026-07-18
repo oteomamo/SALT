@@ -47,6 +47,16 @@ vllm --gpu 0,1` makes the vllm engine tensor-parallel them. Either way the
 BGE encoder rides the last card, inside the memory the `--gpu-mem-util`
 cap leaves free (default `0.80` across several cards).
 
+The `--gpu-mem-util` cap is what leaves that headroom. It bounds the
+model's share of each card: the weights for the hf backend, and the
+weights plus the KV cache pool for the vllm backends. The default is
+`0.80` across several cards, `0.85` for a lone in-process card, and `0.90`
+for a lone `saltServe` card. Lower it when a large model or a long
+conversation runs a card out of memory, which reserves more room for
+activations, the cache, and the encoder. On the vllm backends
+`--max-model-len` helps too, by capping the window the KV cache must
+cover.
+
 ## Persistent serving
 
 Both backends above load the model inside the saltChat process, so the
