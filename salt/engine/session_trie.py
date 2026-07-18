@@ -41,6 +41,7 @@ import hashlib
 import json
 import os
 import pickle
+import time
 from pathlib import Path
 
 import numpy as np
@@ -144,6 +145,10 @@ class SessionTrie:
         self.turns = []                 # list[int] turn index the sentence entered on
         self.sources = []               # list[str|None]: None = conversation,
                                         #   else attachment id -> per-file branch
+        # wall-clock ingest time, one stamp per add_turn call shared by that
+        # message's sentences: this is when the text was FILED, not when it
+        # was authored, and a message is filed once
+        self.timestamps = []            # list[float|None] (None = pre-2.9.20)
         self.n_words = []               # list[int]
         self.keyword_weights = []       # list[dict[str, float]]  (cached attention keywords)
         self.embeddings = None          # np.ndarray (n, dim) float32  (cached BGE [CLS])
@@ -334,6 +339,7 @@ class SessionTrie:
                     "n_total": self.n_sentences, "turn": turn}
 
         turn = self._next_turn_index
+        filed_at = time.time()
         for i, sent in enumerate(fresh):
             ar = attn[i]
             kw = {}
@@ -345,6 +351,7 @@ class SessionTrie:
             self.roles.append(role)
             self.turns.append(turn)
             self.sources.append(source)
+            self.timestamps.append(filed_at)
             self.n_words.append(len(sent.split()))
             self.keyword_weights.append(kw)
             self._next_sentence_index += 1
@@ -636,7 +643,7 @@ class SessionTrie:
             self._atomic_write(self._p("embeddings.npy"), _save_npy)
         state = {
             "texts": self.texts, "roles": self.roles, "turns": self.turns,
-            "sources": self.sources,
+            "sources": self.sources, "timestamps": self.timestamps,
             "n_words": self.n_words, "keyword_weights": self.keyword_weights,
             "coverage": self.coverage, "seen_hashes": self._seen_hashes,
             "drift_ema": self.drift_ema,
@@ -665,8 +672,10 @@ class SessionTrie:
         state = pickle.loads(sp.read_bytes())
         self.texts = state["texts"]; self.roles = state["roles"]
         self.turns = state["turns"]; self.n_words = state["n_words"]
-        # sessions saved before per-file branches existed have no sources
+        # sessions saved before per-file branches existed have no sources,
+        # and those saved before ingest time was recorded have no timestamps
         self.sources = state.get("sources", [None] * len(self.texts))
+        self.timestamps = state.get("timestamps", [None] * len(self.texts))
         self.keyword_weights = state["keyword_weights"]
         self.coverage = state["coverage"]; self._seen_hashes = state["seen_hashes"]
         # sessions saved before topic-shift detection have no drift baseline
