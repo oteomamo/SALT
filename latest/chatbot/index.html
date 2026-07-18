@@ -1035,7 +1035,7 @@ selected in the order they were spoken, the sections read in order too.
 header if you would rather spend those few tokens on content.</p>
 <p><code>/stats</code> prints a <strong>conversation map</strong> alongside it, one line per recent
 turn with that turn's strongest keywords:</p>
-<div class="highlight"><pre><span></span><code>conversation map (last 4 turns):
+<div class="highlight"><pre><span></span><code>conversation map (all 4 turns):
   t10 user: eviction, indices, mask
   t11 assistant: contract, kvtrace, ledger
   t12 user: budget, decay, retrieval
@@ -1043,7 +1043,9 @@ turn with that turn's strongest keywords:</p>
 </code></pre></div>
 <p>It is built from the keywords SALT already extracted at ingest, so it
 costs no extra model work, and it is a quick way to see what a long
-session has actually covered.</p>
+session has actually covered. A long conversation shows only its recent
+turns, and the header says so rather than implying the older ones never
+happened.</p>
 <p><code>--conversation-map</code> puts that same map into the prompt, as the first
 section of the memory block. The model can then see that a topic came up
 on turn 5 even when none of turn 5's sentences were selected this turn,
