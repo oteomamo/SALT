@@ -24,7 +24,10 @@ conversation remembers its last turns verbatim instead of starting from
 compressed memory alone. 2.9.9 surfaces server errors that arrive
 mid-reply instead of presenting a truncated answer as complete, streams
 any unicode safely, keeps long prompts within the server's window, and
-hardens the launcher's GPU detection.
+hardens the launcher's GPU detection. 2.9.12 lets `saltServe --gpu 0,1`
+split a model's weights across several cards (tensor parallel), so a model
+too big for one card still serves. Every card in the group is capped at
+0.80 of its memory by default.
 
 ## 2.8.0 (2026-07-15)
 

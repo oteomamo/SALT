@@ -66,6 +66,14 @@ server can run whichever vLLM release fits your hardware while the SALT
 install stays unchanged. Anything after `--` is passed to `vllm serve`
 unchanged.
 
+Split a large model across several cards with a list. `saltServe
+llama-3.1-8b-instruct --gpu 0,1` tensor-parallels the weights across GPUs 0
+and 1, so a model too big for one card, or a box whose first card also
+drives the display, still serves. Every card in the group is capped at
+`0.80` of its memory by default (a single card keeps `0.90`), leaving each
+one headroom for the machine's own use. Pass `--gpu-mem-util` to override
+the cap. It applies to every card in the group.
+
 Connect saltChat to the running server:
 
 ```bash

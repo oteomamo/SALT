@@ -5,36 +5,41 @@ The harness owns a private vllm serve process on a scratch port and covers
 the serve seam end to end:
 
   1. Off-path: importing the CLI imports neither vllm nor the serve client.
-  2. Launcher refusals: unknown model, bad --vllm-bin, and a bad port fail
-     with actionable messages before anything starts.
-  3. Stub fault injection (a local fake server, no GPU): mid-stream error
+  2. Multi-GPU command construction (no GPU needed): a --gpu list yields
+     --tensor-parallel-size and a joined CUDA_VISIBLE_DEVICES in PCI order,
+     a lone card yields neither, and the memory cap defaults to 0.80 across
+     cards but 0.90 on one.
+  3. Launcher refusals: unknown model, bad --vllm-bin, a bad port, and a
+     bad --gpu token fail with actionable messages before anything starts.
+  4. Stub fault injection (a local fake server, no GPU): mid-stream error
      frames surface as errors instead of a silently truncated reply,
      U+2028-class codepoints stream intact, closing the stream severs the
      request server-side, and an over-window prompt sends exactly the
      last budget token ids.
-  4. saltServe boots the server: /v1/models answers under the alias and
+  5. saltServe boots the server: /v1/models answers under the alias and
      carries the context window.
-  5. Client errors: a dead port and a wrong model fail with messages that
+  6. Client errors: a dead port and a wrong model fail with messages that
      name the fix.
-  6. Prompt parity: the serve client's post-truncation token counts match a
+  7. Prompt parity: the serve client's post-truncation token counts match a
      direct local render, including the over-window keep-the-tail path,
      and the server's usage echoes the same count (replies are never
      compared).
-  7. Streaming + abort: pieces arrive incrementally, and closing the
+  8. Streaming + abort: pieces arrive incrementally, and closing the
      stream mid-reply leaves the client and the server healthy.
-  8. APC over the wire: a scripted REPL session records engine_backend
+  9. APC over the wire: a scripted REPL session records engine_backend
      vllm-serve with real cache hits from turn 2, format v1, additive keys.
-  9. Warm resume: a second REPL process on the same conversation renders
+ 10. Warm resume: a second REPL process on the same conversation renders
      its restored tail (the first prompt grows by at least the tail),
      served mostly from the still-warm cache; tail.json holds the
      alternating exchanges.
- 10. Resume stability: attachment order and the saved tail reload exactly;
+ 11. Resume stability: attachment order and the saved tail reload exactly;
      malformed tail files fall back to the empty-tail behavior.
- 11. The server outlives its clients: after every client exited,
+ 12. The server outlives its clients: after every client exited,
      /v1/models still answers.
 
 Skips with exit 0 when vLLM, a GPU, the qwen05 registry entry, or the
-scratch port is unavailable, so default HF-only environments stay green.
+scratch port is unavailable, so default HF-only environments stay green
+(check 2 is pure and runs regardless).
 Assert-based: refuses to run under python -O.
 """
 
@@ -128,6 +133,41 @@ def serve_cmd(*extra):
         capture_output=True, text=True, timeout=60)
 
 
+def check_multi_gpu():
+    """Command construction is pure and GPU-free: run it before the vllm/GPU
+    gate so HF-only environments still cover the tensor-parallel plumbing."""
+    from salt.chat.serve import (build_cmd, build_env, default_gpu_mem_util,
+                                 parse_gpu_list)
+    assert parse_gpu_list("0,1") == ["0", "1"]
+    assert parse_gpu_list(" 0 , 1 ") == ["0", "1"]
+    assert parse_gpu_list("0") == ["0"]
+    assert parse_gpu_list(None) is None and parse_gpu_list("") is None
+    try:
+        parse_gpu_list("0,x")
+        raise AssertionError("parse_gpu_list accepted a non-index token")
+    except ValueError:
+        pass
+    assert default_gpu_mem_util(["0", "1"]) == 0.80
+    assert default_gpu_mem_util(["0"]) == 0.90
+    assert default_gpu_mem_util(None) == 0.90
+    assert default_gpu_mem_util(["0", "1"], single=0.85) == 0.80
+    fake = {"path": "/w", "alias": "m"}
+    multi = build_cmd("vllm", fake, "127.0.0.1", 8000, "bfloat16", 0.80,
+                      ["0", "1"], 4096, ["--trust-remote-code"])
+    assert multi[multi.index("--tensor-parallel-size") + 1] == "2"
+    assert multi[multi.index("--gpu-memory-utilization") + 1] == "0.8"
+    assert multi[multi.index("--max-model-len") + 1] == "4096"
+    assert multi[-1] == "--trust-remote-code"
+    solo = build_cmd("vllm", fake, "127.0.0.1", 8000, "bfloat16", 0.90,
+                     ["0"], 0, [])
+    assert "--tensor-parallel-size" not in solo
+    assert "--max-model-len" not in solo
+    env = build_env({"KEEP": "1"}, ["0", "1"])
+    assert env["CUDA_VISIBLE_DEVICES"] == "0,1"
+    assert env["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID" and env["KEEP"] == "1"
+    assert "CUDA_VISIBLE_DEVICES" not in build_env({}, None)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gpu", type=int, default=0, help="CUDA GPU index")
@@ -145,6 +185,12 @@ def main():
          "sys.exit(1 if bad else 0)"])
     assert probe.returncode == 0, "salt.chat.cli import pulled vllm/serve"
     print("1. off-path: CLI import pulls neither vllm nor the serve client")
+
+    # 2. multi-GPU command construction (pure, GPU-free)
+    check_multi_gpu()
+    print("2. multi-GPU: a --gpu list yields --tensor-parallel-size and a "
+          "joined CUDA_VISIBLE_DEVICES, a lone card yields neither, cap "
+          "defaults 0.80 across cards")
 
     try:
         import vllm  # noqa: F401
@@ -184,7 +230,10 @@ def main():
     assert r.returncode != 0 and "not an executable" in r.stderr, r.stderr
     r = serve_cmd(MODEL_ALIAS, "--port", "99999")
     assert r.returncode != 0 and "--port" in r.stderr, r.stderr
-    print("2. launcher refusals: unknown model, bad --vllm-bin, bad port")
+    r = serve_cmd(MODEL_ALIAS, "--gpu", "0,x")
+    assert r.returncode != 0 and "--gpu takes GPU indices" in r.stderr, r.stderr
+    print("3. launcher refusals: unknown model, bad --vllm-bin, bad port, "
+          "bad --gpu")
 
     from salt.chat.cli import ChatState, SESSIONS_DIR
     from salt.chat.runner import make_runner, render_prompt
@@ -223,7 +272,7 @@ def main():
     assert stub.aborted.wait(10), "closing the stream did not sever it"
     sr.unload()
     stub.shutdown()
-    print("3. stub fault injection: error frames surface, U+2028 streams "
+    print("4. stub fault injection: error frames surface, U+2028 streams "
           "intact, abort severs the request, truncation keeps the tail")
 
     log = tempfile.NamedTemporaryFile(prefix="saltserve-reg-", suffix=".log",
@@ -252,7 +301,7 @@ def main():
         assert card, ("server never became ready; log tail:\n"
                       + Path(log.name).read_text()[-2000:])
         assert card["id"] == MODEL_ALIAS and card.get("max_model_len")
-        print(f"4. saltServe serves {card['id']} "
+        print(f"5. saltServe serves {card['id']} "
               f"(window {card['max_model_len']})")
 
         try:
@@ -268,7 +317,7 @@ def main():
             raise AssertionError("wrong model did not raise")
         except RuntimeError as exc:
             assert MODEL_ALIAS in str(exc) and "other-model" in str(exc), exc
-        print("5. client errors: dead port and wrong model are actionable")
+        print("6. client errors: dead port and wrong model are actionable")
 
         runner = make_runner(cfg, "cuda", "vllm-serve", server_url=url)
         turns = [
@@ -287,7 +336,7 @@ def main():
             assert runner.last_prompt_tokens == expect, \
                 (runner.last_prompt_tokens, expect)
             assert runner.last_engine_stats["apc_prompt_tokens"] == expect
-        print(f"6. prompt parity: local render, truncation to "
+        print(f"7. prompt parity: local render, truncation to "
               f"input_budget, and the server's count all agree ({expect})")
 
         gen = runner.stream_chat(
@@ -300,7 +349,7 @@ def main():
             temperature=0.0, do_sample=False, max_new_tokens=8))
         assert after.strip(), "client dead after aborted stream"
         runner.unload()
-        print("7. streaming + abort: incremental pieces, clean recovery")
+        print("8. streaming + abort: incremental pieces, clean recovery")
 
         cid = "servereg-apc"
         session = SESSIONS_DIR / cid
@@ -315,7 +364,7 @@ def main():
                    for e in ev)
         frac = ev[1]["apc_cached_tokens"] / ev[1]["apc_prompt_tokens"]
         assert frac >= 0.3, f"turn-1 reuse only {frac:.0%}"
-        print(f"8. APC over the wire: turn-1 reuse {frac:.0%}, "
+        print(f"9. APC over the wire: turn-1 reuse {frac:.0%}, "
               f"format v1, additive keys")
 
         tail = json.loads((session / "tail.json").read_text())
@@ -331,7 +380,7 @@ def main():
         assert delta >= 40, f"restored tail added only {delta} tokens"
         rfrac = resumed["apc_cached_tokens"] / resumed["apc_prompt_tokens"]
         assert rfrac >= 0.5, f"warm resume only {rfrac:.0%}"
-        print(f"9. warm resume: restored tail adds {delta} prompt tokens, "
+        print(f"10. warm resume: restored tail adds {delta} prompt tokens, "
               f"{rfrac:.0%} served from the warm cache")
         # kept on assert failure so events.jsonl stays inspectable; the
         # next run's pre-clean removes it
@@ -362,11 +411,11 @@ def main():
             st3.tail, st3.tail_min, st3.tail_max = [], 4, 8
             st3.load_tail()
             assert st3.tail == []
-        print("10. resume stability: attach order and tail reload exactly, "
+        print("11. resume stability: attach order and tail reload exactly, "
               "malformed tail falls back to empty")
 
         assert requests.get(f"{url}/v1/models", timeout=5).status_code == 200
-        print("11. the server outlived every client")
+        print("12. the server outlived every client")
     finally:
         server.terminate()
         try:

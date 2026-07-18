@@ -6,7 +6,9 @@ model and its prefix cache outlives every saltChat run. The server is a
 foreground process in its own terminal - saltChat never manages its
 lifecycle, it only connects. ``--vllm-bin`` points at another environment's
 vllm binary, so the server can run whichever vLLM release fits the GPU
-while the SALT environment stays pinned.
+while the SALT environment stays pinned. ``--gpu 0,1`` spreads one model's
+weights across several cards (tensor parallel), for a model too big for one
+card or a box whose first card also drives the display.
 """
 
 import argparse
@@ -39,15 +41,71 @@ def resolve_dtype(dtype, cap):
     return dtype
 
 
-def target_gpu(gpu_arg):
-    if gpu_arg is not None:
-        return gpu_arg
+def parse_gpu_list(spec):
+    """--gpu is one index or a comma list: '0' or '0,1'. Returns the indices
+    in order (strings, ready for CUDA_VISIBLE_DEVICES), or None when unset.
+    Raises ValueError on a non-index token so a typo fails loudly instead of
+    quietly hiding a card."""
+    if spec is None:
+        return None
+    parts = [p.strip() for p in spec.split(",") if p.strip()]
+    if not parts:
+        return None
+    for p in parts:
+        if not p.isdigit():
+            raise ValueError(
+                f"--gpu takes GPU indices like 0 or 0,1, not {p!r}")
+    return parts
+
+
+def default_gpu_mem_util(gpus, single=0.90):
+    """vLLM applies one utilization to every card in a tensor-parallel group.
+    With several cards, cap at 0.80 so each keeps room for the machine's own
+    use and (on the last card) saltChat's BGE encoder; a lone card keeps the
+    launcher's usual headroom."""
+    return 0.80 if (gpus and len(gpus) > 1) else single
+
+
+def probe_gpu(gpus):
+    """The card whose compute capability decides the served dtype: the first
+    listed one, else whatever CUDA_VISIBLE_DEVICES points at, else card 0."""
+    if gpus:
+        return int(gpus[0])
     vis = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     first = vis.split(",")[0].strip()
     if first:
         # nvidia-smi -i accepts GPU-<uuid> and MIG ids directly
         return int(first) if first.isdigit() else first
     return 0 if not vis else None
+
+
+def build_cmd(vllm_bin, cfg, host, port, dtype, gpu_mem_util, gpus,
+              max_model_len, extra):
+    """The ``vllm serve`` argv. Several cards add --tensor-parallel-size so
+    vLLM shards the weights across them; one card adds nothing (the flag
+    defaults to 1). Everything in ``extra`` is appended unchanged."""
+    cmd = [vllm_bin, "serve", cfg["path"],
+           "--served-model-name", cfg["alias"],
+           "--enable-prompt-tokens-details",
+           "--host", host,
+           "--port", str(port),
+           "--dtype", dtype,
+           "--gpu-memory-utilization", str(gpu_mem_util)]
+    if gpus and len(gpus) > 1:
+        cmd += ["--tensor-parallel-size", str(len(gpus))]
+    if max_model_len:
+        cmd += ["--max-model-len", str(max_model_len)]
+    return cmd + list(extra)
+
+
+def build_env(base_env, gpus):
+    """A copy of base_env with the card selection pinned. PCI order makes
+    --gpu N mean the card nvidia-smi (and the capability probe) call N."""
+    env = dict(base_env)
+    if gpus:
+        env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        env["CUDA_VISIBLE_DEVICES"] = ",".join(gpus)
+    return env
 
 
 def build_parser():
@@ -63,12 +121,15 @@ def build_parser():
                     help="bind address (default 127.0.0.1, this machine only)")
     ap.add_argument("--port", type=int, default=8000,
                     help="listen port (default 8000)")
-    ap.add_argument("--gpu", type=int, default=None,
-                    help="GPU index the server runs on (PCI bus order, the "
-                         "same numbering nvidia-smi shows)")
-    ap.add_argument("--gpu-mem-util", type=float, default=0.90,
-                    help="fraction of GPU memory the server claims "
-                         "(default 0.90)")
+    ap.add_argument("--gpu", default=None,
+                    help="GPU index or comma list in PCI bus order (the same "
+                         "numbering nvidia-smi shows): --gpu 0 or --gpu 0,1. "
+                         "Several cards tensor-parallel the model's weights "
+                         "across them.")
+    ap.add_argument("--gpu-mem-util", type=float, default=None,
+                    help="fraction of EACH card's memory the server claims "
+                         "(default 0.80 with several GPUs, else 0.90; the "
+                         "same value applies to every card in the group)")
     ap.add_argument("--max-model-len", type=int, default=0,
                     help="cap the context window (0 = the model's own)")
     ap.add_argument("--vllm-bin", default=None,
@@ -89,12 +150,16 @@ def main(argv=None):
 
     if not 1 <= args.port <= 65535:
         sys.exit("--port must be in 1..65535")
-    if not (math.isfinite(args.gpu_mem_util) and 0 < args.gpu_mem_util <= 1):
+    try:
+        gpus = parse_gpu_list(args.gpu)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    gpu_mem_util = (args.gpu_mem_util if args.gpu_mem_util is not None
+                    else default_gpu_mem_util(gpus))
+    if not (math.isfinite(gpu_mem_util) and 0 < gpu_mem_util <= 1):
         sys.exit("--gpu-mem-util must be in (0, 1]")
     if args.max_model_len < 0:
         sys.exit("--max-model-len must be >= 0 (0 = the model's own window)")
-    if args.gpu is not None and args.gpu < 0:
-        sys.exit("--gpu must be >= 0")
 
     try:
         if args.model:
@@ -131,7 +196,7 @@ def main(argv=None):
                      "point --vllm-bin at another environment's vllm")
 
     dtype = cfg.get("dtype", "bfloat16")
-    cap = compute_capability(target_gpu(args.gpu))
+    cap = compute_capability(probe_gpu(gpus))
     served_dtype = resolve_dtype(dtype, cap)
     if served_dtype != dtype:
         print(f"note: this GPU predates bfloat16 support - serving "
@@ -140,26 +205,15 @@ def main(argv=None):
         print("note: could not detect the GPU's compute capability - if "
               "the server rejects bfloat16, add: -- --dtype float16")
 
-    cmd = [vllm_bin, "serve", cfg["path"],
-           "--served-model-name", cfg["alias"],
-           "--enable-prompt-tokens-details",
-           "--host", args.host,
-           "--port", str(args.port),
-           "--dtype", served_dtype,
-           "--gpu-memory-utilization", str(args.gpu_mem_util)]
-    if args.max_model_len:
-        cmd += ["--max-model-len", str(args.max_model_len)]
-    cmd += extra
-
-    env = os.environ.copy()
-    if args.gpu is not None:
-        # PCI order makes --gpu N mean the same card nvidia-smi (and the
-        # capability probe above) call N
-        env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-        env["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+    cmd = build_cmd(vllm_bin, cfg, args.host, args.port, served_dtype,
+                    gpu_mem_util, gpus, args.max_model_len, extra)
+    env = build_env(os.environ.copy(), gpus)
 
     print(f"Serving {cfg['alias']} ({cfg['hf_id']}) at "
           f"http://{args.host}:{args.port} - Ctrl-C stops the server")
+    if gpus and len(gpus) > 1:
+        print(f"Sharding the weights across GPUs {','.join(gpus)} "
+              f"(tensor parallel), {gpu_mem_util:g} of each card")
     print(" ".join(shlex.quote(c) for c in cmd))
     sys.stdout.flush()
     os.execvpe(cmd[0], cmd, env)
