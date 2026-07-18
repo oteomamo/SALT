@@ -945,7 +945,9 @@ conversation map to <code>/stats</code>, one line per recent turn with that turn
 strongest keywords, so a long session's coverage is visible at a glance.
 2.9.23 adds <code>--conversation-map</code>, which puts that map at the top of the
 memory block so the model can see a topic came up on a given turn even
-when none of that turn's sentences were selected.</p>
+when none of that turn's sentences were selected. 2.9.24 adds how long ago
+to those labels, so the model can answer questions about when something
+was said instead of only about what and by whom.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
