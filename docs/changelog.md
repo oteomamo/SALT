@@ -27,7 +27,10 @@ any unicode safely, keeps long prompts within the server's window, and
 hardens the launcher's GPU detection. 2.9.12 lets `saltServe --gpu 0,1`
 split a model's weights across several cards (tensor parallel), so a model
 too big for one card still serves. Every card in the group is capped at
-0.80 of its memory by default.
+0.80 of its memory by default. 2.9.13 extends `--gpu` on saltChat to a
+card list too. The `--backend vllm` engine tensor-parallels the model
+across the cards and the BGE encoder rides the last one, off the cards
+holding the model.
 
 ## 2.8.0 (2026-07-15)
 

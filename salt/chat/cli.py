@@ -41,6 +41,7 @@ from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
 from salt.chat.runner import make_runner
+from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
 from salt.engine.compressor import load_bge
 from salt.engine.session_trie import SessionTrie
 
@@ -103,7 +104,8 @@ def backend_opts(args):
     """Per-backend knobs the shared CLI surface funnels to make_runner."""
     if args.backend == "vllm":
         return {"gpu_memory_utilization": args.gpu_mem_util,
-                "max_model_len": args.max_model_len}
+                "max_model_len": args.max_model_len,
+                "gpus": parse_gpu_list(args.gpu)}
     if args.backend == "vllm-serve":
         return {"server_url": args.server_url}
     return {}
@@ -919,11 +921,13 @@ def build_parser():
     p.add_argument("--device", default=None,
                    help="device for the chat model "
                         "(default: cuda, or cuda:<gpu> when --gpu is set)")
-    p.add_argument("--gpu", type=int, default=None, metavar="N",
-                   help="CUDA GPU index for this chat (chat model + BGE); "
-                        "shorthand for --device cuda:N. Default: current CUDA "
-                        "device. Use different indices to run chats on "
-                        "separate GPUs.")
+    p.add_argument("--gpu", default=None, metavar="LIST",
+                   help="CUDA GPU index or comma list in PCI order: --gpu 0 "
+                        "or --gpu 0,1. The chat model loads on the first card "
+                        "(the vllm backend tensor-parallels its weights "
+                        "across all of them); the BGE encoder rides the LAST "
+                        "card, off the cards holding the model. Default: "
+                        "current CUDA device.")
     p.add_argument("--bge-device", default=None,
                    help="device for the BGE encoder (default: --device)")
     p.add_argument("--backend", default="hf",
@@ -938,10 +942,11 @@ def build_parser():
                    metavar="URL",
                    help="vLLM server address for --backend vllm-serve "
                         "(default: http://127.0.0.1:8000)")
-    p.add_argument("--gpu-mem-util", type=float, default=0.85,
-                   help="fraction of GPU memory the vLLM engine may manage "
-                        "(vllm backend only; default: 0.85, leaving room "
-                        "for the BGE encoder on the same GPU)")
+    p.add_argument("--gpu-mem-util", type=float, default=None,
+                   help="fraction of each card's memory the vLLM engine may "
+                        "manage (vllm backend only; default: 0.80 across "
+                        "several cards, else 0.85, leaving room for the BGE "
+                        "encoder)")
     p.add_argument("--max-model-len", type=int, default=0, metavar="N",
                    help="cap the vllm backend's context window to N tokens "
                         "(default: 0 = the model's own window; set this "
@@ -1004,8 +1009,19 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
 
+    try:
+        gpus = parse_gpu_list(args.gpu)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     if args.device is None:
-        args.device = f"cuda:{args.gpu}" if args.gpu is not None else "cuda"
+        args.device = f"cuda:{gpus[0]}" if gpus else "cuda"
+    if args.bge_device is None and gpus:
+        # the BGE encoder rides the LAST card, so the model keeps the
+        # earlier ones (with one card that is the same card as before)
+        args.bge_device = f"cuda:{gpus[-1]}"
+    if args.gpu_mem_util is None:
+        args.gpu_mem_util = default_gpu_mem_util(gpus, single=0.85)
 
     if args.add:
         try:

@@ -26,7 +26,7 @@ class VLLMChatRunner:
     kind = "vllm"
 
     def __init__(self, cfg, device="cuda", gpu_memory_utilization=0.85,
-                 max_model_len=0):
+                 max_model_len=0, gpus=None):
         try:
             from vllm import AsyncEngineArgs
             from vllm.v1.engine.async_llm import AsyncLLM
@@ -37,23 +37,36 @@ class VLLMChatRunner:
         self.cfg = cfg
         self.device = device
         self.alias = cfg["alias"]
+        # several cards tensor-parallel the weights; one (or none) leaves the
+        # engine's default of 1
+        tp = len(gpus) if gpus and len(gpus) > 1 else 1
+        note = f", tensor parallel x{tp}" if tp > 1 else ""
         print(f"Loading chat model {cfg['hf_id']} on {device} "
-              f"[vLLM, {cfg.get('dtype', 'bfloat16')}, prefix caching on]")
+              f"[vLLM, {cfg.get('dtype', 'bfloat16')}, prefix caching "
+              f"on{note}]")
         self.tokenizer = AutoTokenizer.from_pretrained(cfg["path"])
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(target=self._loop.run_forever,
                                              daemon=True)
         self._loop_thread.start()
-        # CUDA_VISIBLE_DEVICES steers the engine's child process (parent
+        # CUDA_VISIBLE_DEVICES steers the engine's worker processes (parent
         # CUDA is already live) and is restored right after: leaving it
-        # mutated would hide GPUs from every later subprocess
-        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
-        if ":" in device:
+        # mutated would hide GPUs from every later subprocess. A --gpu list
+        # also pins PCI order so an index means the card nvidia-smi calls N,
+        # the same numbering saltServe uses
+        prev = {k: os.environ.get(k)
+                for k in ("CUDA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER")}
+        if gpus:
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(gpus)
+        elif ":" in device:
             os.environ["CUDA_VISIBLE_DEVICES"] = device.split(":", 1)[1]
+        mutated = bool(gpus) or ":" in device
         try:
             self.engine = AsyncLLM.from_engine_args(AsyncEngineArgs(
                 model=cfg["path"], tokenizer=cfg["path"],
                 dtype=cfg.get("dtype", "bfloat16"),
+                tensor_parallel_size=tp,
                 gpu_memory_utilization=gpu_memory_utilization,
                 max_model_len=max_model_len or None,
                 enable_prefix_caching=True,
@@ -64,11 +77,12 @@ class VLLMChatRunner:
             self._loop.call_soon_threadsafe(self._loop.stop)
             raise
         finally:
-            if ":" in device:
-                if prev is None:
-                    os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-                else:
-                    os.environ["CUDA_VISIBLE_DEVICES"] = prev
+            if mutated:
+                for k, v in prev.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
         self.max_input_len = self._resolved_window()
         if self.max_input_len:
             print(f"Context window: {self.max_input_len} tokens")

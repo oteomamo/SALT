@@ -90,6 +90,13 @@ one model. To chat with a different model, start a second server with
 `saltServe` and launch saltChat again with its `--server-url`. `/stats`
 shows the measured reuse every turn.
 
+When the server spans several cards, give saltChat the same list. `saltChat
+--backend vllm-serve --gpu 0,1` puts the BGE encoder on the last card (GPU
+1), off the cards the server fills with the model, so the encoder and the
+model shards do not compete for the same memory. The in-process `--backend
+vllm --gpu 0,1` reads the list the same way. It tensor-parallels the model
+across the cards and still pins BGE on the last one.
+
 ## REPL commands
 
 | Command | Effect |
