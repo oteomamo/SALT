@@ -69,6 +69,8 @@ CONVERSATION_LABEL_TURN = "[from the earlier conversation — turn {turn}, {role
 CONVERSATION_LABEL_AGE = (
     "[from the earlier conversation — turn {turn}, {role}, {age}]")
 CONVERSATION_MAP_LABEL = "[map of the conversation so far]"
+CONVERSATION_MAP_LABEL_RECENT = (
+    "[map of the conversation — most recent {n} of {total} turns]")
 
 # The universal instruction block that teaches the chat model how to read
 # SALT's context (memory sections, attachment inventory, citing rules).
@@ -367,7 +369,10 @@ def format_age(seconds):
 
 def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):
     """A compact index of what was discussed when: one line per recent
-    conversation turn, `t12 user: retrieval, decay, budget`. Built purely
+    conversation turn, `t12 user: retrieval, decay, budget`. Returns those
+    lines and how many turns could have produced one, so every caller can
+    say plainly when the map shows only the recent part of a longer
+    conversation instead of implying it covers everything. Built purely
     from the attention keywords already cached at ingest, so it costs no
     model pass. Attachments are left out - they are inventoried elsewhere
     and one file would otherwise flood the map. When the character cap
@@ -391,15 +396,16 @@ def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):
         scale = math.sqrt(max(trie.n_words[i], 1))
         for word, weight in trie.keyword_weights[i].items():
             kws[word] = max(kws.get(word, 0.0), weight * scale)
-    lines = []
-    for turn in sorted(by_turn)[-n_turns:]:
+    entries = []
+    for turn in sorted(by_turn):
         role, kws = by_turn[turn]
         top = sorted(kws, key=lambda w: (-kws[w], w))[:top_k]
         if top:
-            lines.append(f"t{turn} {role}: {', '.join(top)}")
+            entries.append(f"t{turn} {role}: {', '.join(top)}")
+    lines = entries[-n_turns:]
     while lines and sum(len(l) + 1 for l in lines) > char_cap:
         lines.pop(0)
-    return lines
+    return lines, len(entries)
 
 
 def format_memory_block(trie, sel_idx, turn_labels=True, conv_map=False):
@@ -424,9 +430,14 @@ def format_memory_block(trie, sel_idx, turn_labels=True, conv_map=False):
     totals = Counter(s for s in trie.sources if s)
     sections = []
     if conv_map:
-        lines = conversation_map(trie)
+        lines, total = conversation_map(trie)
         if lines:
-            sections.append(CONVERSATION_MAP_LABEL + "\n" + "\n".join(lines))
+            # the header states its own coverage: a map that silently drops
+            # older turns would read as proof a topic never came up
+            head = (CONVERSATION_MAP_LABEL if len(lines) == total
+                    else CONVERSATION_MAP_LABEL_RECENT.format(
+                        n=len(lines), total=total))
+            sections.append(head + "\n" + "\n".join(lines))
     for src in sorted(k for k in by_src if k):
         idxs = by_src[src]
         # explicit quotes, not !r: repr flips to double quotes on names with
@@ -781,9 +792,11 @@ def handle_command(line, state):
                 n_tok = state.count_tokens(text)
                 parts.append(f"{name} (~{n_tok} tok)" if n_tok else name)
             print(f"full-context attachments ({len(parts)}): {', '.join(parts)}")
-        cmap = conversation_map(t)
+        cmap, cmap_total = conversation_map(t)
         if cmap:
-            print(f"conversation map (last {len(cmap)} turns):")
+            span = (f"all {cmap_total}" if len(cmap) == cmap_total
+                    else f"most recent {len(cmap)} of {cmap_total}")
+            print(f"conversation map ({span} turns):")
             for line in cmap:
                 print(f"  {line}")
         s = state.last_stats or {}
@@ -1226,8 +1239,9 @@ def build_parser():
                         "conversation: one line per earlier turn listing "
                         "that turn's main keywords, so the model can see a "
                         "topic was discussed even on a turn none of its "
-                        "sentences were selected (default: off; the map is "
-                        "always in /stats)")
+                        "sentences were selected. A long conversation "
+                        "shows its recent turns and the header says so "
+                        "(default: off; the map is always in /stats)")
     p.add_argument("--sync-ingest", action="store_true",
                    help="run the per-turn keyword/embedding ingest on the "
                         "REPL thread as before, instead of in the "

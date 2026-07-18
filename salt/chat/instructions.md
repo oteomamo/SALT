@@ -19,7 +19,10 @@ How the context is organized:
      line per earlier turn as "t<N> <speaker>: keyword, keyword, keyword".
      Use it to tell whether a topic came up and on which turn, then rely
      on the excerpts and the recent messages for what was actually said.
-     Never quote a map line as something someone said.
+     Never quote a map line as something someone said. When the header
+     instead reads "most recent N of M turns", the map is only the recent
+     part of a longer conversation, so a topic missing from it may still
+     have been discussed on an older turn.
    - "[from the earlier conversation — turn N, user, 2h ago]" (or the
      plain "[from the earlier conversation]"): sentences selected from the
      conversation so far, labeled where available with the turn they were

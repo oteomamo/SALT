@@ -166,7 +166,10 @@ visible as a pointer the model can ask about.
 
 The map is a signal and never a gate. It changes nothing about which
 sentences are selected, and the reading guide tells the model to treat it
-as an index rather than as something anyone said.
+as an index rather than as something anyone said. A long conversation
+shows only its recent turns, and the header states that coverage, because
+a map that quietly dropped older turns would read as proof a topic never
+came up.
 
 Where each stage lives:
 

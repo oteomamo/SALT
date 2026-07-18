@@ -204,7 +204,7 @@ header if you would rather spend those few tokens on content.
 turn with that turn's strongest keywords:
 
 ```
-conversation map (last 4 turns):
+conversation map (all 4 turns):
   t10 user: eviction, indices, mask
   t11 assistant: contract, kvtrace, ledger
   t12 user: budget, decay, retrieval
@@ -213,7 +213,9 @@ conversation map (last 4 turns):
 
 It is built from the keywords SALT already extracted at ingest, so it
 costs no extra model work, and it is a quick way to see what a long
-session has actually covered.
+session has actually covered. A long conversation shows only its recent
+turns, and the header says so rather than implying the older ones never
+happened.
 
 `--conversation-map` puts that same map into the prompt, as the first
 section of the memory block. The model can then see that a topic came up
