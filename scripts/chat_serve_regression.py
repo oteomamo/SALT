@@ -5,10 +5,12 @@ The harness owns a private vllm serve process on a scratch port and covers
 the serve seam end to end:
 
   1. Off-path: importing the CLI imports neither vllm nor the serve client.
-  2. Multi-GPU command construction (no GPU needed): a --gpu list yields
+  2. Multi-GPU plumbing (no GPU needed): a --gpu list yields
      --tensor-parallel-size and a joined CUDA_VISIBLE_DEVICES in PCI order,
-     a lone card yields neither, and the memory cap defaults to 0.80 across
-     cards but 0.90 on one.
+     a lone card yields neither, the memory cap defaults to 0.80 across
+     cards but 0.90 on one, saltChat resolves the model and BGE devices in
+     PCI order, the hf backend shards via device_map, and duplicate indices
+     are rejected.
   3. Launcher refusals: unknown model, bad --vllm-bin, a bad port, and a
      bad --gpu token fail with actionable messages before anything starts.
   4. Stub fault injection (a local fake server, no GPU): mid-stream error
@@ -186,6 +188,21 @@ def check_multi_gpu():
     # explicit flags win, but a --gpu list still pins PCI order
     assert resolve_gpu_devices(["0", "1"], "cuda:3", "cpu", 0.5) == \
         ("cuda:3", "cpu", 0.5, "PCI_BUS_ID")
+    # hf backend placement: several cards -> device_map balanced + a
+    # per-card memory cap keyed by PCI index; one card (or none) keeps the
+    # plain device string unchanged
+    from salt.chat.runner import hf_placement
+    gib = 1024 ** 3
+    assert hf_placement(None, "cuda", 0.80, lambda i: 24 * gib) == \
+        ("cuda", None)
+    assert hf_placement(["1"], "cuda:1", 0.80, lambda i: 24 * gib) == \
+        ("cuda:1", None)
+    # distinct per-card totals prove the cap is keyed to each card's own
+    # memory, not a shared constant
+    dmap, mmem = hf_placement(["0", "1"], "cuda:0", 0.80,
+                              lambda i: (16 if i == 0 else 24) * gib)
+    assert dmap == "balanced"
+    assert mmem == {0: int(16 * gib * 0.80), 1: int(24 * gib * 0.80)}
 
 
 def main():
@@ -211,7 +228,7 @@ def main():
     print("2. multi-GPU: a --gpu list yields --tensor-parallel-size and a "
           "joined CUDA_VISIBLE_DEVICES, a lone card yields neither, cap "
           "defaults 0.80 across cards, model/BGE resolve in PCI order, "
-          "duplicates rejected")
+          "hf shards via device_map, duplicates rejected")
 
     try:
         import vllm  # noqa: F401

@@ -67,9 +67,27 @@ def input_budget_for(max_input_len, gen_cfg, max_new_tokens=None):
     return max_input_len - min(max_new_tokens, max_input_len // 2)
 
 
+def _cuda_total_memory(idx):
+    return torch.cuda.get_device_properties(idx).total_memory
+
+
+def hf_placement(gpus, device, fraction, total_memory=_cuda_total_memory):
+    """Choose how the HF chat model loads. One card (or none) keeps the
+    plain device string, unchanged. Several cards return device_map
+    'balanced' plus a max_memory cap per card - a fraction of each card's
+    total - so accelerate shards the weights across exactly the listed
+    cards and leaves room for activations and the BGE encoder on the last
+    one. total_memory(idx) yields a card's total bytes. Returns
+    (device_map, max_memory)."""
+    if not gpus or len(gpus) <= 1:
+        return device, None
+    max_memory = {int(g): int(total_memory(int(g)) * fraction) for g in gpus}
+    return "balanced", max_memory
+
+
 def make_runner(cfg, device="cuda", backend="hf", **backend_opts):
     if backend == "hf":
-        return ChatRunner(cfg, device=device)
+        return ChatRunner(cfg, device=device, **backend_opts)
     if backend == "vllm":
         from salt.chat.runner_vllm import VLLMChatRunner  # lazy: optional dep
         return VLLMChatRunner(cfg, device=device, **backend_opts)
@@ -93,21 +111,35 @@ class _StopFlag(StoppingCriteria):
 class ChatRunner:
     kind = "hf"
 
-    def __init__(self, cfg, device="cuda"):
+    def __init__(self, cfg, device="cuda", gpus=None,
+                 gpu_memory_utilization=0.80):
         self.cfg = cfg
         self.device = device
         self.alias = cfg["alias"]
         dtype = DTYPES.get(cfg.get("dtype"), torch.bfloat16)
-        print(f"Loading chat model {cfg['hf_id']} on {device} "
+        device_map, max_memory = hf_placement(gpus, device,
+                                              gpu_memory_utilization)
+        where = (f"sharded across GPUs {','.join(gpus)}"
+                 if max_memory is not None else f"on {device}")
+        print(f"Loading chat model {cfg['hf_id']} {where} "
               f"[{cfg.get('dtype', 'bfloat16')}, "
               f"attn={cfg.get('attn_implementation', 'sdpa')}]")
         self.tokenizer = AutoTokenizer.from_pretrained(cfg["path"])
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.model = AutoModelForCausalLM.from_pretrained(
-            cfg["path"], torch_dtype=dtype, device_map=device,
+            cfg["path"], torch_dtype=dtype, device_map=device_map,
+            max_memory=max_memory,
             attn_implementation=cfg.get("attn_implementation", "sdpa"))
         self.model.eval()
+        # generation inputs start on the first shard (where the embeddings
+        # live); with a device_map the model spans several cards, so
+        # model.device is not a single reliable target
+        try:
+            self.input_device = \
+                self.model.get_input_embeddings().weight.device
+        except Exception:
+            self.input_device = getattr(self.model, "device", None) or device
         self.max_input_len = _model_input_limit(self.model.config,
                                                 self.tokenizer)
         if self.max_input_len:
@@ -158,7 +190,7 @@ class ChatRunner:
                                         skip_special_tokens=True)
         stop_flag = _StopFlag()
         gen_kwargs.update(
-            {k: v.to(self.model.device) for k, v in inputs.items()},
+            {k: v.to(self.input_device) for k, v in inputs.items()},
             streamer=streamer,
             stopping_criteria=StoppingCriteriaList([stop_flag]))
         self._gen_error = None

@@ -127,7 +127,10 @@ def backend_opts(args):
                 "gpus": parse_gpu_list(args.gpu)}
     if args.backend == "vllm-serve":
         return {"server_url": args.server_url}
-    return {}
+    # hf: a --gpu list shards the model across the cards (device_map),
+    # capped per card by the same utilization
+    return {"gpus": parse_gpu_list(args.gpu),
+            "gpu_memory_utilization": args.gpu_mem_util}
 
 
 class ChatState:
@@ -942,11 +945,11 @@ def build_parser():
                         "(default: cuda, or cuda:<gpu> when --gpu is set)")
     p.add_argument("--gpu", default=None, metavar="LIST",
                    help="CUDA GPU index or comma list in PCI order: --gpu 0 "
-                        "or --gpu 0,1. The chat model loads on the first card "
-                        "(the vllm backend tensor-parallels its weights "
-                        "across all of them); the BGE encoder rides the LAST "
-                        "card, off the cards holding the model. Default: "
-                        "current CUDA device.")
+                        "or --gpu 0,1. Several cards split the chat model's "
+                        "weights across them (tensor-parallel on vllm, "
+                        "device_map on hf); the BGE encoder rides the LAST "
+                        "card, inside the headroom the memory cap leaves "
+                        "free. Default: current CUDA device.")
     p.add_argument("--bge-device", default=None,
                    help="device for the BGE encoder (default: --device)")
     p.add_argument("--backend", default="hf",
@@ -962,8 +965,9 @@ def build_parser():
                    help="vLLM server address for --backend vllm-serve "
                         "(default: http://127.0.0.1:8000)")
     p.add_argument("--gpu-mem-util", type=float, default=None,
-                   help="fraction of each card's memory the vLLM engine may "
-                        "manage (vllm backend only; default: 0.80 across "
+                   help="fraction of each card's memory SALT may use for the "
+                        "model (the vllm backend, and the hf backend when "
+                        "--gpu lists several cards; default: 0.80 across "
                         "several cards, else 0.85, leaving room for the BGE "
                         "encoder)")
     p.add_argument("--max-model-len", type=int, default=0, metavar="N",

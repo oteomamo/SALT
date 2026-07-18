@@ -32,7 +32,9 @@ card list too. The `--backend vllm` engine tensor-parallels the model
 across the cards and the BGE encoder rides the last one, which the 0.80
 memory cap keeps room for. 2.9.14 pins the same PCI card order for the
 encoder and the model, so a `--gpu` index means the same physical card
-for both.
+for both. 2.9.16 extends the `--gpu` list to the hf backend, which shards
+the model across the cards with a balanced device_map (the BGE encoder
+still rides the last card).
 
 ## 2.8.0 (2026-07-15)
 
