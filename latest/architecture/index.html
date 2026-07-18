@@ -442,6 +442,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#multi-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-GPU
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -595,6 +606,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#multi-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-GPU
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -720,6 +742,21 @@ the cache nor the model load. The server reports its measured reuse per
 turn through the additive apc fields in the ledger, and the client needs
 no vLLM install of its own, so the server can run whichever vLLM release
 fits the GPU, even from a separate environment.</p>
+<h2 id="multi-gpu">Multi-GPU</h2>
+<p>A model too big for one card, or a box whose first card also drives the
+display, can spread across several cards with a <code>--gpu</code> list. <code>--gpu 0,1</code>
+splits the chat model's weights over GPUs 0 and 1: the vllm backends
+(in-process and <code>saltServe</code>) tensor-parallel it, and the hf backend loads
+it with a balanced <code>device_map</code>. The BGE encoder that scores salience
+rides the last card in the list, inside the memory the per-card cap leaves
+free.</p>
+<p>Each card in the group is capped at a fraction of its memory (<code>0.80</code> by
+default across several cards, <code>0.90</code> for a lone server card), which leaves
+headroom for activations, the KV cache, and the encoder. The list also
+pins PCI bus order, so a <code>--gpu</code> index names the card <code>nvidia-smi</code> shows,
+and the model and the encoder always agree on which physical card an index
+means. One card, or no <code>--gpu</code>, keeps the original single-card path
+unchanged.</p>
 <p>Where each stage lives:</p>
 <table>
 <thead>
@@ -772,6 +809,10 @@ fits the GPU, even from a separate environment.</p>
 <tr>
 <td>Persistent serving (<code>saltServe</code>, serve client)</td>
 <td><code>salt/chat/serve.py</code>, <code>salt/chat/runner_serve.py</code></td>
+</tr>
+<tr>
+<td>Multi-GPU placement (<code>--gpu</code> list)</td>
+<td><code>salt/chat/runner.py</code>, <code>salt/chat/serve.py</code></td>
 </tr>
 <tr>
 <td>CLI entry points</td>
