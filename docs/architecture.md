@@ -131,6 +131,43 @@ and the model and the encoder always agree on which physical card an index
 means. One card, or no `--gpu`, keeps the original single-card path
 unchanged.
 
+## Provenance-aware memory
+
+Compressed conversation memory used to arrive anonymous. Every excerpt sat
+under one shared header, so the model could not tell the user's words from
+its own, could not tell an early statement from the later one that revised
+it, and had no idea whether something was said a minute ago or last week.
+The excerpts were accurate and unattributable at the same time.
+
+Each excerpt now carries its origin. The conversation part of the memory
+block is cut into one section per turn, headed with that turn's number, who
+was speaking, and how long ago it was said, and the reading guide the model
+receives tells it that higher turn numbers are later. The turn and the
+speaker were already in the session store and simply went unused. The time
+is new: every ingest records when it happened, one stamp per message, saved
+alongside the sentences. Sessions written before that carry no stamp, and
+their labels leave the age out rather than inventing one. `--no-turn-labels`
+returns to the single anonymous header.
+
+Sections cost a header of roughly a dozen tokens per turn that wins budget,
+which is why they are grouped by turn rather than attached per sentence.
+Because selection returns sentences in the order they were spoken, and a
+message's sentences enter the store together, a section is always exactly
+one speaker's turn and the sections read in chronological order.
+
+Alongside the excerpts sits a map of the conversation: one line per earlier
+turn giving that turn's strongest keywords. It is built from the keywords
+SALT already extracted at ingest, so it adds no model work at all. `/stats`
+always prints it, and `--conversation-map` places it at the top of the
+memory block. There it answers a question the excerpts cannot: whether a
+topic came up at all. A subject discussed on turn 5 is invisible on any
+turn where none of turn 5's sentences win budget, and the map makes it
+visible as a pointer the model can ask about.
+
+The map is a signal and never a gate. It changes nothing about which
+sentences are selected, and the reading guide tells the model to treat it
+as an index rather than as something anyone said.
+
 Where each stage lives:
 
 | Stage | Code |
