@@ -29,6 +29,7 @@ import shutil
 import sys
 from collections import Counter
 from datetime import datetime
+from itertools import groupby
 from pathlib import Path
 
 import torch
@@ -43,7 +44,7 @@ from salt.chat.registry import (RegistryError, list_models, register_model,
 from salt.chat.runner import make_runner
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
 from salt.engine.compressor import load_bge
-from salt.engine.session_trie import SessionTrie
+from salt.engine.session_trie import VALID_ROLES, SessionTrie
 
 SESSIONS_DIR = Path(__file__).resolve().parent / "sessions"
 FILES_DIR = Path(__file__).resolve().parents[1] / "files"
@@ -59,6 +60,11 @@ MEMORY_BLOCK = (
     "SALT memory — compressed excerpts auto-selected for this message "
     "(partial, not full text; each section keeps original order):"
     "\n---\n{body}\n---")
+# Conversation section headers. Both spellings are a contract with the
+# reading guide in instructions.md — edit the two in lockstep. The
+# unlabeled form is what --no-turn-labels restores, byte for byte.
+CONVERSATION_LABEL = "[from the earlier conversation]"
+CONVERSATION_LABEL_TURN = "[from the earlier conversation — turn {turn}, {role}]"
 
 # The universal instruction block that teaches the chat model how to read
 # SALT's context (memory sections, attachment inventory, citing rules).
@@ -156,6 +162,7 @@ class ChatState:
         self.shift_margin = args.shift_margin
         self.shift_query_boost = args.shift_query_boost
         self.dedup_cos = args.dedup_cos
+        self.turn_labels = not args.no_turn_labels
         self.sync_ingest = args.sync_ingest
         # tail policy: grow append-only to tail_max exchanges, then compact
         # to tail_min in ONE stroke. A rolling window (deque) would drop the
@@ -306,12 +313,36 @@ def normalize_budget(val):
     return val if 0 < val <= 1 else None
 
 
-def format_memory_block(trie, sel_idx):
+def conversation_sections(trie, idxs, turn_labels=True):
+    """The conversation excerpts, cut into one section per contiguous
+    (turn, role) run so the model can tell who said what and when instead
+    of reading one anonymous block. Selection comes back ascending by
+    sentence index and a message's sentences are appended together, so a
+    run is exactly one speaker's turn, and higher turn numbers are later.
+    A run whose role is unreadable (a session resumed from a build that
+    stored something else) keeps the unlabeled header rather than
+    inventing provenance."""
+    if not turn_labels:
+        return [CONVERSATION_LABEL + "\n"
+                + " ".join(trie.texts[i] for i in idxs)]
+    sections = []
+    for (turn, role), run in groupby(
+            idxs, key=lambda i: (trie.turns[i], trie.roles[i])):
+        head = (CONVERSATION_LABEL_TURN.format(turn=turn, role=role)
+                if role in VALID_ROLES and turn is not None
+                else CONVERSATION_LABEL)
+        sections.append(head + "\n"
+                        + " ".join(trie.texts[i] for i in run))
+    return sections
+
+
+def format_memory_block(trie, sel_idx, turn_labels=True):
     """The selected sentences as a labeled memory block: grouped by origin
     (attached files first, then conversation), each section headed with its
     source and per-file selected/total counts so the model knows both where
-    an excerpt came from and how partial the selection is. The labels match
-    the reading guide in instructions.md."""
+    an excerpt came from and how partial the selection is. Conversation
+    excerpts additionally carry the turn and speaker they came from. The
+    labels match the reading guide in instructions.md."""
     if not sel_idx:
         return ""
     by_src = {}
@@ -327,8 +358,7 @@ def format_memory_block(trie, sel_idx):
                         f"{totals[src]} indexed sentences]\n"
                         + " ".join(trie.texts[i] for i in idxs))
     if None in by_src:
-        sections.append("[from the earlier conversation]\n"
-                        + " ".join(trie.texts[i] for i in by_src[None]))
+        sections.extend(conversation_sections(trie, by_src[None], turn_labels))
     return MEMORY_BLOCK.format(body="\n\n".join(sections))
 
 
@@ -799,7 +829,8 @@ def chat_turn(state, line):
                                    shift_query_boost=state.shift_query_boost)
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
-        memory_block = format_memory_block(state.trie, selected_idx)
+        memory_block = format_memory_block(state.trie, selected_idx,
+                                           state.turn_labels)
         # additive ledger fields; only on turns where detection actually ran
         if comp["stats"].get("drift_cos") is not None:
             drift_extra = {"drift_cos": comp["stats"]["drift_cos"],
@@ -1100,6 +1131,13 @@ def build_parser():
                         "so restatements and re-asked questions stop "
                         "inflating theme statistics (default: off; attached "
                         "files are never gated; /stats counts suppressions)")
+    p.add_argument("--no-turn-labels", action="store_true",
+                   help="head each conversation excerpt with the plain "
+                        "'[from the earlier conversation]' label instead of "
+                        "naming the turn and speaker it came from (default: "
+                        "labels carry the turn number and the speaker, so "
+                        "the model can tell who said what and which "
+                        "statement came later)")
     p.add_argument("--sync-ingest", action="store_true",
                    help="run the per-turn keyword/embedding ingest on the "
                         "REPL thread as before, instead of in the "

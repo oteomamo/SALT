@@ -15,9 +15,14 @@ How the context is organized:
    excerpt came from:
    - "[from attached file '<name>' — N of M indexed sentences]": excerpts
      from that file, in original document order, usually not contiguous.
-   - "[from the earlier conversation]": sentences selected from the
-     conversation so far; the most recent ones may also still appear
-     verbatim in the latest messages.
+   - "[from the earlier conversation — turn N, user]" (or the plain
+     "[from the earlier conversation]"): sentences selected from the
+     conversation so far, labeled where available with the turn they were
+     said on and who said them. Higher turn numbers are later, so when two
+     excerpts disagree prefer the later one, and do not attribute a
+     statement to the user that the label credits to the assistant. The
+     most recent ones may also still appear verbatim in the latest
+     messages.
    The user's actual question is the text after that block.
 
 How to use it:

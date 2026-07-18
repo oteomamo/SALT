@@ -186,8 +186,16 @@ reading guide from
 plus an inventory of every attached file, and the compressed memory arrives
 at the top of the newest user message, grouped by origin - `[from attached
 file 'paper.pdf' - 42 of 358 indexed sentences]` versus `[from the earlier
-conversation]` - so answers can cite their source file and the model knows
-the excerpts are partial.
+conversation - turn 12, user]` - so answers can cite their source file and
+the model knows the excerpts are partial.
+
+Conversation excerpts carry their **provenance**. Each one is headed with
+the turn it was said on and who said it, so the model can tell your words
+from its own and can see which of two conflicting statements came later.
+The excerpts are split into one section per turn, and because sentences are
+selected in the order they were spoken, the sections read in order too.
+`--no-turn-labels` goes back to the plain `[from the earlier conversation]`
+header if you would rather spend those few tokens on content.
 
 ## The prompt layout
 
