@@ -336,6 +336,32 @@ def conversation_sections(trie, idxs, turn_labels=True):
     return sections
 
 
+def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):
+    """A compact index of what was discussed when: one line per recent
+    conversation turn, `t12 user: retrieval, decay, budget`. Built purely
+    from the attention keywords already cached at ingest, so it costs no
+    model pass. Attachments are left out - they are inventoried elsewhere
+    and one file would otherwise flood the map. When the character cap
+    bites the OLDEST lines go, since the recent end is what orients a
+    reader."""
+    by_turn = {}
+    for i in range(trie.n_sentences):
+        if trie.sources[i] is not None:
+            continue
+        role, kws = by_turn.setdefault(trie.turns[i], (trie.roles[i], {}))
+        for word, weight in trie.keyword_weights[i].items():
+            kws[word] = max(kws.get(word, 0.0), weight)
+    lines = []
+    for turn in sorted(by_turn)[-n_turns:]:
+        role, kws = by_turn[turn]
+        top = sorted(kws, key=lambda w: (-kws[w], w))[:top_k]
+        if top:
+            lines.append(f"t{turn} {role}: {', '.join(top)}")
+    while lines and sum(len(l) + 1 for l in lines) > char_cap:
+        lines.pop(0)
+    return lines
+
+
 def format_memory_block(trie, sel_idx, turn_labels=True):
     """The selected sentences as a labeled memory block: grouped by origin
     (attached files first, then conversation), each section headed with its
@@ -704,6 +730,11 @@ def handle_command(line, state):
                 n_tok = state.count_tokens(text)
                 parts.append(f"{name} (~{n_tok} tok)" if n_tok else name)
             print(f"full-context attachments ({len(parts)}): {', '.join(parts)}")
+        cmap = conversation_map(t)
+        if cmap:
+            print(f"conversation map (last {len(cmap)} turns):")
+            for line in cmap:
+                print(f"  {line}")
         s = state.last_stats or {}
         if s:
             trie_info = s.get("trie", {})

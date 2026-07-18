@@ -197,6 +197,21 @@ selected in the order they were spoken, the sections read in order too.
 `--no-turn-labels` goes back to the plain `[from the earlier conversation]`
 header if you would rather spend those few tokens on content.
 
+`/stats` prints a **conversation map** alongside it, one line per recent
+turn with that turn's strongest keywords:
+
+```
+conversation map (last 4 turns):
+  t10 user: eviction, indices, mask
+  t11 assistant: contract, kvtrace, ledger
+  t12 user: budget, decay, retrieval
+  t13 assistant: coverage, half-life, themes
+```
+
+It is built from the keywords SALT already extracted at ingest, so it
+costs no extra model work, and it is a quick way to see what a long
+session has actually covered.
+
 ## The prompt layout
 
 The prompt is deliberately **KV-cache shaped**: everything stable (system

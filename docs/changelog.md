@@ -41,7 +41,9 @@ just like a live chat. `--turns-out` records each answer as JSONL. 2.9.21
 labels every conversation excerpt in the memory block with the turn it was
 said on and who said it, so the model can tell your words from its own and
 can see which of two conflicting statements came later.
-`--no-turn-labels` restores the plain unlabeled header.
+`--no-turn-labels` restores the plain unlabeled header. 2.9.22 adds a
+conversation map to `/stats`, one line per recent turn with that turn's
+strongest keywords, so a long session's coverage is visible at a glance.
 
 ## 2.8.0 (2026-07-15)
 
