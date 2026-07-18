@@ -29,8 +29,10 @@ split a model's weights across several cards (tensor parallel), so a model
 too big for one card still serves. Every card in the group is capped at
 0.80 of its memory by default. 2.9.13 extends `--gpu` on saltChat to a
 card list too. The `--backend vllm` engine tensor-parallels the model
-across the cards and the BGE encoder rides the last one, off the cards
-holding the model.
+across the cards and the BGE encoder rides the last one, which the 0.80
+memory cap keeps room for. 2.9.14 pins the same PCI card order for the
+encoder and the model, so a `--gpu` index means the same physical card
+for both.
 
 ## 2.8.0 (2026-07-15)
 

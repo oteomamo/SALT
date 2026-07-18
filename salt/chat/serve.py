@@ -55,6 +55,10 @@ def parse_gpu_list(spec):
         if not p.isdigit():
             raise ValueError(
                 f"--gpu takes GPU indices like 0 or 0,1, not {p!r}")
+    if len(set(parts)) != len(parts):
+        # a repeat would set tensor-parallel size above the real card count
+        # and point two ranks at one card
+        raise ValueError(f"--gpu repeats a GPU index: {spec!r}")
     return parts
 
 

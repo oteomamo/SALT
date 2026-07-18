@@ -100,6 +100,25 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /exit              leave (also Ctrl-D)"""
 
 
+def resolve_gpu_devices(gpus, device, bge_device, gpu_mem_util):
+    """Turn a parsed --gpu list into concrete placements. The chat model
+    anchors on the first card and the BGE encoder on the last, and PCI bus
+    order is pinned for the WHOLE process (returned as the fourth value) so
+    an index names the card nvidia-smi calls N - the same numbering the vllm
+    worker and saltServe use, so the parent-side BGE and the model never
+    disagree on which physical card an index means. Explicit --device /
+    --bge-device / --gpu-mem-util win. The caller must export the returned
+    CUDA_DEVICE_ORDER before any CUDA init (None = leave it unset)."""
+    if device is None:
+        device = f"cuda:{gpus[0]}" if gpus else "cuda"
+    if bge_device is None and gpus:
+        bge_device = f"cuda:{gpus[-1]}"
+    if gpu_mem_util is None:
+        gpu_mem_util = default_gpu_mem_util(gpus, single=0.85)
+    order = "PCI_BUS_ID" if gpus else None
+    return device, bge_device, gpu_mem_util, order
+
+
 def backend_opts(args):
     """Per-backend knobs the shared CLI surface funnels to make_runner."""
     if args.backend == "vllm":
@@ -1014,14 +1033,14 @@ def main(argv=None):
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 1
-    if args.device is None:
-        args.device = f"cuda:{gpus[0]}" if gpus else "cuda"
-    if args.bge_device is None and gpus:
-        # the BGE encoder rides the LAST card, so the model keeps the
-        # earlier ones (with one card that is the same card as before)
-        args.bge_device = f"cuda:{gpus[-1]}"
-    if args.gpu_mem_util is None:
-        args.gpu_mem_util = default_gpu_mem_util(gpus, single=0.85)
+    args.device, args.bge_device, args.gpu_mem_util, cuda_order = \
+        resolve_gpu_devices(gpus, args.device, args.bge_device,
+                            args.gpu_mem_util)
+    if cuda_order:
+        # export before load_bge (the first CUDA init) so the parent process
+        # (BGE) and the vllm worker enumerate cards the same way - otherwise
+        # an index could name different physical cards for BGE and the model
+        os.environ["CUDA_DEVICE_ORDER"] = cuda_order
 
     if args.add:
         try:

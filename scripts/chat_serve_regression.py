@@ -166,6 +166,26 @@ def check_multi_gpu():
     assert env["CUDA_VISIBLE_DEVICES"] == "0,1"
     assert env["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID" and env["KEEP"] == "1"
     assert "CUDA_VISIBLE_DEVICES" not in build_env({}, None)
+    # a repeat would misset tensor-parallel size and point two ranks at one
+    # card, so it is rejected rather than silently hiding a card
+    for dup in ("0,0", "1,0,1"):
+        try:
+            parse_gpu_list(dup)
+            raise AssertionError(f"parse_gpu_list accepted duplicate {dup!r}")
+        except ValueError:
+            pass
+    # saltChat side: model on the first card, BGE on the last, PCI order
+    # pinned for the whole process so both halves name the same physical card
+    from salt.chat.cli import resolve_gpu_devices
+    assert resolve_gpu_devices(["0", "1"], None, None, None) == \
+        ("cuda:0", "cuda:1", 0.80, "PCI_BUS_ID")
+    assert resolve_gpu_devices(["1"], None, None, None) == \
+        ("cuda:1", "cuda:1", 0.85, "PCI_BUS_ID")
+    assert resolve_gpu_devices(None, None, None, None) == \
+        ("cuda", None, 0.85, None)
+    # explicit flags win, but a --gpu list still pins PCI order
+    assert resolve_gpu_devices(["0", "1"], "cuda:3", "cpu", 0.5) == \
+        ("cuda:3", "cpu", 0.5, "PCI_BUS_ID")
 
 
 def main():
@@ -190,7 +210,8 @@ def main():
     check_multi_gpu()
     print("2. multi-GPU: a --gpu list yields --tensor-parallel-size and a "
           "joined CUDA_VISIBLE_DEVICES, a lone card yields neither, cap "
-          "defaults 0.80 across cards")
+          "defaults 0.80 across cards, model/BGE resolve in PCI order, "
+          "duplicates rejected")
 
     try:
         import vllm  # noqa: F401

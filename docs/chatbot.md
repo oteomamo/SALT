@@ -92,10 +92,12 @@ shows the measured reuse every turn.
 
 When the server spans several cards, give saltChat the same list. `saltChat
 --backend vllm-serve --gpu 0,1` puts the BGE encoder on the last card (GPU
-1), off the cards the server fills with the model, so the encoder and the
-model shards do not compete for the same memory. The in-process `--backend
-vllm --gpu 0,1` reads the list the same way. It tensor-parallels the model
-across the cards and still pins BGE on the last one.
+1). That card also holds a model shard, so the default `0.80` memory cap
+leaves it room for the encoder. Passing the list pins the same PCI card
+order the server uses, so an index means the same physical card on both
+sides. The in-process `--backend vllm --gpu 0,1` reads the list the same
+way. It tensor-parallels the model across the cards and pins BGE on the
+last one, inside that same reserved headroom.
 
 ## REPL commands
 
