@@ -15,6 +15,11 @@ How the context is organized:
    excerpt came from:
    - "[from attached file '<name>' — N of M indexed sentences]": excerpts
      from that file, in original document order, usually not contiguous.
+   - "[map of the conversation so far]": not excerpts but an index, one
+     line per earlier turn as "t<N> <speaker>: keyword, keyword, keyword".
+     Use it to tell whether a topic came up and on which turn, then rely
+     on the excerpts and the recent messages for what was actually said.
+     Never quote a map line as something someone said.
    - "[from the earlier conversation — turn N, user]" (or the plain
      "[from the earlier conversation]"): sentences selected from the
      conversation so far, labeled where available with the turn they were

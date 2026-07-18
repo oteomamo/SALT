@@ -44,6 +44,9 @@ can see which of two conflicting statements came later.
 `--no-turn-labels` restores the plain unlabeled header. 2.9.22 adds a
 conversation map to `/stats`, one line per recent turn with that turn's
 strongest keywords, so a long session's coverage is visible at a glance.
+2.9.23 adds `--conversation-map`, which puts that map at the top of the
+memory block so the model can see a topic came up on a given turn even
+when none of that turn's sentences were selected.
 
 ## 2.8.0 (2026-07-15)
 

@@ -65,6 +65,7 @@ MEMORY_BLOCK = (
 # unlabeled form is what --no-turn-labels restores, byte for byte.
 CONVERSATION_LABEL = "[from the earlier conversation]"
 CONVERSATION_LABEL_TURN = "[from the earlier conversation — turn {turn}, {role}]"
+CONVERSATION_MAP_LABEL = "[map of the conversation so far]"
 
 # The universal instruction block that teaches the chat model how to read
 # SALT's context (memory sections, attachment inventory, citing rules).
@@ -163,6 +164,7 @@ class ChatState:
         self.shift_query_boost = args.shift_query_boost
         self.dedup_cos = args.dedup_cos
         self.turn_labels = not args.no_turn_labels
+        self.conversation_map = args.conversation_map
         self.sync_ingest = args.sync_ingest
         # tail policy: grow append-only to tail_max exchanges, then compact
         # to tail_min in ONE stroke. A rolling window (deque) would drop the
@@ -362,13 +364,20 @@ def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):
     return lines
 
 
-def format_memory_block(trie, sel_idx, turn_labels=True):
+def format_memory_block(trie, sel_idx, turn_labels=True, conv_map=False):
     """The selected sentences as a labeled memory block: grouped by origin
     (attached files first, then conversation), each section headed with its
     source and per-file selected/total counts so the model knows both where
     an excerpt came from and how partial the selection is. Conversation
     excerpts additionally carry the turn and speaker they came from. The
-    labels match the reading guide in instructions.md."""
+    labels match the reading guide in instructions.md.
+
+    `conv_map` prepends the conversation map as a first section: an index
+    of what was discussed when, so the model can see a topic exists even
+    on a turn none of its sentences were selected. It adds pointers only -
+    selection is untouched, so the map is a signal and never a gate. The
+    memory block is the only correct home for it, since it changes every
+    turn and the system prompt has to stay a byte-stable KV prefix."""
     if not sel_idx:
         return ""
     by_src = {}
@@ -376,6 +385,10 @@ def format_memory_block(trie, sel_idx, turn_labels=True):
         by_src.setdefault(trie.sources[i], []).append(i)
     totals = Counter(s for s in trie.sources if s)
     sections = []
+    if conv_map:
+        lines = conversation_map(trie)
+        if lines:
+            sections.append(CONVERSATION_MAP_LABEL + "\n" + "\n".join(lines))
     for src in sorted(k for k in by_src if k):
         idxs = by_src[src]
         # explicit quotes, not !r: repr flips to double quotes on names with
@@ -861,7 +874,8 @@ def chat_turn(state, line):
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx,
-                                           state.turn_labels)
+                                           state.turn_labels,
+                                           state.conversation_map)
         # additive ledger fields; only on turns where detection actually ran
         if comp["stats"].get("drift_cos") is not None:
             drift_extra = {"drift_cos": comp["stats"]["drift_cos"],
@@ -1169,6 +1183,13 @@ def build_parser():
                         "labels carry the turn number and the speaker, so "
                         "the model can tell who said what and which "
                         "statement came later)")
+    p.add_argument("--conversation-map", action="store_true",
+                   help="open the memory block with a map of the "
+                        "conversation: one line per earlier turn listing "
+                        "that turn's main keywords, so the model can see a "
+                        "topic was discussed even on a turn none of its "
+                        "sentences were selected (default: off; the map is "
+                        "always in /stats)")
     p.add_argument("--sync-ingest", action="store_true",
                    help="run the per-turn keyword/embedding ingest on the "
                         "REPL thread as before, instead of in the "

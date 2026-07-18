@@ -212,6 +212,13 @@ It is built from the keywords SALT already extracted at ingest, so it
 costs no extra model work, and it is a quick way to see what a long
 session has actually covered.
 
+`--conversation-map` puts that same map into the prompt, as the first
+section of the memory block. The model can then see that a topic came up
+on turn 5 even when none of turn 5's sentences were selected this turn,
+and ask about it or say where to look. The map only adds pointers. It
+never changes which sentences get selected, and the reading guide tells
+the model to treat it as an index rather than as something anyone said.
+
 ## The prompt layout
 
 The prompt is deliberately **KV-cache shaped**: everything stable (system
