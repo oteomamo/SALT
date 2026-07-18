@@ -20,10 +20,12 @@ How the context is organized:
      Use it to tell whether a topic came up and on which turn, then rely
      on the excerpts and the recent messages for what was actually said.
      Never quote a map line as something someone said.
-   - "[from the earlier conversation — turn N, user]" (or the plain
-     "[from the earlier conversation]"): sentences selected from the
+   - "[from the earlier conversation — turn N, user, 2h ago]" (or the
+     plain "[from the earlier conversation]"): sentences selected from the
      conversation so far, labeled where available with the turn they were
-     said on and who said them. Higher turn numbers are later, so when two
+     said on, who said them, and how long ago that was. A session resumed
+     from an older build may carry no age. Higher turn numbers are later,
+     so when two
      excerpts disagree prefer the later one, and do not attribute a
      statement to the user that the label credits to the assistant. The
      most recent ones may also still appear verbatim in the latest

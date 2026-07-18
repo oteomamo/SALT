@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from collections import Counter
 from datetime import datetime
 from itertools import groupby
@@ -65,6 +66,8 @@ MEMORY_BLOCK = (
 # unlabeled form is what --no-turn-labels restores, byte for byte.
 CONVERSATION_LABEL = "[from the earlier conversation]"
 CONVERSATION_LABEL_TURN = "[from the earlier conversation — turn {turn}, {role}]"
+CONVERSATION_LABEL_AGE = (
+    "[from the earlier conversation — turn {turn}, {role}, {age}]")
 CONVERSATION_MAP_LABEL = "[map of the conversation so far]"
 
 # The universal instruction block that teaches the chat model how to read
@@ -327,15 +330,39 @@ def conversation_sections(trie, idxs, turn_labels=True):
     if not turn_labels:
         return [CONVERSATION_LABEL + "\n"
                 + " ".join(trie.texts[i] for i in idxs)]
+    now = time.time()
     sections = []
     for (turn, role), run in groupby(
             idxs, key=lambda i: (trie.turns[i], trie.roles[i])):
-        head = (CONVERSATION_LABEL_TURN.format(turn=turn, role=role)
-                if role in VALID_ROLES and turn is not None
-                else CONVERSATION_LABEL)
+        run = list(run)
+        if role in VALID_ROLES and turn is not None:
+            # sessions from before ingest time was recorded carry no stamp,
+            # so those labels simply drop the age instead of guessing one
+            filed_at = trie.timestamps[run[0]]
+            head = (CONVERSATION_LABEL_AGE.format(
+                        turn=turn, role=role, age=format_age(now - filed_at))
+                    if filed_at is not None
+                    else CONVERSATION_LABEL_TURN.format(turn=turn, role=role))
+        else:
+            head = CONVERSATION_LABEL
         sections.append(head + "\n"
                         + " ".join(trie.texts[i] for i in run))
     return sections
+
+
+def format_age(seconds):
+    """How long ago, coarsely: a label only has to place a statement in
+    time, not measure it. A clock that went backwards reads as 'just now'
+    rather than as a negative age."""
+    minutes = seconds / 60.0
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{int(minutes)}m ago"
+    hours = minutes / 60.0
+    if hours < 24:
+        return f"{int(hours)}h ago"
+    return f"{int(hours / 24)}d ago"
 
 
 def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):

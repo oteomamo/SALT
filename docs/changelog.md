@@ -46,7 +46,9 @@ conversation map to `/stats`, one line per recent turn with that turn's
 strongest keywords, so a long session's coverage is visible at a glance.
 2.9.23 adds `--conversation-map`, which puts that map at the top of the
 memory block so the model can see a topic came up on a given turn even
-when none of that turn's sentences were selected.
+when none of that turn's sentences were selected. 2.9.24 adds how long ago
+to those labels, so the model can answer questions about when something
+was said instead of only about what and by whom.
 
 ## 2.8.0 (2026-07-15)
 
