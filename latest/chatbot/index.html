@@ -842,6 +842,12 @@ every turn (install vLLM first, see
 leaving room for the BGE encoder on the same GPU). <code>--max-model-len</code> caps
 the context window when the model's full window would not fit in the KV
 cache. <code>/model</code> switching works on both in-process backends.</p>
+<p>A model too big for one card can split across several with a <code>--gpu</code> list.
+<code>saltChat --model llama-3.1-8b-instruct --backend hf --gpu 0,1</code> shards the
+weights across GPUs 0 and 1 with a balanced <code>device_map</code>, and <code>--backend
+vllm --gpu 0,1</code> makes the vllm engine tensor-parallel them. Either way the
+BGE encoder rides the last card, inside the memory the <code>--gpu-mem-util</code>
+cap leaves free (default <code>0.80</code> across several cards).</p>
 <h2 id="persistent-serving">Persistent serving</h2>
 <p>Both backends above load the model inside the saltChat process, so the
 model and its cache disappear when you exit. <code>saltServe</code> starts the model
