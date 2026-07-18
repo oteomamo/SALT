@@ -113,6 +113,24 @@ turn through the additive apc fields in the ledger, and the client needs
 no vLLM install of its own, so the server can run whichever vLLM release
 fits the GPU, even from a separate environment.
 
+## Multi-GPU
+
+A model too big for one card, or a box whose first card also drives the
+display, can spread across several cards with a `--gpu` list. `--gpu 0,1`
+splits the chat model's weights over GPUs 0 and 1: the vllm backends
+(in-process and `saltServe`) tensor-parallel it, and the hf backend loads
+it with a balanced `device_map`. The BGE encoder that scores salience
+rides the last card in the list, inside the memory the per-card cap leaves
+free.
+
+Each card in the group is capped at a fraction of its memory (`0.80` by
+default across several cards, `0.90` for a lone server card), which leaves
+headroom for activations, the KV cache, and the encoder. The list also
+pins PCI bus order, so a `--gpu` index names the card `nvidia-smi` shows,
+and the model and the encoder always agree on which physical card an index
+means. One card, or no `--gpu`, keeps the original single-card path
+unchanged.
+
 Where each stage lives:
 
 | Stage | Code |
@@ -128,4 +146,5 @@ Where each stage lives:
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
+| Multi-GPU placement (`--gpu` list) | `salt/chat/runner.py`, `salt/chat/serve.py` |
 | CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat` |
