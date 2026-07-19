@@ -60,6 +60,15 @@ SESSION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 # seam: system-prompt wording is a later tuning knob
 SYSTEM_PROMPT = "You are a helpful assistant."
+
+# --memory-cap auto: tokens held back for the reply framing, and the floor
+# that keeps the memory block from collapsing when the window is tight.
+# The tokens-per-word seed is refined per session by an EMA of the real
+# measured ratio, so the cap self-corrects for the active tokenizer.
+MEMORY_CAP_RESERVE = 256
+MEMORY_CAP_FLOOR_WORDS = 64
+TOKENS_PER_WORD_SEED = 1.6
+TPW_EMA_ALPHA = 0.3
 MEMORY_BLOCK = (
     "SALT memory — compressed excerpts auto-selected for this message "
     "(partial, not full text; each section keeps original order):"
@@ -161,6 +170,8 @@ class ChatState:
         self.runner = runner
         self.trie = trie
         self.budget = args.budget_pct
+        self.memory_cap = parse_memory_cap(args.memory_cap)
+        self.tokens_per_word = TOKENS_PER_WORD_SEED
         # coverage-decay, shift-damping + near-dup knobs live here and
         # travel as per-call kwargs to compress()/add_turn(): SessionTrie
         # .load() overwrites config values from the persisted config.json,
@@ -326,6 +337,18 @@ def normalize_budget(val):
     if val > 1:
         val /= 100.0
     return val if 0 < val <= 1 else None
+
+
+def parse_memory_cap(val):
+    """'off', 'auto', or a positive token count; None when unparseable."""
+    v = str(val or "").strip().lower()
+    if v in ("off", "auto"):
+        return v
+    try:
+        n = int(v)
+    except ValueError:
+        return None
+    return n if n > 0 else None
 
 
 def conversation_sections(trie, idxs, turn_labels=True):
@@ -747,6 +770,31 @@ def prompt_fixed_tokens(state):
     return None if tail_n is None else fixed + tail_n
 
 
+def memory_word_cap(state, user_line=""):
+    """Word ceiling for the memory block, or None when the cap is off or
+    the inputs are unknowable. 'auto' fits the block to what the window
+    has left after the fixed prompt, the user line and a reply reserve;
+    an integer cap converts that many tokens directly. Either way the
+    token count becomes words via the session's measured tokens-per-word
+    ratio, floored so the block never collapses to nothing."""
+    cap = state.memory_cap
+    if cap in (None, "off"):
+        return None
+    if cap == "auto":
+        if state.runner is None:
+            return None
+        limit = state.runner.input_budget()
+        fixed = prompt_fixed_tokens(state)
+        if not limit or fixed is None:
+            return None
+        line_tokens = state.count_tokens(user_line) or 0
+        tokens = int(limit) - fixed - MEMORY_CAP_RESERVE - line_tokens
+    else:
+        tokens = int(cap)
+    words = int(tokens / max(state.tokens_per_word, 0.1))
+    return max(words, MEMORY_CAP_FLOOR_WORDS)
+
+
 def warn_attachment_budget(state):
     """Warn when the full attachments plus the fixed system-prompt overhead
     (instructions + inventory) exceed the active model's context window (the
@@ -1004,12 +1052,19 @@ def chat_turn(state, line):
                                    shift_damping=state.shift_damping,
                                    shift_margin=state.shift_margin,
                                    shift_query_boost=state.shift_query_boost,
-                                   per_source_themes=state.per_source_themes)
+                                   per_source_themes=state.per_source_themes,
+                                   max_words=memory_word_cap(state, line))
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx,
                                            state.turn_labels,
                                            state.conversation_map)
+        n_blk = state.count_tokens(memory_block)
+        if n_blk:
+            tpw = n_blk / max(1, len(memory_block.split()))
+            state.tokens_per_word = (TPW_EMA_ALPHA * tpw
+                                     + (1 - TPW_EMA_ALPHA)
+                                     * state.tokens_per_word)
         # additive ledger fields; only on turns where detection actually ran
         if comp["stats"].get("drift_cos") is not None:
             drift_extra = {"drift_cos": comp["stats"]["drift_cos"],
@@ -1272,6 +1327,13 @@ def build_parser():
                         "memory)")
     p.add_argument("--budget-pct", type=float, default=0.20,
                    help="token budget for the compressed memory block")
+    p.add_argument("--memory-cap", default="off", metavar="N|auto|off",
+                   help="absolute ceiling on the compressed memory block, "
+                        "in tokens. 'auto' fits the block to the space the "
+                        "model's window has left after the fixed prompt "
+                        "and a reply reserve, a number caps it at that "
+                        "many tokens, 'off' keeps the unbounded "
+                        "percentage sizing (default: off)")
     p.add_argument("--doc", action="append", default=[], metavar="PATH",
                    help="text or PDF file to ingest into the trie at startup "
                         "(repeatable)")
@@ -1372,6 +1434,11 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+
+    if parse_memory_cap(args.memory_cap) is None:
+        print("--memory-cap must be 'off', 'auto', or a positive token "
+              "count", file=sys.stderr)
+        return 1
 
     try:
         gpus = parse_gpu_list(args.gpu)

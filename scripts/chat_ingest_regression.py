@@ -241,6 +241,46 @@ def main():
         "fuse quoted more than the last sentence of the reply")
     print("short turns: fuse quotes the answered question, acks classified")
 
+    # memory cap plumbing (pure, no encoder): parse, off, auto with a
+    # stub runner, explicit int conversion, and the floor
+    import types as _types
+    from salt.chat.cli import (MEMORY_CAP_FLOOR_WORDS, memory_word_cap,
+                               parse_memory_cap, prompt_fixed_tokens)
+    assert parse_memory_cap("off") == "off"
+    assert parse_memory_cap("auto") == "auto"
+    assert parse_memory_cap("4000") == 4000
+    assert parse_memory_cap("-3") is None and parse_memory_cap("x") is None
+
+    class _StubRunner:
+        alias = "stub"
+        def __init__(self, budget):
+            self._b = budget
+        def input_budget(self):
+            return self._b
+
+    stub = _types.SimpleNamespace(
+        runner=_StubRunner(100000), full_attachments={"a.txt": "alpha beta"},
+        tail=[{"role": "user", "content": "one two"},
+              {"role": "assistant", "content": "three four five"}],
+        trie=_types.SimpleNamespace(attached_sources=[], n_sentences=0),
+        count_tokens=lambda text: len(text.split()),
+        _fixed_tokens_cache=None, memory_cap="off", tokens_per_word=1.6)
+    assert memory_word_cap(stub) is None, "off must disable the cap"
+    fixed = prompt_fixed_tokens(stub)
+    assert fixed and fixed > 5, "fixed cost missed the prompt components"
+    stub.memory_cap = "auto"
+    wide = memory_word_cap(stub, "the user line")
+    assert wide and wide > MEMORY_CAP_FLOOR_WORDS, wide
+    stub.runner = _StubRunner(fixed + 100)
+    stub._fixed_tokens_cache = None
+    tight = memory_word_cap(stub, "the user line")
+    assert tight == MEMORY_CAP_FLOOR_WORDS, (
+        f"a tight window must land on the floor, got {tight}")
+    stub.memory_cap = 320
+    assert memory_word_cap(stub) == int(320 / 1.6)
+    print("memory cap: off/auto/int parse and convert, auto fits the "
+          "window, floor holds when the window is tight")
+
     print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
     tok, mdl = load_bge(BGE_MODEL, args.device)
     tmp = Path(tempfile.mkdtemp(prefix="salt_ingest_regression_"))
