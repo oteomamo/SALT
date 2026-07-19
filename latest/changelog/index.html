@@ -954,7 +954,10 @@ turns it covers, so a long conversation showing only its recent turns
 never reads as proof that an older topic was never discussed. 2.9.31
 stops the junk filter from dropping short user messages, so terse
 decisions like "go with option B" stay in conversation memory for the
-whole session. <code>--short-turns off</code> restores the old dropping behavior.</p>
+whole session. <code>--short-turns off</code> restores the old dropping behavior.
+2.9.32 adds <code>--short-turns fuse</code>, which stores a bare acknowledgement
+like "the second one" together with the question it answers, so the
+decision can be found again later by the question's own words.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
