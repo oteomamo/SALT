@@ -25,6 +25,8 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
   features:
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.top
     - navigation.footer
     - search.suggest
@@ -47,13 +49,18 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Installation: installation.md
-  - Usage: usage.md
-  - Chatbot mode: chatbot.md
-  - Serving: serving.md
-  - Options: options.md
-  - Architecture: architecture.md
-  - Datasets: datasets.md
-  - Results: results.md
-  - Changelog: changelog.md
-  - Roadmap: roadmap.md
+  - Get started:
+      - Installation: installation.md
+      - Usage: usage.md
+  - Guides:
+      - Chatbot mode: chatbot.md
+      - Serving: serving.md
+      - Options: options.md
+  - Concepts:
+      - Architecture: architecture.md
+  - Evaluation:
+      - Datasets: datasets.md
+      - Results: results.md
+  - Project:
+      - Changelog: changelog.md
+      - Roadmap: roadmap.md
