@@ -625,7 +625,7 @@ class SessionTrie:
                  shift_damping=None, shift_margin=0.12,
                  shift_query_boost=1.5, per_source_themes=False,
                  max_words=None, stable_keys=False, coverage_gc=False,
-                 coverage_max_keys=None):
+                 coverage_max_keys=None, defer_commit=False):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -677,11 +677,25 @@ class SessionTrie:
         with that order, so existing path prefixes (the coverage keys)
         never re-key when document frequencies move. Default False keeps
         the per-turn df ordering exactly.
+
+        `defer_commit` (opt-in): when true, nothing of this turn is
+        committed inside the call — coverage, the freshness stamps, the
+        drift EMA and the compress counter stay untouched — and the
+        returned dict carries a one-shot `commit` callable that applies
+        and persists the turn (`commit(save=False)` only marks the state
+        dirty, for callers that own the save). Never calling it discards
+        the turn's accumulation, as if the compress never ran; a second
+        call is a no-op. The empty-session early exit returns
+        `commit: None`. Stats always describe the planned commit.
+        Default False commits inside the call exactly as before.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_sentences == 0:
-            return {"context": "", "stats": {}, "selected_sent_idx": [],
-                    "n_total_sentences": 0, "n_turns": self.n_turns}
+            out = {"context": "", "stats": {}, "selected_sent_idx": [],
+                   "n_total_sentences": 0, "n_turns": self.n_turns}
+            if defer_commit:
+                out["commit"] = None
+            return out
 
         # Decay BEFORE seeding; compress() runs once per chat turn, so one
         # multiplicative step per call is per-turn decay (no last-touched
@@ -817,8 +831,20 @@ class SessionTrie:
          commit_diag) = self._plan_commit(
              cov, seed, seed_passed, damped, drift_cos, drift_baseline,
              stable_keys, coverage_gc, coverage_max_keys)
-        self._apply_commit(new_coverage, new_coverage_turn, new_drift_ema,
-                           drift_cos)
+        commit_cb = None
+        if defer_commit:
+            committed = []
+
+            def commit_cb(save=True):
+                # one-shot: a second call must not re-tick the counter
+                if committed:
+                    return
+                committed.append(True)
+                self._apply_commit(new_coverage, new_coverage_turn,
+                                   new_drift_ema, drift_cos, save=save)
+        else:
+            self._apply_commit(new_coverage, new_coverage_turn,
+                               new_drift_ema, drift_cos)
 
         stats["coverage_keys"] = len(new_coverage)
         stats["coverage_half_life"] = coverage_half_life
@@ -852,8 +878,11 @@ class SessionTrie:
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
-        return {"context": context, "stats": stats, "selected_sent_idx": sel_idx,
-                "n_total_sentences": self.n_sentences, "n_turns": self.n_turns}
+        out = {"context": context, "stats": stats, "selected_sent_idx": sel_idx,
+               "n_total_sentences": self.n_sentences, "n_turns": self.n_turns}
+        if defer_commit:
+            out["commit"] = commit_cb
+        return out
 
     # ── persistence ───────────────────────────────────────────────────────
     def _p(self, name):
