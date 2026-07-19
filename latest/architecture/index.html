@@ -823,7 +823,8 @@ so it is the fastest way to find where a change belongs:</p>
 └──────────────────────────────────────────────────────────────────────────┘
 </code></pre></div>
 <h2 id="persistent-serving">Persistent serving</h2>
-<p>The chat model can run as its own long-lived server instead of inside
+<p>How to run it is on the <a href="../serving/">Serving</a> page. The design: the
+chat model can run as its own long-lived server instead of inside
 saltChat. <code>saltServe</code> resolves a registered model and starts a
 <code>vllm serve</code> process that owns the GPU, and <code>saltChat --backend
 vllm-serve</code> connects to it as a thin client. The client renders and
@@ -951,6 +952,10 @@ or orphaned each turn so the trade can be judged on real sessions.</p>
 <tr>
 <td>Multi-turn session store</td>
 <td><code>salt/engine/session_trie.py</code></td>
+</tr>
+<tr>
+<td>Chat text handling (verbatim storage, short turns)</td>
+<td><code>salt/engine/chat_text.py</code>, <code>salt/chat/shortturn.py</code></td>
 </tr>
 <tr>
 <td>Background ingest worker (chat)</td>
