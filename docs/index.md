@@ -1,56 +1,95 @@
+---
+hide:
+  - navigation
+  - toc
+---
+
 # SALT
 
-<p align="center">
-  <img src="assets/banner.png" width="100%">
-</p>
+<div class="salt-hero" markdown>
+![SALT banner](assets/banner.png)
+</div>
 
-## Salience-Aware Lexical Trie for Long-Context Compression
+**SALT keeps long context small.** It compresses documents and whole
+conversations down to the sentences that carry the most information,
+spreading the budget across a document's themes instead of ranking
+everything by one score, so the minor points that answer real questions
+survive. Any model, plain text out, less compute in.
 
-SALT shrinks a long document down to a fixed size before it is sent to a language
-model, keeping the sentences that carry the most information. It works with any
-model, produces a shorter plain-text prompt, and cuts the compute, memory, and
-wait time that long inputs cost.
+<div class="salt-buttons" markdown>
+[Get started](installation.md){ .md-button .md-button--primary }
+[How it works](architecture.md){ .md-button }
+</div>
 
-**The problem.** When a prompt is too long, existing compressors give each
-sentence a single relevance score and keep the top-scoring ones until the budget
-runs out. Under a tight budget this lets the document's main topic swallow the
-whole budget, so smaller but still important points get dropped - a failure called
-*theme collapse* (in multi-hop questions, for example, it can keep
-passages about the main entity yet lose the one sentence that links it to a
-second).
+<div class="grid cards" markdown>
 
-**The solution.** SALT first maps the document's recurring themes by organizing
-each sentence's keywords into a trie, a small keyword tree ordered by how often
-those keywords recur, then spreads the budget across those theme branches
-before choosing sentences, so minor themes keep their share instead of being
-crowded out. Because the theme map is built once, it can be reused across the
-turns of a conversation without re-reading the document.
+- 🧂 **salt**
 
-## 🧰 Three commands
+    ---
 
-- **`salt`** compresses a document or dataset once. It is the
-  compression engine itself and the surface the evaluation runs on.
-- **`saltChat`** is a chat REPL where SALT is the conversation memory,
-  so long conversations and attached files stay recallable at a fixed
-  prompt size.
-- **`saltServe`** keeps a model loaded as a persistent server, so chats
-  connect, disconnect and resume with their cache warm.
+    Compress a document or dataset in one shot. The engine itself, and
+    the surface the evaluation runs on.
 
-## 🧭 Where to go
+    [Usage](usage.md)
 
-- [Installation](installation.md) - set up the environment and the three commands
-- [Usage](usage.md) - compress datasets and single documents, run the evaluation
-- [Chatbot mode](chatbot.md) - `saltChat`, the chat REPL where SALT is the conversation memory
-- [Serving](serving.md) - `saltServe`, the persistent server chats resume against
-- [Options](options.md) - every flag of the three commands, one line each
-- [Architecture](architecture.md) - the ideas behind the features, and where each stage lives
-- [Datasets](datasets.md) - fetching and preparing LongBench
-- [Results](results.md) - LongBench scores at a 20% token budget
-- [Changelog](changelog.md) - what each version added
-- [Roadmap](roadmap.md) - what is in progress and what comes next
+- 🤖 **saltChat**
 
-## 🔬 At a glance
+    ---
 
-SALT reaches an overall **44.60** LongBench average with Llama-3.1-8B-Instruct
-at a 20% token budget. The full per-dataset table is on the
-[Results](results.md) page.
+    A chat REPL where SALT is the conversation memory, so long chats
+    and attached files stay recallable at a fixed prompt size.
+
+    [Chatbot mode](chatbot.md)
+
+- 🔌 **saltServe**
+
+    ---
+
+    A persistent model server chats connect to and resume against with
+    their cache still warm.
+
+    [Serving](serving.md)
+
+- 🎛 **Options**
+
+    ---
+
+    Every flag of the three commands in one line each, including the
+    off by default switches that make long sessions better.
+
+    [Options](options.md)
+
+- 🧩 **Architecture**
+
+    ---
+
+    The ideas behind the features: the keyword trie, coverage
+    selection, the memory contract, and where each stage lives.
+
+    [Architecture](architecture.md)
+
+- 📈 **Results**
+
+    ---
+
+    A 44.60 LongBench average with Llama 3.1 8B at a 20% token budget,
+    per dataset.
+
+    [Results](results.md)
+
+</div>
+
+## 🧭 New here
+
+1. [Install](installation.md) the environment and the three commands.
+2. [Compress](usage.md) one document and read what SALT kept.
+3. [Chat](chatbot.md) with a file attached and watch the memory block
+   choose what to remember.
+4. [Read why](architecture.md) selection spreads the budget across
+   themes instead of ranking sentences.
+
+## 🔭 Where the project is going
+
+The [Roadmap](roadmap.md) lists what is in progress and what comes
+next, and the [Changelog](changelog.md) explains what every version
+changed in plain language.
