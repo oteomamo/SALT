@@ -184,6 +184,7 @@ class ChatState:
         self.per_source_themes = args.per_source_themes
         self.stable_coverage_keys = args.stable_coverage_keys
         self.coverage_gc = args.coverage_gc
+        self.coverage_max_keys = args.coverage_max_keys
         self.dedup_cos = args.dedup_cos
         self.short_turns = args.short_turns
         self.turn_labels = not args.no_turn_labels
@@ -1077,7 +1078,8 @@ def chat_turn(state, line):
                                    per_source_themes=state.per_source_themes,
                                    max_words=memory_word_cap(state, line),
                                    stable_keys=state.stable_coverage_keys,
-                                   coverage_gc=state.coverage_gc)
+                                   coverage_gc=state.coverage_gc,
+                                   coverage_max_keys=state.coverage_max_keys)
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx,
@@ -1400,6 +1402,12 @@ def build_parser():
                         "carrying dead suppression in every save "
                         "(default: off; /stats counts live vs orphaned "
                         "keys either way)")
+    p.add_argument("--coverage-max-keys", type=int, default=None,
+                   metavar="N",
+                   help="hard cap on remembered theme keys: past N, "
+                        "orphaned keys drop first, then the stalest and "
+                        "weakest live ones. The only unconditional bound "
+                        "when decay is off (default: off)")
     p.add_argument("--stable-coverage-keys", action="store_true",
                    help="freeze the session's keyword order so cross-turn "
                         "memory discounts survive as the conversation "

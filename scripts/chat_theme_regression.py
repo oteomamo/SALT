@@ -40,6 +40,8 @@ plumbing itself lives in salt/chat/cli.py, outside this harness). Asserts:
  10. Orphan GC (coverage_gc=True): orphaned keys drain to zero after
      the grace window, stamps never outnumber keys, live attachment
      keys survive while attachment orphans are collected.
+ 11. Hard cap (coverage_max_keys): the dict never exceeds the cap after
+     any compress, and the freshest key always survives the cut.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is the
 default device; the run takes well under a minute.
@@ -436,6 +438,37 @@ def main():
         print(f"coverage gc: peak {orphan_seen} orphans drained to 0 "
               f"({gc_total} collected), {doc_alive} live attachment keys "
               f"kept")
+
+        # group 11: hard cap
+        CAP = 6
+        tc = SessionTrie("covcap", cache_dir=tmp, model_name=BGE_MODEL)
+        tc.add_turn(DOC_TEXT, role="doc", tokenizer=tok, model=mdl,
+                    device=args.device, source=DOC_NAME)
+        capped_ever = 0
+        for user, assistant in TOPIC_X + TOPIC_Y:
+            s11 = tc.compress(query=user, budget_pct=args.budget,
+                              tokenizer=tok, model=mdl,
+                              device=args.device,
+                              coverage_max_keys=CAP)["stats"]
+            assert len(tc.coverage) <= CAP, (
+                f"cap breached: {len(tc.coverage)} > {CAP}")
+            capped_ever += s11["coverage_capped_dropped"]
+            if tc.coverage_turn:
+                freshest = max(tc.coverage_turn.values())
+                assert any(t == freshest
+                           for t in tc.coverage_turn.values()), "unreachable"
+                assert all(k in tc.coverage for k, t
+                           in tc.coverage_turn.items() if t == freshest), (
+                    "the freshest key did not survive the cap cut")
+            tc.add_turn(user, "user", tokenizer=tok, model=mdl,
+                        device=args.device)
+            tc.add_turn(assistant, "assistant", tokenizer=tok, model=mdl,
+                        device=args.device)
+        assert capped_ever > 0, (
+            "the cap never dropped anything - CAP is too high for this "
+            "transcript and the bound assertions are vacuous")
+        print(f"coverage cap: dict held at <= {CAP} keys "
+              f"({capped_ever} dropped), freshest keys kept")
         print("PASS")
     finally:
         if args.keep:

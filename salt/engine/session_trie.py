@@ -497,7 +497,8 @@ class SessionTrie:
                  coverage_half_life=None, coverage_decay_docs=False,
                  shift_damping=None, shift_margin=0.12,
                  shift_query_boost=1.5, per_source_themes=False,
-                 max_words=None, stable_keys=False, coverage_gc=False):
+                 max_words=None, stable_keys=False, coverage_gc=False,
+                 coverage_max_keys=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -753,6 +754,22 @@ class SessionTrie:
                 del self.coverage[k]
                 self.coverage_turn.pop(k, None)
             n_gc_dropped = len(drop)
+        # Hard cap (opt-in): the only unconditional bound with decay off.
+        # Orphans go first regardless of grace, then live keys stalest
+        # and weakest first.
+        n_cap_dropped = 0
+        if coverage_max_keys is not None and int(coverage_max_keys) > 0:
+            cap = int(coverage_max_keys)
+            if len(self.coverage) > cap:
+                victims = sorted(
+                    self.coverage,
+                    key=lambda k: (k in universe_now,
+                                   self.coverage_turn.get(k, -1),
+                                   self.coverage[k]))
+                for k in victims[:len(self.coverage) - cap]:
+                    del self.coverage[k]
+                    self.coverage_turn.pop(k, None)
+                    n_cap_dropped += 1
         self._n_compress += 1
         if drift_cos is not None:
             self.drift_ema = (drift_cos if drift_baseline is None
@@ -788,6 +805,7 @@ class SessionTrie:
         stats["coverage_persisted_orphan_mass"] = round(
             persisted_orphan_mass, 4)
         stats["coverage_gc_dropped"] = n_gc_dropped
+        stats["coverage_capped_dropped"] = n_cap_dropped
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
