@@ -526,6 +526,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#interrupted-saves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interrupted saves
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-kv-ledger" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -820,6 +831,17 @@
     <span class="md-ellipsis">
       
         Background ingestion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interrupted-saves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interrupted saves
       
     </span>
   </a>
@@ -1159,6 +1181,14 @@ error is shown at the next prompt, so nothing is lost silently. A nice
 side effect: even when a reply fails halfway, your message has already
 reached the memory. <code>/stats</code> shows how much work stayed off the prompt
 path, and <code>--sync-ingest</code> restores the old inline behavior.</p>
+<h2 id="interrupted-saves">Interrupted saves</h2>
+<p>A session's memory is saved as separate files, and a crash or kill can
+land between them. When that happens the session is detected and rolled
+back to the last complete state the next time it opens, with a one line
+notice printed and a record appended to <code>load_repairs.jsonl</code> in the
+session folder. If any sentence text has to be removed because its
+vector was lost, the text itself is kept in that record, so nothing
+disappears without a trace.</p>
 <h2 id="the-kv-ledger">The kv ledger</h2>
 <p>Every turn is recorded in a per-conversation KV ledger under
 <code>salt/chat/sessions/&lt;id&gt;/kvtrace/</code>: an append-only <code>events.jsonl</code> whose usage
