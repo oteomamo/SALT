@@ -436,11 +436,15 @@ class SessionTrie:
                  "embedding_l2": self.embeddings[i]}
                 for i in range(self.n_sentences)]
 
+    def _profile(self, sent_data, per_source=False):
+        return profile_themes(
+            sent_data, theme_percentile=self.config["theme_percentile"])
+
     def compress(self, query="", budget_pct=None, *, tokenizer, model,
                  device="cpu", delimiter=" ",
                  coverage_half_life=None, coverage_decay_docs=False,
                  shift_damping=None, shift_margin=0.12,
-                 shift_query_boost=1.5):
+                 shift_query_boost=1.5, per_source_themes=False):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -502,8 +506,7 @@ class SessionTrie:
             seed = kept
 
         sent_data = self._sent_data()
-        kw_df, theme_keywords = profile_themes(
-            sent_data, theme_percentile=self.config["theme_percentile"])
+        kw_df, theme_keywords = self._profile(sent_data, per_source_themes)
 
         # Per-file branches: inject each attachment's synthetic root keyword
         # AFTER theme profiling (so the percentile threshold sees only real
