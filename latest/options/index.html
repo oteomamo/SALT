@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://oteomamo.github.io/SALT/latest/datasets/">
+        <link rel="canonical" href="https://oteomamo.github.io/SALT/latest/options/">
       
       
-        <link rel="prev" href="../architecture/">
+        <link rel="prev" href="../chatbot/">
       
       
-        <link rel="next" href="../results/">
+        <link rel="next" href="../architecture/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Datasets - SALT</title>
+        <title>Options - SALT</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#datasets" class="md-skip">
+        <a href="#options" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Datasets
+              Options
             
           </span>
         </div>
@@ -369,10 +369,37 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../options/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Options
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -388,6 +415,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#saltchat-quality-switches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltChat quality switches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saltchat-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltChat reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saltserve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltServe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#salt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -423,19 +514,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../datasets/" class="md-nav__link">
         
   
   
@@ -451,7 +533,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -557,6 +638,58 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#saltchat-quality-switches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltChat quality switches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saltchat-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltChat reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saltserve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltServe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#salt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -575,15 +708,416 @@
   
 
 
-<h1 id="datasets">📚 Datasets</h1>
-<p>SALT evaluates on the 16 English tasks of
-<a href="https://huggingface.co/datasets/THUDM/LongBench">LongBench</a>. If the data is not
-already present, fetch and normalize it with:</p>
-<div class="highlight"><pre><span></span><code>python<span class="w"> </span>salt/datasets/download_longbench.py
-</code></pre></div>
-<p>Existing files are skipped (<code>--force</code> rebuilds, <code>--list</code> shows status). The
-canonical JSONL schema and options are documented in
-<a href="https://github.com/oteomamo/SALT/blob/main/salt/datasets/README.md"><code>salt/datasets/README.md</code></a>.</p>
+<h1 id="options">🎛 Options</h1>
+<p>Every flag of the three commands, one line each. The concepts live on
+the <a href="../chatbot/">Chatbot mode</a> and <a href="../architecture/">Architecture</a>
+pages, and the full detail lives in the code. Defaults shown are what a
+plain run uses.</p>
+<h2 id="saltchat-quality-switches">saltChat quality switches</h2>
+<p>Off by default. Each one changes what the conversation memory keeps or
+resurfaces, and <code>/stats</code> reports what it did, so it can be judged on a
+real session before it is trusted.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>What it does</th>
+<th>Turn it on when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--conversation-map</code></td>
+<td>opens the memory block with a one line per turn index of the conversation</td>
+<td>the model should see a topic came up even when none of its sentences were selected</td>
+</tr>
+<tr>
+<td><code>--dedup-cos 0.92</code></td>
+<td>skips a new sentence too similar to an earlier one from the same speaker</td>
+<td>restatements are inflating what counts as a theme</td>
+</tr>
+<tr>
+<td><code>--coverage-half-life 8</code></td>
+<td>fades a shown theme's discount over turns of silence</td>
+<td>topics the conversation returns to should resurface</td>
+</tr>
+<tr>
+<td><code>--coverage-decay-docs</code></td>
+<td>applies that fading to attached files too</td>
+<td>selection keeps circling a document's head instead of advancing</td>
+</tr>
+<tr>
+<td><code>--shift-damping 0.25</code></td>
+<td>on a detected topic pivot, lifts stale discounts for that turn only</td>
+<td>pivots back to an old topic are fought by its accumulated discount</td>
+</tr>
+<tr>
+<td><code>--per-source-themes</code></td>
+<td>profiles the conversation and each attached file separately</td>
+<td>a large attachment crowds the conversation out of memory</td>
+</tr>
+<tr>
+<td><code>--stable-coverage-keys</code></td>
+<td>freezes the session's keyword order so remembered discounts keep matching their branches</td>
+<td>long sessions re-show material because themes reshuffled</td>
+</tr>
+<tr>
+<td><code>--coverage-gc</code></td>
+<td>collects remembered keys that no longer match any branch of the memory tree</td>
+<td>long sessions carry dead suppression in every save</td>
+</tr>
+<tr>
+<td><code>--coverage-max-keys 500</code></td>
+<td>hard limit on remembered theme keys</td>
+<td>you want a strict bound no matter what else is on</td>
+</tr>
+<tr>
+<td><code>--short-turns fuse</code></td>
+<td>stores a bare "yes" together with the question it answers</td>
+<td>terse decisions should be findable by the question's own words</td>
+</tr>
+</tbody>
+</table>
+<h2 id="saltchat-reference">saltChat reference</h2>
+<p>Models:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--model NAME</code></td>
+<td>none</td>
+<td>load a registered model and start the REPL</td>
+</tr>
+<tr>
+<td><code>--add HF_ID</code></td>
+<td>none</td>
+<td>download and register a model</td>
+</tr>
+<tr>
+<td><code>--alias NAME</code></td>
+<td>derived</td>
+<td>short name for <code>--add</code></td>
+</tr>
+<tr>
+<td><code>--dtype T</code></td>
+<td><code>bfloat16</code></td>
+<td>weight dtype at registration</td>
+</tr>
+<tr>
+<td><code>--force</code></td>
+<td>off</td>
+<td>re-register over an existing alias</td>
+</tr>
+<tr>
+<td><code>--list</code></td>
+<td>off</td>
+<td>list registered models and exit</td>
+</tr>
+</tbody>
+</table>
+<p>Session:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--conversation-id ID</code></td>
+<td>fresh id</td>
+<td>resume or name the session</td>
+</tr>
+<tr>
+<td><code>--doc PATH</code></td>
+<td>none</td>
+<td>ingest a text or PDF into the trie at startup, repeatable</td>
+</tr>
+<tr>
+<td><code>--tail N</code></td>
+<td><code>4</code></td>
+<td>exchanges kept verbatim after compaction</td>
+</tr>
+<tr>
+<td><code>--turns FILE</code></td>
+<td>none</td>
+<td>replay a JSON or JSONL file of user turns into one session</td>
+</tr>
+<tr>
+<td><code>--turns-field KEY</code></td>
+<td>auto</td>
+<td>which key holds the message in <code>--turns</code> items</td>
+</tr>
+<tr>
+<td><code>--turns-out FILE</code></td>
+<td>none</td>
+<td>append each <code>--turns</code> answer as JSONL</td>
+</tr>
+</tbody>
+</table>
+<p>Memory sizing:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--budget-pct P</code></td>
+<td><code>0.20</code></td>
+<td>share of the remembered words the memory block may use</td>
+</tr>
+<tr>
+<td><code>--memory-cap N\|auto\|off</code></td>
+<td><code>auto</code></td>
+<td>absolute ceiling on the block, fitted to the model's window</td>
+</tr>
+</tbody>
+</table>
+<p>Behavior already on by default:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--short-turns off\|keep\|fuse</code></td>
+<td><code>keep</code></td>
+<td>keep short user messages in memory, <code>off</code> restores dropping them</td>
+</tr>
+<tr>
+<td><code>--no-turn-labels</code></td>
+<td>off</td>
+<td>drop the turn and speaker labels from memory excerpts</td>
+</tr>
+<tr>
+<td><code>--sync-ingest</code></td>
+<td>off</td>
+<td>index messages inline instead of on the background worker</td>
+</tr>
+</tbody>
+</table>
+<p>Backends and hardware:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--backend hf\|vllm\|vllm-serve</code></td>
+<td><code>hf</code></td>
+<td>how the chat model runs</td>
+</tr>
+<tr>
+<td><code>--server-url URL</code></td>
+<td>localhost 8000</td>
+<td>the <code>vllm-serve</code> backend's server</td>
+</tr>
+<tr>
+<td><code>--device D</code></td>
+<td>auto</td>
+<td>device for the chat model</td>
+</tr>
+<tr>
+<td><code>--gpu LIST</code></td>
+<td>none</td>
+<td>card index or comma list, several cards shard the model</td>
+</tr>
+<tr>
+<td><code>--bge-device D</code></td>
+<td>same as model</td>
+<td>device for the encoder</td>
+</tr>
+<tr>
+<td><code>--gpu-mem-util F</code></td>
+<td>per backend</td>
+<td>fraction of each card the engine may claim</td>
+</tr>
+<tr>
+<td><code>--max-model-len N</code></td>
+<td>model's own</td>
+<td>cap the context window</td>
+</tr>
+</tbody>
+</table>
+<p>Tuning values for switches above:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--shift-margin COS</code></td>
+<td><code>0.12</code></td>
+<td>cosine drop that counts as a topic pivot</td>
+</tr>
+<tr>
+<td><code>--shift-query-boost X</code></td>
+<td><code>1.5</code></td>
+<td>query boost on a pivot turn while damping is on</td>
+</tr>
+</tbody>
+</table>
+<h2 id="saltserve">saltServe</h2>
+<p>Launches a persistent <code>vllm serve</code> process for a registered model, so
+the server and its cache outlive individual chats. Everything after
+<code>--</code> passes to <code>vllm serve</code> unchanged.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MODEL</code></td>
+<td>the single registered model</td>
+<td>registered alias or HF id to serve</td>
+</tr>
+<tr>
+<td><code>--host ADDR</code></td>
+<td><code>127.0.0.1</code></td>
+<td>bind address</td>
+</tr>
+<tr>
+<td><code>--port N</code></td>
+<td><code>8000</code></td>
+<td>listen port</td>
+</tr>
+<tr>
+<td><code>--gpu LIST</code></td>
+<td>none</td>
+<td>card index or comma list, several cards tensor parallel the model</td>
+</tr>
+<tr>
+<td><code>--gpu-mem-util F</code></td>
+<td><code>0.80</code> multi, <code>0.90</code> single</td>
+<td>fraction of each card the server claims</td>
+</tr>
+<tr>
+<td><code>--max-model-len N</code></td>
+<td>model's own</td>
+<td>cap the context window</td>
+</tr>
+<tr>
+<td><code>--vllm-bin PATH</code></td>
+<td>alongside saltServe</td>
+<td>which vllm executable to run</td>
+</tr>
+</tbody>
+</table>
+<h2 id="salt">salt</h2>
+<p>One shot compression of a dataset or a single document.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--data FILE</code></td>
+<td>none</td>
+<td>LongBench style JSONL to compress</td>
+</tr>
+<tr>
+<td><code>--doc PATH</code></td>
+<td>none</td>
+<td>single document instead of <code>--data</code></td>
+</tr>
+<tr>
+<td><code>--query Q</code></td>
+<td>empty</td>
+<td>question to bias a <code>--doc</code> selection</td>
+</tr>
+<tr>
+<td><code>--output FILE</code></td>
+<td>required</td>
+<td>where the compressed records go</td>
+</tr>
+<tr>
+<td><code>--selector coverage\|legacy</code></td>
+<td><code>coverage</code></td>
+<td>CELF coverage selection or the legacy heuristic</td>
+</tr>
+<tr>
+<td><code>--token-budget-pct P</code></td>
+<td><code>0.20</code></td>
+<td>share of the document kept</td>
+</tr>
+<tr>
+<td><code>--model NAME</code></td>
+<td>BGE small</td>
+<td>encoder</td>
+</tr>
+<tr>
+<td><code>--device D</code></td>
+<td><code>cuda</code></td>
+<td>encoder device</td>
+</tr>
+<tr>
+<td><code>--theme-percentile P</code></td>
+<td>mode default</td>
+<td>frequency cutoff for theme keywords</td>
+</tr>
+<tr>
+<td><code>--lam L</code></td>
+<td><code>0.5</code></td>
+<td>coverage discount between ranking and set cover</td>
+</tr>
+<tr>
+<td><code>--query-mass R</code></td>
+<td><code>1.0</code></td>
+<td>query weight as a ratio of document mass</td>
+</tr>
+<tr>
+<td><code>--synthetic</code></td>
+<td>off</td>
+<td>paragraph unit adapter for enumerated tasks</td>
+</tr>
+<tr>
+<td><code>--code</code></td>
+<td>off</td>
+<td>line record adapter for code datasets</td>
+</tr>
+<tr>
+<td><code>--max-samples N</code></td>
+<td>all</td>
+<td>cap the number of records</td>
+</tr>
+</tbody>
+</table>
+<p>The legacy selector's pass knobs and the mode adapters' sub flags are
+intentionally not documented here. They exist for experiments, and
+their meaning lives with their code in <code>salt/compress.py</code> and
+<code>salt/engine/dataset_modes.py</code>.</p>
 
 
 
