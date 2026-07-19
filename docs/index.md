@@ -26,16 +26,28 @@ before choosing sentences, so minor themes keep their share instead of being
 crowded out. Because the theme map is built once, it can be reused across the
 turns of a conversation without re-reading the document.
 
+## 🧰 Three commands
+
+- **`salt`** compresses a document or dataset once. It is the
+  compression engine itself and the surface the evaluation runs on.
+- **`saltChat`** is a chat REPL where SALT is the conversation memory,
+  so long conversations and attached files stay recallable at a fixed
+  prompt size.
+- **`saltServe`** keeps a model loaded as a persistent server, so chats
+  connect, disconnect and resume with their cache warm.
+
 ## 🧭 Where to go
 
-- [Installation](installation.md) - set up the environment and the `salt` and `saltChat` commands
+- [Installation](installation.md) - set up the environment and the three commands
 - [Usage](usage.md) - compress datasets and single documents, run the evaluation
 - [Chatbot mode](chatbot.md) - `saltChat`, the chat REPL where SALT is the conversation memory
-- [Architecture](architecture.md) - how indexing and selection work, and where each stage lives
+- [Serving](serving.md) - `saltServe`, the persistent server chats resume against
+- [Options](options.md) - every flag of the three commands, one line each
+- [Architecture](architecture.md) - the ideas behind the features, and where each stage lives
 - [Datasets](datasets.md) - fetching and preparing LongBench
 - [Results](results.md) - LongBench scores at a 20% token budget
 - [Changelog](changelog.md) - what each version added
-- [Roadmap](roadmap.md) - where the project is going
+- [Roadmap](roadmap.md) - what is in progress and what comes next
 
 ## 🔬 At a glance
 
