@@ -163,6 +163,7 @@ class SessionTrie:
         self._n_compress = 0            # completed compress() calls (freshness clock)
         self.n_near_dups = 0            # sentences suppressed by the near-dup gate
         self.dirty = False              # unsaved add_turn(save=False) mutations
+        self.load_repair = None         # last load's reconcile record (None = clean)
 
         # --- counters / config ---
         self.dim = None
@@ -643,6 +644,9 @@ class SessionTrie:
         self.config["dim"] = self.dim
         self.config["n_sentences"] = self.n_sentences
         self.config["n_turns"] = self.n_turns
+        # embeddings-first on purpose: a crash in the gap leaves orphan
+        # matrix rows load() can drop; state-first would leave real
+        # sentences with no vectors, which nothing could repair.
         if self.embeddings is not None:
             # np.save appends ".npy" to a path arg; write via a handle so the
             # atomic ".tmp" name is preserved.
@@ -706,4 +710,39 @@ class SessionTrie:
         self.config["dim"] = self.dim
         ep = self._p("embeddings.npy")
         self.embeddings = np.load(ep) if ep.exists() else None
+        self.load_repair = self._reconcile_after_load()
         return True
+
+    def _reconcile_after_load(self):
+        """Reconcile embeddings.npy against state.pkl (the same safety net
+        KVTrace runs for tokens.npy vs events.jsonl). The save set is
+        per-file atomic with no cross-file barrier, so a crash between the
+        two writes leaves the matrix and the corpus lists disagreeing on
+        length; unrepaired, every later sentence scores against another
+        sentence's vector for the rest of the session's life. state.pkl is
+        the authority (config.json is written last, so its count is stale
+        inside its own crash window). Healthy sessions return None with
+        nothing mutated. Turn ids never rewind: a repair may leave a gap,
+        same as the all-near-dups path."""
+        n_rows = 0 if self.embeddings is None else int(self.embeddings.shape[0])
+        n_txt = len(self.texts)
+        if n_rows == n_txt:
+            return None
+        n = min(n_rows, n_txt)
+        if n_rows > n:
+            self.embeddings = self.embeddings[:n]
+        if n_txt > n:
+            dropped = list(self.texts[n:])
+            self.texts = self.texts[:n]
+            self.roles = self.roles[:n]
+            self.turns = self.turns[:n]
+            self.sources = self.sources[:n]
+            self.timestamps = self.timestamps[:n]
+            self.n_words = self.n_words[:n]
+            self.keyword_weights = self.keyword_weights[:n]
+            for t in dropped:
+                self._seen_hashes.discard(self._norm_hash(t))
+        self._next_sentence_index = n
+        self.dirty = True
+        return {"kept": n, "orphan_rows": max(0, n_rows - n),
+                "dropped_sentences": max(0, n_txt - n)}

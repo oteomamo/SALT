@@ -25,6 +25,10 @@ worker mirroring chat_turn's order - and asserts:
      boundary save persists it.
  12. The stored corpus is faithful to what was typed: generics, table
      rows and rescued link sentences appear in trie.texts verbatim.
+ 13. A torn save (embeddings.npy vs state.pkl length mismatch) is
+     repaired on load: orphan rows drop byte-exact, an over-long corpus
+     truncates with hashes withdrawn, the turn clock never rewinds, and
+     a clean session reloads as a strict no-op.
 
 Needs the BGE encoder (fetched to the HF cache on first use). The CPU
 run takes under a minute. Refuses to run under `python -O`.
@@ -376,6 +380,63 @@ def main():
         wg.close()
         print("failed generation: the user line survives the abort, "
               "dirty until the boundary save persists it")
+
+        # assert 13: torn-save reconciliation (embeddings vs state)
+        tt = SessionTrie("tornsave", cache_dir=tmp, model_name=BGE_MODEL)
+        for s in ("The turbine hall inspection is booked for Thursday "
+                  "morning with the vendor.",
+                  "Grid frequency stayed inside the band for the whole "
+                  "afternoon test window.",
+                  "The relay firmware rollback finished without any "
+                  "alarms raised overnight."):
+            tt.add_turn(s, "user", tokenizer=tok, model=mdl,
+                        device=args.device)
+        assert tt.load_repair is None and not tt.dirty
+        clean_emb = np.array(tt.embeddings, copy=True)
+        n_clean = tt.n_sentences
+        turn_clock = tt._next_turn_index
+        ep = tt.cache_dir / "embeddings.npy"
+
+        c0 = SessionTrie("tornsave", cache_dir=tmp, model_name=BGE_MODEL)
+        assert c0.load_repair is None and not c0.dirty, (
+            "a healthy session was repaired - the no-op contract broke")
+        assert c0.texts == tt.texts and np.array_equal(c0.embeddings,
+                                                       clean_emb)
+
+        with open(ep, "wb") as fh:
+            np.save(fh, np.vstack([clean_emb,
+                                   np.zeros((2, clean_emb.shape[1]),
+                                            dtype=clean_emb.dtype)]))
+        ta = SessionTrie("tornsave", cache_dir=tmp, model_name=BGE_MODEL)
+        assert ta.load_repair == {"kept": n_clean, "orphan_rows": 2,
+                                  "dropped_sentences": 0}, ta.load_repair
+        assert ta.dirty, "a repaired session must be dirty until saved"
+        assert len(ta.texts) == ta.embeddings.shape[0] == n_clean
+        assert np.array_equal(ta.embeddings, clean_emb), (
+            "surviving rows changed - the repair must be byte-exact")
+        ta.save()
+        t2 = SessionTrie("tornsave", cache_dir=tmp, model_name=BGE_MODEL)
+        assert t2.load_repair is None, (
+            "a persisted repair was repaired again - not idempotent")
+
+        with open(ep, "wb") as fh:
+            np.save(fh, clean_emb[:-2])
+        tb = SessionTrie("tornsave", cache_dir=tmp, model_name=BGE_MODEL)
+        assert tb.load_repair == {"kept": n_clean - 2, "orphan_rows": 0,
+                                  "dropped_sentences": 2}, tb.load_repair
+        assert (len(tb.texts) == len(tb.roles) == len(tb.turns)
+                == len(tb.sources) == len(tb.timestamps)
+                == len(tb.n_words) == len(tb.keyword_weights)
+                == tb.embeddings.shape[0] == n_clean - 2), (
+            "the seven corpus lists and the matrix disagree after repair")
+        for t in tt.texts[-2:]:
+            assert tt._norm_hash(t) not in tb._seen_hashes, (
+                "a dropped sentence's hash was not withdrawn")
+        assert tb._next_turn_index == turn_clock, (
+            "a repair rewound the turn clock")
+        print("torn save: orphan rows dropped byte-exact, truncated "
+              "matrix shrinks the corpus, hashes withdrawn, repair "
+              "persists and is idempotent")
 
         # asserts 3+4: deferred failure report + journal recovery
         jdir = tmp / "failsession"
