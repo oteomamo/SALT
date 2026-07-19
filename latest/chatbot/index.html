@@ -1100,9 +1100,9 @@ Attached files are never gated. <code>/stats</code> counts the suppressions.</p>
 <p>And a <strong>short turns</strong> switch. The junk filter drops very short sentences,
 which protects attached documents from fragments but also throws away
 terse chat decisions like "go with option B" or "no, use PostgreSQL".
-With <code>--short-turns keep</code> those short user messages enter conversation
-memory like any other sentence. Lines that are only a URL, only
-punctuation, or otherwise junk-shaped still drop. Off by default for now.</p>
+Short user messages now enter conversation memory like any other
+sentence. Lines that are only a URL, only punctuation, or otherwise
+junk-shaped still drop. <code>--short-turns off</code> restores the old behavior.</p>
 <h2 id="background-ingestion">Background ingestion</h2>
 <p>Ingestion runs <strong>in the background</strong>. After every message SALT has
 to index what was said (the keyword and embedding passes) so it can be
