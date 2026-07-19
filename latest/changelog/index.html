@@ -957,7 +957,11 @@ decisions like "go with option B" stay in conversation memory for the
 whole session. <code>--short-turns off</code> restores the old dropping behavior.
 2.9.32 adds <code>--short-turns fuse</code>, which stores a bare acknowledgement
 like "the second one" together with the question it answers, so the
-decision can be found again later by the question's own words.</p>
+decision can be found again later by the question's own words. 2.9.34
+stops chat ingest from scrubbing messages like benchmark documents, so
+pasted code keeps its generics, tables and pipelines keep their pipes,
+and a sentence with a link keeps its prose with the URL stored as
+<code>&lt;url&gt;</code>.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so

@@ -471,6 +471,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-conversation-text-keeps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What conversation text keeps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-model-sees" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -761,6 +772,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-conversation-text-keeps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What conversation text keeps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-model-sees" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1013,6 +1035,14 @@ Section headings, panel labels, and equations survive ingestion (big
 operators pypdf flattens to Latin look-alikes are restored where
 unambiguous), and a sentence mentioning a URL keeps its prose with the
 link as <code>&lt;url&gt;</code>.</p>
+<h2 id="what-conversation-text-keeps">What conversation text keeps</h2>
+<p>Messages you type are stored the way you typed them. Code keeps its
+generics and brackets, markdown tables and shell pipelines keep their
+pipes, and pixel values stay put. Only whitespace is normalized, and a
+sentence mentioning a URL keeps its prose with the link stored as
+<code>&lt;url&gt;</code>. Lines that are mostly URL are not stored. Earlier versions ran
+chat messages through the same scrubbing used for benchmark documents,
+which could quietly rewrite pasted code before it reached memory.</p>
 <h2 id="what-the-model-sees">What the model sees</h2>
 <p>The chat model is told what it is looking at: the system prompt carries a
 reading guide from
