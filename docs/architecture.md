@@ -171,6 +171,25 @@ shows only its recent turns, and the header states that coverage, because
 a map that quietly dropped older turns would read as proof a topic never
 came up.
 
+## Stable coverage keys
+
+The cross-turn memory remembers what it has already shown as counts on
+branches of the keyword tree, keyed by each branch's keywords. That
+tree is rebuilt from document frequencies every turn, so as a
+conversation grows a branch can come back under a different keyword
+order, and the remembered counts stop matching anything. The
+suppression quietly stops applying, and the same material can be
+selected again as if it were never shown.
+
+`--stable-coverage-keys` freezes the keyword order per session. A new
+keyword joins at the tail of a persisted order rather than at its
+current frequency rank, so every existing branch keeps its identity and
+the remembered counts keep applying. The cost is ordering quality: a
+topic that becomes dominant late sits deeper in the tree than frequency
+ordering would place it. The flag is off by default, and `/stats`
+reports how many remembered keys matched or orphaned each turn so the
+trade can be judged on real sessions.
+
 Where each stage lives:
 
 | Stage | Code |

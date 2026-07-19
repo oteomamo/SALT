@@ -492,17 +492,20 @@ def profile_themes(sent_data, theme_percentile=0.75):
 # the "sublinear allocation" that prevents theme collapse; deeper levels are
 # levelled jointly by the same greedy rather than independently per depth.
 
-def build_trie_paths(theme_kw_sets, kw_df, theme_keywords):
+def build_trie_paths(theme_kw_sets, kw_df, theme_keywords, kw_rank=None):
     """Map each sentence to its root-to-leaf trie path of node ids.
 
     Node identity = (ancestor context, keyword): the same keyword under
     different prefixes is a different node (multi-anchor semantics). Node 0
-    is the root and carries no weight.
+    is the root and carries no weight. `kw_rank` (opt-in) injects a caller
+    -owned keyword ordering; None keeps the df-rank ordering built here.
 
     Returns (paths, node_weights, n_depth1_branches, node_kw).
     """
-    sorted_kws = sorted(theme_keywords, key=lambda k: (-kw_df.get(k, 0), k))
-    kw_rank = {kw: r for r, kw in enumerate(sorted_kws)}
+    if kw_rank is None:
+        sorted_kws = sorted(theme_keywords,
+                            key=lambda k: (-kw_df.get(k, 0), k))
+        kw_rank = {kw: r for r, kw in enumerate(sorted_kws)}
     max_df = max((kw_df.get(k, 0) for k in theme_keywords), default=1) or 1
     children = [{}]          # node_id -> {keyword: child_id}
     node_w = [0.0]

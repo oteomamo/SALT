@@ -23,7 +23,8 @@ def coverage_select(sent_data, kw_df, theme_keywords, word_budget,
                     query_keywords=None, query_embedding=None,
                     query_proper_nouns=None,
                     lam=0.5, query_mass_ratio=1.0, token_fn=None,
-                    seed_coverage=None, return_coverage=False):
+                    seed_coverage=None, return_coverage=False,
+                    kw_rank=None):
     """Budget-constrained sentence selection by maximizing the probabilistic
     trie-coverage objective with CELF lazy greedy. Replaces the phase/boost
     heuristics of trie_select with a single submodular objective.
@@ -67,7 +68,8 @@ def coverage_select(sent_data, kw_df, theme_keywords, word_budget,
 
     # --- Document term: trie node paths, weighted by normalized SF. ---
     paths, node_w, n_branches, node_kw = build_trie_paths(
-        [sr.theme_keywords for sr in records], kw_df, theme_keywords)
+        [sr.theme_keywords for sr in records], kw_df, theme_keywords,
+        kw_rank=kw_rank)
     doc_mass = float(node_w.sum())
 
     # Canonical, rebuild-stable key per node id: the frozenset of keywords on the

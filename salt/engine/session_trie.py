@@ -168,6 +168,7 @@ class SessionTrie:
         self._seen_hashes = set()       # cross-turn sentence dedupe
         self.drift_ema = None           # EMA of query-vs-recent-conversation cosine
         self.coverage_turn = {}         # dict[key -> compress call of last increment]
+        self.kw_order = []              # frozen keyword order (stable_keys, append-only)
         self._n_compress = 0            # completed compress() calls (freshness clock)
         self.n_near_dups = 0            # sentences suppressed by the near-dup gate
         self.dirty = False              # unsaved add_turn(save=False) mutations
@@ -488,7 +489,7 @@ class SessionTrie:
                  coverage_half_life=None, coverage_decay_docs=False,
                  shift_damping=None, shift_margin=0.12,
                  shift_query_boost=1.5, per_source_themes=False,
-                 max_words=None):
+                 max_words=None, stable_keys=False):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -531,6 +532,13 @@ class SessionTrie:
         the block stops growing once the corpus outruns the cap. Stats
         report word_budget and word_budget_capped. Default None reproduces
         today's selection exactly.
+
+        `stable_keys` (opt-in): freezes the session's keyword order so
+        cross-turn coverage keys survive trie rebuilds. New theme keywords
+        append to the tail of a persisted global order and paths are built
+        with that order, so existing path prefixes (the coverage keys)
+        never re-key when document frequencies move. Default False keeps
+        the per-turn df ordering exactly.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_sentences == 0:
@@ -578,6 +586,13 @@ class SessionTrie:
                     kw = dict(sd["keyword_weights"])
                     kw[file_token(self.sources[i])] = max(kw.values(), default=1.0)
                     sd["keyword_weights"] = kw
+
+        kw_rank = None
+        if stable_keys:
+            fresh_kws = sorted(set(theme_keywords) - set(self.kw_order),
+                               key=lambda k: (-kw_df.get(k, 0), k))
+            self.kw_order.extend(fresh_kws)
+            kw_rank = {kw: r for r, kw in enumerate(self.kw_order)}
 
         orig_words = sum(self.n_words)
         word_budget = int(orig_words * budget_pct)
@@ -641,7 +656,8 @@ class SessionTrie:
             sent_data, dict(kw_df), theme_keywords, word_budget,
             query_keywords=q_kws, query_embedding=q_emb, query_proper_nouns=q_pns,
             lam=self.config["lam"], query_mass_ratio=query_mass_ratio,
-            seed_coverage=seed_passed, return_coverage=True)
+            seed_coverage=seed_passed, return_coverage=True,
+            kw_rank=kw_rank)
 
         if damped:
             # Increments-only merge — the one real trap of seed scaling:
@@ -734,6 +750,7 @@ class SessionTrie:
             "coverage_turn": self.coverage_turn,
             "n_compress": self._n_compress,
             "n_near_dups": self.n_near_dups,
+            "kw_order": self.kw_order,
             "next_sentence_index": self._next_sentence_index,
             "next_turn_index": self._next_turn_index,
         }
@@ -770,6 +787,8 @@ class SessionTrie:
         self._n_compress = state.get("n_compress", 0)
         # sessions saved before the near-dup gate have no counter
         self.n_near_dups = state.get("n_near_dups", 0)
+        # sessions saved before stable coverage keys have no frozen order
+        self.kw_order = state.get("kw_order", [])
         self._next_sentence_index = state["next_sentence_index"]
         self._next_turn_index = state["next_turn_index"]
         self.dim = cfg.get("dim")

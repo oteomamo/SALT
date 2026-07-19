@@ -182,6 +182,7 @@ class ChatState:
         self.shift_margin = args.shift_margin
         self.shift_query_boost = args.shift_query_boost
         self.per_source_themes = args.per_source_themes
+        self.stable_coverage_keys = args.stable_coverage_keys
         self.dedup_cos = args.dedup_cos
         self.short_turns = args.short_turns
         self.turn_labels = not args.no_turn_labels
@@ -1068,7 +1069,8 @@ def chat_turn(state, line):
                                    shift_margin=state.shift_margin,
                                    shift_query_boost=state.shift_query_boost,
                                    per_source_themes=state.per_source_themes,
-                                   max_words=memory_word_cap(state, line))
+                                   max_words=memory_word_cap(state, line),
+                                   stable_keys=state.stable_coverage_keys)
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx,
@@ -1384,6 +1386,13 @@ def build_parser():
                    help="multiplier (>= 1) on the query-mass ratio during a "
                         "shift turn while --shift-damping is active "
                         "(default: 1.5)")
+    p.add_argument("--stable-coverage-keys", action="store_true",
+                   help="freeze the session's keyword order so cross-turn "
+                        "memory discounts survive as the conversation "
+                        "grows. New keywords join at the tail instead of "
+                        "reshuffling the memory tree, so a theme already "
+                        "shown keeps its discount (default: off; /stats "
+                        "reports matched and orphaned keys either way)")
     p.add_argument("--per-source-themes", action="store_true",
                    help="profile conversation themes separately from each "
                         "attached file, so a large attachment cannot push "

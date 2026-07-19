@@ -300,7 +300,11 @@ tree: how many carried-over keys matched a branch this turn, and how
 many are orphaned, matching nothing. An orphaned key is suppression
 that has quietly stopped applying, so the same material can resurface
 as if it were never shown. The counts make that drift visible so it
-can be judged on real sessions.
+can be judged on real sessions. With `--stable-coverage-keys` the
+session keeps one frozen keyword order: new keywords join at the end
+instead of reshuffling the memory tree, so remembered discounts keep
+matching their branches. Off by default while the orphan numbers from
+real sessions are being judged.
 
 And a **ceiling**. The memory block is sized as a percentage of
 everything remembered, and a long session or a large attachment grows
