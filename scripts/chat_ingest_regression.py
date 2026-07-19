@@ -32,6 +32,11 @@ worker mirroring chat_turn's order - and asserts:
  14. compress(max_words=None) is byte-identical to omitting the arg;
      with a cap the selected word count never exceeds it and the budget
      plateaus, while the uncapped budget keeps growing with the corpus.
+ 15. compress(defer_commit=True) leaves coverage, stamps, the drift EMA
+     and the compress counter untouched in memory and on disk until the
+     returned commit callable runs; dropping it discards the turn.
+ 16. A deferred-then-committed turn ends identical to the default
+     commit-in-the-call path, and a second commit() call is a no-op.
 
 Needs the BGE encoder (fetched to the HF cache on first use). The CPU
 run takes under a minute. Refuses to run under `python -O`.
@@ -528,6 +533,56 @@ def main():
             "is vacuous")
         print(f"word cap: None identical to omitted, capped run plateaus "
               f"at {CAP} words (uncapped reached {budgets_u[-1]})")
+
+        # asserts 15+16: deferred commit (defer_commit=True)
+        SEED15 = ("The chiller loop pressure test is scheduled for "
+                  "Monday morning with the site engineer.",
+                  "The backup generator fuel delivery slipped to "
+                  "Thursday afternoon.",
+                  "The rooftop sensor calibration finished and the "
+                  "readings look stable.",
+                  "The vendor confirmed the relay firmware rollback "
+                  "for next week.",
+                  "Grid frequency stayed inside the band for the whole "
+                  "afternoon test window.",
+                  "The turbine hall inspection is booked for Thursday "
+                  "with the vendor crew.")
+        Q15 = "when is the pressure test scheduled?"
+        t15a = SessionTrie("defer-a", cache_dir=tmp, model_name=BGE_MODEL)
+        t15b = SessionTrie("defer-b", cache_dir=tmp, model_name=BGE_MODEL)
+        t15c = SessionTrie("defer-c", cache_dir=tmp, model_name=BGE_MODEL)
+        for s15 in SEED15:
+            for t15 in (t15a, t15b, t15c):
+                t15.add_turn(s15, "user", **ckw)
+        # assert 15: a dropped commit leaves memory and disk untouched
+        pre15 = (dict(t15a.coverage), dict(t15a.coverage_turn),
+                 t15a.drift_ema, t15a._n_compress)
+        c15 = t15a.compress(query=Q15, budget_pct=0.3, defer_commit=True,
+                            **ckw)
+        assert callable(c15["commit"]), "defer_commit returned no callable"
+        assert (dict(t15a.coverage), dict(t15a.coverage_turn),
+                t15a.drift_ema, t15a._n_compress) == pre15, (
+            "a failed generation still committed the turn's coverage")
+        r15 = SessionTrie("defer-a", cache_dir=tmp, model_name=BGE_MODEL)
+        assert (dict(r15.coverage), dict(r15.coverage_turn),
+                r15.drift_ema, r15._n_compress) == pre15, (
+            "the dropped commit still reached state.pkl")
+        # assert 16: deferred+committed == the default path, twice safe
+        c16 = t15b.compress(query=Q15, budget_pct=0.3, defer_commit=True,
+                            **ckw)
+        c16["commit"]()
+        c16["commit"]()
+        t15c.compress(query=Q15, budget_pct=0.3, **ckw)
+        assert t15b.drift_ema is not None, (
+            "the EMA path went unexercised - the seed corpus is too small")
+        assert (t15b.coverage == t15c.coverage
+                and t15b.coverage_turn == t15c.coverage_turn
+                and t15b.drift_ema == t15c.drift_ema
+                and t15b._n_compress == t15c._n_compress), (
+            "deferred+committed state diverged from the default path")
+        print("deferred commit: dropped callable leaves memory and disk "
+              "untouched, committed run matches the default path, "
+              "double commit is a no-op")
 
         # asserts 3+4: deferred failure report + journal recovery
         jdir = tmp / "failsession"
