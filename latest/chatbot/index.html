@@ -1164,7 +1164,10 @@ tree: how many carried-over keys matched a branch this turn, and how
 many are orphaned, matching nothing. An orphaned key is suppression
 that has quietly stopped applying, so the same material can resurface
 as if it were never shown. The counts make that drift visible so it
-can be judged on real sessions. With <code>--stable-coverage-keys</code> the
+can be judged on real sessions. <code>/stats</code> also splits the whole
+remembered dictionary into live and orphaned keys, noting how many
+orphans came from attachments, so the dead weight a long session
+carries is a number rather than a guess. With <code>--stable-coverage-keys</code> the
 session keeps one frozen keyword order: new keywords join at the end
 instead of reshuffling the memory tree, so remembered discounts keep
 matching their branches. The flag also keeps theme membership sticky.
