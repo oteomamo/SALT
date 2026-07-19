@@ -1564,6 +1564,11 @@ was. Answers do not change, because the REPL waits for the worker
 before reading memory. A failed indexing keeps the message text in
 <code>ingest_failures.jsonl</code> and reports at the next prompt, so nothing is
 lost silently. <code>--sync-ingest</code> restores the old inline behavior.</p>
+<p>Memory bookkeeping is failure safe in the other direction too. The
+per-turn theme discounts, freshness stamps and topic baseline are
+applied only once the model has actually answered. A turn that fails
+partway leaves them exactly as they were, so a retry works from the
+same memory the failed attempt saw instead of a worse one.</p>
 <h2 id="interrupted-saves">Interrupted saves</h2>
 <p>A session's memory is saved as separate files, and a crash or kill can
 land between them. When that happens the session is detected and rolled
