@@ -970,7 +970,10 @@ interrupted save safe. A session whose files disagree after a crash is
 rolled back to the last complete state on the next open, with a notice
 printed and the details kept in <code>load_repairs.jsonl</code>. Before this, such
 a session loaded silently and scored every later sentence against the
-wrong stored vector for the rest of its life.</p>
+wrong stored vector for the rest of its life. 2.9.41 adds
+<code>--per-source-themes</code>, which profiles the conversation and each
+attached file separately, so one large attachment can no longer crowd
+the conversation's own topics out of memory selection.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
