@@ -656,6 +656,7 @@ def ingest_doc(state, path):
     if merging:
         print(f"note: a source named {p.name!r} was already attached - "
               f"same-named files share one trie branch.")
+    warn_prompt_budget(state)
 
 
 def staged_files():
@@ -733,7 +734,7 @@ def handle_attach_at(state, line):
     if replacing:
         print(f"note: replaced the previous full-context attachment named "
               f"{candidate.name!r}.")
-    warn_attachment_budget(state)
+    warn_prompt_budget(state)
 
 
 def prompt_fixed_tokens(state):
@@ -795,27 +796,36 @@ def memory_word_cap(state, user_line=""):
     return max(words, MEMORY_CAP_FLOOR_WORDS)
 
 
-def warn_attachment_budget(state):
-    """Warn when the full attachments plus the fixed system-prompt overhead
-    (instructions + inventory) exceed the active model's context window (the
-    runner tail-truncates, silently dropping the head)."""
-    if state.runner is None or not state.full_attachments:
+def warn_prompt_budget(state):
+    """Warn when the whole prompt - the fixed head plus the expected
+    memory block - is headed past the model's usable input ceiling (the
+    runner tail-truncates, and the head holds the instructions the
+    memory-block labels depend on)."""
+    if state.runner is None:
         return
     limit = int(state.runner.input_budget() or 0)
     if not limit:
         return
-    total = sum(state.count_tokens(t) or 0
-                for t in state.full_attachments.values())
-    total += (state.count_tokens(load_instructions()) or 0)
-    total += (state.count_tokens(
-        attachment_inventory(state.trie, state.full_attachments)) or 0)
-    if total > limit:
-        print(f"warning: full-context attachments (+ the system prompt's "
-              f"instruction/inventory overhead) total ~{total} tokens, over "
-              f"the model's usable input ceiling ({limit} = context window "
-              f"minus reply headroom) - prompts will be tail-truncated and "
-              f"the earliest content dropped. Prefer salt@ for large files, "
-              f"or switch to a longer-context model.")
+    fixed = prompt_fixed_tokens(state)
+    if fixed is None:
+        return
+    cap_words = memory_word_cap(state)
+    if cap_words is not None:
+        mem_tokens = int(cap_words * state.tokens_per_word)
+    else:
+        mem_tokens = int(sum(state.trie.n_words) * state.budget
+                         * state.tokens_per_word)
+    total = fixed + mem_tokens
+    if total <= limit:
+        return
+    dominant = ("the fixed prompt (attachments, instructions, tail)"
+                if fixed >= mem_tokens else "the compressed memory block")
+    print(f"warning: the prompt is headed for ~{total} tokens ({fixed} "
+          f"fixed + ~{mem_tokens} memory block), over the model's usable "
+          f"input ceiling ({limit} = context window minus reply headroom); "
+          f"{dominant} dominates. Prompts will be tail-truncated and the "
+          f"earliest content dropped - consider --memory-cap auto, salt@ "
+          f"instead of attach@ for large files, or a longer-context model.")
 
 
 def switch_model(state, name):
@@ -839,7 +849,7 @@ def switch_model(state, name):
         state.runner = make_runner(cfg, device=state.device,
                                    backend=state.backend,
                                    **state.backend_opts)
-        warn_attachment_budget(state)  # new model may have a smaller window
+        warn_prompt_budget(state)  # new model may have a smaller window
     except Exception as exc:
         print(f"Failed to load {cfg['alias']}: {exc}")
         gc.collect()  # drop the failed load's partial allocations first
@@ -1584,7 +1594,7 @@ def main(argv=None):
     if state.full_attachments:
         print(f"Restored {len(state.full_attachments)} full-context "
               f"attachment(s): {', '.join(state.full_attachments)}")
-        warn_attachment_budget(state)
+        warn_prompt_budget(state)
 
     for doc in args.doc:
         ingest_doc(state, doc)
