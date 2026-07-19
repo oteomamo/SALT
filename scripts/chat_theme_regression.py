@@ -28,6 +28,12 @@ plumbing itself lives in salt/chat/cli.py, outside this harness). Asserts:
      doc-branch keys survive untouched.
   6. The same silent turns with coverage_decay_docs=True drain the
      doc-branch keys too (the opt-in path actually decays).
+  7. _profile(per_source=False) equals a direct profile_themes call
+     exactly, tuple for tuple - the flag-off path is the frozen path.
+  8. Under a dominating attachment, per-source profiling readmits at
+     least one conversation-only keyword the pooled profile evicted,
+     and at least one conversation sentence with an empty pooled theme
+     intersection gains a non-empty one (path mass restored).
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is the
 default device; the run takes well under a minute.
@@ -47,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from salt.engine.compressor import load_bge
 from salt.engine.session_trie import (SessionTrie, FILE_TOKEN_PREFIX,
                                       COVERAGE_DECAY_FLOOR)
+from salt.engine.trie_core import profile_themes
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 
@@ -302,6 +309,69 @@ def main():
             "coverage_decay_docs=True never decayed a doc-branch key")
         print("per-turn persisted-coverage invariant held on all "
               f"{len(TOPIC_X) + len(TOPIC_Y) + 1} compress calls of both runs")
+
+        # group 7: flag-off _profile is the frozen path, exactly
+        t7 = SessionTrie("scope7", cache_dir=tmp, model_name=BGE_MODEL)
+        for u, a in TOPIC_X:
+            t7.add_turn(u, "user", tokenizer=tok, model=mdl,
+                        device=args.device)
+            t7.add_turn(a, "assistant", tokenizer=tok, model=mdl,
+                        device=args.device)
+        t7.add_turn(DOC_TEXT, role="doc", source=DOC_NAME, tokenizer=tok,
+                    model=mdl, device=args.device)
+        sd7 = t7._sent_data()
+        assert t7._profile(sd7, per_source=False) == profile_themes(
+            sd7, theme_percentile=t7.config["theme_percentile"]), (
+            "the flag-off _profile path diverged from profile_themes")
+        print("theme scope 7: flag-off profile identical to the pooled call")
+
+        # group 8: a dominating attachment evicts conversation themes from
+        # the pooled profile; the per-source profile readmits them
+        vocab = ["aquifer", "porosity", "recharge", "plume", "sediment",
+                 "piezometer", "borehole", "stratigraphy", "turbidity",
+                 "hydraulic", "conductivity", "lysimeter"]
+        big_doc = " ".join(
+            "The %s and %s field measurements near the %s and %s station "
+            "were archived for basin grid cell %d yesterday." % (
+                vocab[i % 12], vocab[(i + 1) % 12], vocab[(i + 2) % 12],
+                vocab[(i + 3) % 12], i)
+            for i in range(60))
+        t8 = SessionTrie("scope8", cache_dir=tmp, model_name=BGE_MODEL)
+        for u, a in TOPIC_X:
+            t8.add_turn(u, "user", tokenizer=tok, model=mdl,
+                        device=args.device)
+            t8.add_turn(a, "assistant", tokenizer=tok, model=mdl,
+                        device=args.device)
+        t8.add_turn(big_doc, role="doc", source="survey.txt", tokenizer=tok,
+                    model=mdl, device=args.device)
+        sd8 = t8._sent_data()
+        pct = t8.config["theme_percentile"]
+        gdf, gthemes = profile_themes(sd8, theme_percentile=pct)
+        sdf, sthemes = t8._profile(sd8, per_source=True)
+        conv_kws, doc_kws = set(), set()
+        for i, src in enumerate(t8.sources):
+            (conv_kws if src is None else doc_kws).update(
+                t8.keyword_weights[i])
+        recovered = ((conv_kws - doc_kws) & sthemes) - gthemes
+        print(f"theme scope 8: pooled evicted "
+              f"{len((conv_kws - doc_kws) & sthemes)} conversation theme "
+              f"keywords, per-source readmits e.g. "
+              f"{sorted(recovered)[:4]}")
+        assert recovered, (
+            "per-source profiling readmitted no conversation-only keyword "
+            "the pooled profile evicted - the fix is inert on this corpus")
+        regained = 0
+        for i, src in enumerate(t8.sources):
+            if src is None:
+                kws = set(t8.keyword_weights[i])
+                if not (kws & gthemes) and (kws & sthemes):
+                    regained += 1
+        assert regained >= 1, (
+            "no conversation sentence went from an empty pooled theme "
+            "intersection to a non-empty per-source one - no path mass "
+            "was restored")
+        print(f"theme scope 8: {regained} conversation sentences regained "
+              f"path mass under per-source profiling")
         print("PASS")
     finally:
         if args.keep:
