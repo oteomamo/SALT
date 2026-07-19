@@ -66,7 +66,12 @@ and a sentence with a link keeps its prose with the URL stored as
 code-shaped lines from the short-fragment filter, so they reach memory
 even when brief. 2.9.36 notes that sessions from earlier versions keep
 their previously stored text as is, so a session resumed across the
-change may hold a mix of old and new forms.
+change may hold a mix of old and new forms. 2.9.37 and 2.9.38 make an
+interrupted save safe. A session whose files disagree after a crash is
+rolled back to the last complete state on the next open, with a notice
+printed and the details kept in `load_repairs.jsonl`. Before this, such
+a session loaded silently and scored every later sentence against the
+wrong stored vector for the rest of its life.
 
 ## 2.8.0 (2026-07-15)
 

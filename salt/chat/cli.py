@@ -516,6 +516,20 @@ def _user_keep(t):
     return is_short_user_unit(t) or is_protected_chat_unit(t)
 
 
+def warn_load_repair(trie):
+    r = getattr(trie, "load_repair", None)
+    if not r:
+        return
+    parts = []
+    if r["orphan_rows"]:
+        parts.append(f"dropped {r['orphan_rows']} orphan embedding rows")
+    if r["dropped_sentences"]:
+        parts.append(f"removed {r['dropped_sentences']} sentences whose "
+                     f"vectors were lost")
+    print(f"Session repaired on load: {' and '.join(parts)} "
+          f"(details kept in load_repairs.jsonl).")
+
+
 def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
                 save=True, context=None):
     if keep is None and role == "user" and state.short_turns != "off":
@@ -906,6 +920,7 @@ def handle_command(line, state):
             print(f"Could not open session {cid!r}: {exc}")
             return True
         print(f"{'Resumed' if trie.is_loaded else 'Started'} session {cid!r}.")
+        warn_load_repair(trie)
     elif cmd == "/clear":
         cid = state.trie.conversation_id
         target = state.trie.cache_dir.resolve()
@@ -1436,6 +1451,7 @@ def main(argv=None):
     if trie.is_loaded:
         print(f"Resumed session {conversation_id!r}: {trie.n_sentences} "
               f"sentences over {trie.n_turns} turns.")
+        warn_load_repair(trie)
     else:
         print(f"New session {conversation_id!r}.")
 

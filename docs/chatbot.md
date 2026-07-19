@@ -320,6 +320,16 @@ side effect: even when a reply fails halfway, your message has already
 reached the memory. `/stats` shows how much work stayed off the prompt
 path, and `--sync-ingest` restores the old inline behavior.
 
+## Interrupted saves
+
+A session's memory is saved as separate files, and a crash or kill can
+land between them. When that happens the session is detected and rolled
+back to the last complete state the next time it opens, with a one line
+notice printed and a record appended to `load_repairs.jsonl` in the
+session folder. If any sentence text has to be removed because its
+vector was lost, the text itself is kept in that record, so nothing
+disappears without a trace.
+
 ## The kv ledger
 
 Every turn is recorded in a per-conversation KV ledger under

@@ -729,6 +729,7 @@ class SessionTrie:
         if n_rows == n_txt:
             return None
         n = min(n_rows, n_txt)
+        dropped = []
         if n_rows > n:
             self.embeddings = self.embeddings[:n]
         if n_txt > n:
@@ -744,5 +745,20 @@ class SessionTrie:
                 self._seen_hashes.discard(self._norm_hash(t))
         self._next_sentence_index = n
         self.dirty = True
-        return {"kept": n, "orphan_rows": max(0, n_rows - n),
-                "dropped_sentences": max(0, n_txt - n)}
+        repair = {"kept": n, "orphan_rows": max(0, n_rows - n),
+                  "dropped_sentences": max(0, n_txt - n)}
+        self._log_load_repair(dict(repair, dropped_texts=dropped)
+                              if dropped else repair)
+        return repair
+
+    def _log_load_repair(self, record):
+        # Append-only diagnostic, one JSON line per repair, carrying the
+        # dropped sentence texts so external damage never destroys
+        # transcript text with no trace. Best-effort: a logging failure
+        # must never block opening the session.
+        try:
+            with open(self._p("load_repairs.jsonl"), "a",
+                      encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
