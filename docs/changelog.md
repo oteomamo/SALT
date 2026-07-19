@@ -52,7 +52,10 @@ was said instead of only about what and by whom. 2.9.26 and 2.9.27 refine
 the map. Keyword ranking no longer favors short sentences over the long
 ones that carry a turn's actual topic, and the map header states how many
 turns it covers, so a long conversation showing only its recent turns
-never reads as proof that an older topic was never discussed.
+never reads as proof that an older topic was never discussed. 2.9.31
+stops the junk filter from dropping short user messages, so terse
+decisions like "go with option B" stay in conversation memory for the
+whole session. `--short-turns off` restores the old dropping behavior.
 
 ## 2.8.0 (2026-07-15)
 

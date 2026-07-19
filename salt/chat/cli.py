@@ -194,8 +194,10 @@ class ChatState:
 
     def compact_tail(self):
         """Cut the tail back to tail_min exchanges once it exceeds tail_max.
-        Nothing is lost: every sentence already entered the trie the moment
-        it was spoken — compaction only bounds the verbatim window."""
+        Compaction only bounds the verbatim window: sentences entered the
+        trie the moment they were spoken (with --short-turns keep that
+        includes terse user turns), though an utterance repeated verbatim
+        is stored once per session by the cross-turn dedupe."""
         if len(self.tail) > 2 * self.tail_max:
             del self.tail[: len(self.tail) - 2 * self.tail_min]
 
@@ -1231,11 +1233,12 @@ def build_parser():
                         "so restatements and re-asked questions stop "
                         "inflating theme statistics (default: off; attached "
                         "files are never gated; /stats counts suppressions)")
-    p.add_argument("--short-turns", choices=("off", "keep"), default="off",
+    p.add_argument("--short-turns", choices=("off", "keep"), default="keep",
                    help="keep short user messages ('go with option B') in "
                         "conversation memory instead of letting the junk "
                         "filter's length gates drop them. URL-only and "
-                        "junk-shaped lines still drop (default: off)")
+                        "junk-shaped lines still drop (default: keep; "
+                        "'off' restores the old dropping behavior)")
     p.add_argument("--no-turn-labels", action="store_true",
                    help="head each conversation excerpt with the plain "
                         "'[from the earlier conversation]' label instead of "
