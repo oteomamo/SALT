@@ -75,6 +75,14 @@ FILE_TOKEN_PREFIX = "§file:"
 # dict bounded over long sessions instead of growing forever.
 COVERAGE_DECAY_FLOOR = 0.05
 
+# Per-source theme profiling (opt-in): each source's df values are rescaled
+# onto this common scale before the max-merge, so a 400-sentence attachment
+# and a 12-sentence conversation meet as equals. Buckets smaller than
+# MIN_SOURCE_SENTENCES fold into the conversation bucket — a 2-sentence
+# attachment has every keyword at df 1 and would mint them all as themes.
+DF_SCALE = 1000
+MIN_SOURCE_SENTENCES = 3
+
 # Topic-shift drift detection. Each query's BGE cosine against the mean of
 # the last DRIFT_WINDOW conversation-sentence embeddings is compared to the
 # session's own EMA baseline — BGE cosines have a high, corpus-shaped floor,
@@ -437,8 +445,43 @@ class SessionTrie:
                 for i in range(self.n_sentences)]
 
     def _profile(self, sent_data, per_source=False):
-        return profile_themes(
-            sent_data, theme_percentile=self.config["theme_percentile"])
+        """One (kw_df, theme_keywords) pair for CELF. Global mode is the
+        frozen path: a single pooled profile_themes call. Per-source mode
+        profiles each attachment and the conversation separately with the
+        SAME untouched profile_themes, rescales every bucket's df onto
+        DF_SCALE, and max-merges — so a large attachment can no longer set
+        the percentile cutoff that evicts the conversation's own themes.
+        Deliberate compromise: kw_rank downstream still orders paths from
+        the one merged dict, so a keyword shared across sources takes its
+        max-merged df in both."""
+        if not per_source:
+            self._profile_diag = {"sources": 1, "keywords_conv": None}
+            return profile_themes(
+                sent_data, theme_percentile=self.config["theme_percentile"])
+        buckets = {}
+        for sd in sent_data:
+            buckets.setdefault(self.sources[sd["sent_idx"]], []).append(sd)
+        conv = buckets.pop(None, [])
+        for src in [s for s, b in buckets.items()
+                    if len(b) < MIN_SOURCE_SENTENCES]:
+            conv.extend(buckets.pop(src))
+        grouped = ([conv] if conv else []) + list(buckets.values())
+        merged_df, merged_themes = {}, set()
+        keywords_conv = 0
+        for bucket in grouped:
+            df, themes = profile_themes(
+                bucket, theme_percentile=self.config["theme_percentile"])
+            top = max(df.values(), default=1)
+            for k, v in df.items():
+                s = max(1, int(round(DF_SCALE * v / top)))
+                if s > merged_df.get(k, 0):
+                    merged_df[k] = s
+            merged_themes |= themes
+            if bucket is conv:
+                keywords_conv = len(themes)
+        self._profile_diag = {"sources": len(grouped),
+                              "keywords_conv": keywords_conv}
+        return merged_df, merged_themes
 
     def compress(self, query="", budget_pct=None, *, tokenizer, model,
                  device="cpu", delimiter=" ",
@@ -628,6 +671,9 @@ class SessionTrie:
         stats["topic_shift"] = shifted
         stats["shift_damped"] = damped
         stats["shift_damped_keys"] = n_damped_keys
+        stats["theme_scope"] = "source" if per_source_themes else "global"
+        stats["theme_sources"] = self._profile_diag["sources"]
+        stats["theme_keywords_conv"] = self._profile_diag["keywords_conv"]
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
