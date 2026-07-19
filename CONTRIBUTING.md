@@ -49,6 +49,7 @@ Regression scripts to run, by area:
 |---|---|
 | `salt/chat/ingest.py`, `salt/chat/cli.py`, `salt/engine/session_trie.py` | `python scripts/chat_ingest_regression.py` and `python scripts/chat_theme_regression.py` |
 | `salt/engine/chat_text.py` (chat ingest cleaning) | `python scripts/chat_textclean_regression.py` |
+| Cross-turn coverage keys (`salt/engine/session_trie.py`, `salt/engine/celf.py`) | `python scripts/chat_keystab_regression.py` |
 | The near-duplicate gate (`--dedup-cos` paths) | `python scripts/chat_dedup_regression.py` |
 | `salt/chat/pdfio.py` (PDF or text ingestion) | `python scripts/chat_pdf_regression.py` |
 | The vLLM backend (`--backend vllm`) | `python scripts/chat_vllm_regression.py` |
