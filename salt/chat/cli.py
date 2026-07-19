@@ -952,6 +952,11 @@ def handle_command(line, state):
             print(f"shift damping: x{state.shift_damping:g} stale-seed "
                   f"scale on shift turns, query boost "
                   f"x{state.shift_query_boost:g}")
+        if s.get("coverage_seed_keys") is not None:
+            print(f"coverage seed: {s['coverage_seed_matched']} of "
+                  f"{s['coverage_seed_keys']} carried-over keys matched "
+                  f"this turn's memory tree, {s['coverage_orphan_keys']} "
+                  f"orphaned (mass {s['coverage_orphan_mass']:g})")
         if state.per_source_themes:
             note = ""
             if s.get("theme_scope") == "source":

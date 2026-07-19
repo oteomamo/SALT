@@ -294,6 +294,14 @@ sentence too similar to an earlier one from the same speaker, so
 restatements and re-asked questions stop inflating the theme statistics.
 Attached files are never gated. `/stats` counts the suppressions.
 
+The forgetting machinery leans on remembered **theme keys**, and
+`/stats` now reports how well they line up with the current memory
+tree: how many carried-over keys matched a branch this turn, and how
+many are orphaned, matching nothing. An orphaned key is suppression
+that has quietly stopped applying, so the same material can resurface
+as if it were never shown. The counts make that drift visible so it
+can be judged on real sessions.
+
 And a **ceiling**. The memory block is sized as a percentage of
 everything remembered, and a long session or a large attachment grows
 that number without limit. `--memory-cap` bounds it. `auto` (the

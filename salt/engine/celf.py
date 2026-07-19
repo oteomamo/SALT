@@ -32,8 +32,9 @@ def coverage_select(sent_data, kw_df, theme_keywords, word_budget,
       seed_coverage: {frozenset(path keywords): count} of prior-turn per-node
         coverage. Seeds the CELF coverage counters so already-surfaced material
         is discounted this turn (cross-turn submodular memory).
-      return_coverage: when True, also return {"coverage": merged_counts} where
-        the merge is prior seed + this turn's selected sentences."""
+      return_coverage: when True, also return {"coverage": merged_counts,
+        "node_keys": the set of node keys in this turn's trie} where the
+        merge is prior seed + this turn's selected sentences."""
     import heapq
 
     if not (0.0 < lam < 1.0):
@@ -59,7 +60,8 @@ def coverage_select(sent_data, kw_df, theme_keywords, word_budget,
                  "n_redundancy_skips": 0, "trie": {},
                  "selected_details": []}
         if return_coverage:
-            return [], empty, {"coverage": dict(seed_coverage or {})}
+            return [], empty, {"coverage": dict(seed_coverage or {}),
+                               "node_keys": set()}
         return [], empty
     costs = np.array([max(sr.n_words, 1) for sr in records], dtype=np.float64)
 
@@ -229,12 +231,14 @@ def coverage_select(sent_data, kw_df, theme_keywords, word_budget,
     # Accumulated per-node coverage (prior seed + every node on this turn's kept
     # sentences, incl. the zero-gain fill -- those are shown to the model too).
     new_cov = None
+    node_keys = None
     if return_coverage:
         new_cov = dict(seed_coverage) if seed_coverage else {}
         for i in chosen:
             for v in paths[i]:
                 k = node_key[v]
                 new_cov[k] = new_cov.get(k, 0.0) + 1.0
+        node_keys = {k for k in node_key[1:] if k is not None}
 
     all_theme_kws, covered_kws = set(), set()
     for sd in sent_data:
@@ -265,5 +269,5 @@ def coverage_select(sent_data, kw_df, theme_keywords, word_budget,
                              for sr in selected],
     }
     if return_coverage:
-        return selected, stats, {"coverage": new_cov}
+        return selected, stats, {"coverage": new_cov, "node_keys": node_keys}
     return selected, stats

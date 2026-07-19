@@ -689,6 +689,13 @@ class SessionTrie:
         stats["theme_keywords_conv"] = self._profile_diag["keywords_conv"]
         stats["word_budget"] = word_budget
         stats["word_budget_capped"] = word_budget_capped
+        universe = cov.get("node_keys") or set()
+        seed_matched = sum(1 for k in seed_passed if k in universe)
+        stats["coverage_seed_keys"] = len(seed_passed)
+        stats["coverage_seed_matched"] = seed_matched
+        stats["coverage_orphan_keys"] = len(seed_passed) - seed_matched
+        stats["coverage_orphan_mass"] = round(
+            sum(v for k, v in seed_passed.items() if k not in universe), 4)
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
