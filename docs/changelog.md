@@ -79,9 +79,9 @@ the conversation's own topics out of memory selection. 2.9.43 through
 as a fixed percentage of an ever-growing memory, so a long session or
 a big attachment eventually overflowed the prompt and truncation ate
 the system prompt first. The block is now capped to what fits the
-model's window (`--memory-cap auto`, the default; `off` restores the
-old sizing), and the overflow warning counts the whole prompt and says
-which part is too big.
+model's window (`--memory-cap auto`, the default, with `off` restoring
+the old sizing), and the overflow warning counts the whole prompt and
+says which part is too big.
 
 ## 2.8.0 (2026-07-15)
 
