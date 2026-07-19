@@ -170,6 +170,7 @@ class ChatState:
         self.shift_damping = args.shift_damping
         self.shift_margin = args.shift_margin
         self.shift_query_boost = args.shift_query_boost
+        self.per_source_themes = args.per_source_themes
         self.dedup_cos = args.dedup_cos
         self.short_turns = args.short_turns
         self.turn_labels = not args.no_turn_labels
@@ -852,6 +853,13 @@ def handle_command(line, state):
             print(f"shift damping: x{state.shift_damping:g} stale-seed "
                   f"scale on shift turns, query boost "
                   f"x{state.shift_query_boost:g}")
+        if state.per_source_themes:
+            note = ""
+            if s.get("theme_scope") == "source":
+                note = (f" - last turn profiled {s.get('theme_sources')} "
+                        f"sources, {s.get('theme_keywords_conv')} "
+                        f"conversation theme keywords")
+            print(f"theme scope: per-source (--per-source-themes){note}")
         # count read from the trie, not last_stats: suppression happens at
         # ingest, and a resumed session carries its count even when the
         # gate is off this launch
@@ -954,7 +962,8 @@ def chat_turn(state, line):
                                    coverage_decay_docs=state.coverage_decay_docs,
                                    shift_damping=state.shift_damping,
                                    shift_margin=state.shift_margin,
-                                   shift_query_boost=state.shift_query_boost)
+                                   shift_query_boost=state.shift_query_boost,
+                                   per_source_themes=state.per_source_themes)
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx,
@@ -1257,6 +1266,12 @@ def build_parser():
                    help="multiplier (>= 1) on the query-mass ratio during a "
                         "shift turn while --shift-damping is active "
                         "(default: 1.5)")
+    p.add_argument("--per-source-themes", action="store_true",
+                   help="profile conversation themes separately from each "
+                        "attached file, so a large attachment cannot push "
+                        "the conversation's own keywords below the theme "
+                        "cutoff (default: off; /stats shows how many "
+                        "conversation themes the split recovers)")
     p.add_argument("--dedup-cos", type=float, default=None, metavar="COS",
                    help="skip a new user/assistant sentence whose embedding "
                         "cosine against an earlier conversation sentence of "

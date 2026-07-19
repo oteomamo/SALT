@@ -71,7 +71,10 @@ interrupted save safe. A session whose files disagree after a crash is
 rolled back to the last complete state on the next open, with a notice
 printed and the details kept in `load_repairs.jsonl`. Before this, such
 a session loaded silently and scored every later sentence against the
-wrong stored vector for the rest of its life.
+wrong stored vector for the rest of its life. 2.9.41 adds
+`--per-source-themes`, which profiles the conversation and each
+attached file separately, so one large attachment can no longer crowd
+the conversation's own topics out of memory selection.
 
 ## 2.8.0 (2026-07-15)
 

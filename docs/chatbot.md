@@ -291,6 +291,14 @@ sentence too similar to an earlier one from the same speaker, so
 restatements and re-asked questions stop inflating the theme statistics.
 Attached files are never gated. `/stats` counts the suppressions.
 
+And a **theme scope** switch. Theme statistics normally pool the whole
+session, so one large attached file can set the bar for what counts as
+a theme and push the conversation's own keywords below it. With
+`--per-source-themes` the conversation and each attached file are
+profiled separately and then merged as equals, so a big PDF cannot
+evict the conversation from memory selection. `/stats` shows how many
+conversation theme keywords the split recovers.
+
 And a **short turns** switch. The junk filter drops very short sentences,
 which protects attached documents from fragments but also throws away
 terse chat decisions like "go with option B" or "no, use PostgreSQL".
