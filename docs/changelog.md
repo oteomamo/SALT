@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.72
+## 2.9.0 - 2.9.78
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
@@ -54,6 +54,10 @@ Patch releases, grouped where several versions shipped one thing:
   keys into live and orphaned, `--coverage-gc` collects the orphans,
   `--coverage-max-keys` puts a hard limit on the dictionary, and the
   code stops claiming a bound the defaults never delivered.
+- **2.9.76 - 2.9.78** Failure-safe bookkeeping. The per-turn theme
+  discounts, freshness stamps and topic baseline now commit only after
+  the model answers. A turn that errors out leaves memory as it was,
+  so the retry is not fighting a discount from the failed attempt.
 
 ## 2.8.0
 

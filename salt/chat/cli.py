@@ -1064,7 +1064,7 @@ def chat_turn(state, line):
     ts_start = datetime.now().isoformat(timespec="seconds")
     # trie holds turns 1..N-1 here (this message is added after generation):
     # the verbatim tail covers recent turns, the trie covers older ones
-    memory_block, selected_idx, drift_extra = "", [], None
+    memory_block, selected_idx, drift_extra, commit = "", [], None, None
     if state.trie.n_sentences > 0:
         comp = state.trie.compress(query=line, budget_pct=state.budget,
                                    tokenizer=state.bge_tok,
@@ -1079,8 +1079,10 @@ def chat_turn(state, line):
                                    max_words=memory_word_cap(state, line),
                                    stable_keys=state.stable_coverage_keys,
                                    coverage_gc=state.coverage_gc,
-                                   coverage_max_keys=state.coverage_max_keys)
+                                   coverage_max_keys=state.coverage_max_keys,
+                                   defer_commit=True)
         selected_idx = comp["selected_sent_idx"]
+        commit = comp.get("commit")
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx,
                                            state.turn_labels,
@@ -1115,13 +1117,24 @@ def chat_turn(state, line):
     print(f"{state.runner.alias}> ", end="", flush=True)
     pieces = []
     interrupted = False
+    gen_ok = False
     try:
         for piece in state.runner.stream_chat(messages):
             print(piece, end="", flush=True)
             pieces.append(piece)
+        gen_ok = True
     except KeyboardInterrupt:
+        # an interrupt produced real partial output that is ingested
+        # below, so its bookkeeping commits like a finished turn
         interrupted = True
+        gen_ok = True
     print("\n" if not interrupted else "  [interrupted]\n")
+    # the turn's coverage/EMA bookkeeping lands only now that the model
+    # actually answered - a runner error skips this, so the retry sees
+    # the same memory this attempt did. save=False: the coalesced
+    # session save below persists it FIFO behind this turn's encodes.
+    if commit is not None and gen_ok:
+        commit(save=False)
 
     reply = "".join(pieces).strip()
     # no drain here (it would put a big paste's leftover encode back on

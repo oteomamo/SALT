@@ -198,6 +198,12 @@ before reading memory. A failed indexing keeps the message text in
 `ingest_failures.jsonl` and reports at the next prompt, so nothing is
 lost silently. `--sync-ingest` restores the old inline behavior.
 
+Memory bookkeeping is failure safe in the other direction too. The
+per-turn theme discounts, freshness stamps and topic baseline are
+applied only once the model has actually answered. A turn that fails
+partway leaves them exactly as they were, so a retry works from the
+same memory the failed attempt saw instead of a worse one.
+
 ## Interrupted saves
 
 A session's memory is saved as separate files, and a crash or kill can
