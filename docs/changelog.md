@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.71
+## 2.9.0 - 2.9.72
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
@@ -89,26 +89,22 @@ Coverage decay. Opt-in `--coverage-half-life` lets a surfaced theme's
 suppression fade over turns of silence, so topics the conversation returns
 to can resurface. `--coverage-decay-docs` opts attached files in.
 
-## 2.3.1
-
-PDF-to-sentence pipeline (headers, ligatures, reflow, reference filtering),
-source-labeled memory blocks, and the KV-cache-shaped prompt layout with
-block-wise tail compaction.
-
-## 2.3.0
+## 2.3.0 - 2.3.1
 
 kvtrace: a per-conversation KV read/write ledger (`events.jsonl` plus a
 per-token matrix) recording reused, fresh, and output tokens every turn.
 
-## 2.2.1
+- **2.3.1** PDF-to-sentence pipeline (headers, ligatures, reflow,
+  reference filtering), source-labeled memory blocks, and the
+  KV-cache-shaped prompt layout with block-wise tail compaction.
 
-`attach@` full-context attachments: a file's whole text rides uncompressed
-in every prompt.
-
-## 2.2.0
+## 2.2.0 - 2.2.1
 
 `salt@` attachments: staged files ingest into their own trie branch so
 multiple attachments never crowd each other out.
+
+- **2.2.1** `attach@` full-context attachments: a file's whole text
+  rides uncompressed in every prompt.
 
 ## 2.1.0
 
