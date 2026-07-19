@@ -46,8 +46,9 @@ from pathlib import Path
 
 import numpy as np
 
+from salt.engine.chat_text import clean_chat_text, resolve_chat_urls
 from salt.engine.embedder import split_sentences as embed_split_sentences
-from salt.engine.sentence_filter import filter_texts, clean_text_for_embedding
+from salt.engine.sentence_filter import filter_texts
 from salt.engine.trie_core import (
     run_dense_attention, get_bge_sentence_embeddings, embed_query,
     profile_themes, is_content_word,
@@ -221,10 +222,12 @@ class SessionTrie:
         `pdfio.is_protected_unit`) exempts structural units — headings,
         grouped tables, equations — from the junk filter.
 
-        Chat ingest keeps URL-bearing sentences (the URL itself becomes
-        <url>) and length-gates fragment-shaped junk patterns; the eval
-        compressor path (salt/engine/compressor.py) calls filter_texts with
-        its own stricter defaults and is unaffected.
+        Chat text is stored verbatim apart from whitespace normalization
+        and the <url> substitution (url-dominated lines drop): code,
+        tables, pipes and markup survive as typed, and the URL decision
+        runs before any junk gate. The eval compressor path
+        (salt/engine/compressor.py) keeps its own cleaner and filter
+        defaults and is unaffected.
 
         `dedup_cos` (opt-in, None = off) is a near-duplicate gate for
         conversation ingest: a new user/assistant sentence whose BGE cosine
@@ -262,9 +265,9 @@ class SessionTrie:
                 if s:
                     all_texts.extend(_chunk_by_tokens(s, tokenizer))
         else:
-            cleaned = clean_text_for_embedding(text)
+            cleaned = clean_chat_text(text)
             raw = embed_split_sentences(cleaned, max_tokens=400, tokenizer=tokenizer)
-            all_texts = [s for s, _, _ in raw]
+            all_texts = resolve_chat_urls([s for s, _, _ in raw])
         sentences, *_ = filter_texts(all_texts, aggressive=True,
                                      remove_urls=True, deduplicate=True,
                                      strip_urls=True, lenient=True, keep=keep)

@@ -177,6 +177,16 @@ operators pypdf flattens to Latin look-alikes are restored where
 unambiguous), and a sentence mentioning a URL keeps its prose with the
 link as `<url>`.
 
+## What conversation text keeps
+
+Messages you type are stored the way you typed them. Code keeps its
+generics and brackets, markdown tables and shell pipelines keep their
+pipes, and pixel values stay put. Only whitespace is normalized, and a
+sentence mentioning a URL keeps its prose with the link stored as
+`<url>`. Lines that are mostly URL are not stored. Earlier versions ran
+chat messages through the same scrubbing used for benchmark documents,
+which could quietly rewrite pasted code before it reached memory.
+
 ## What the model sees
 
 The chat model is told what it is looking at: the system prompt carries a
