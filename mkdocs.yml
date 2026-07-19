@@ -36,6 +36,9 @@ theme:
 extra_css:
   - assets/extra.css
 
+extra_javascript:
+  - assets/versions.js
+
 extra:
   version:
     provider: mike
