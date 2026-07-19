@@ -692,6 +692,22 @@ class SessionTrie:
             self.coverage = merged
         else:
             self.coverage = cov["coverage"]
+        # Reconcile (stable_keys only): with the order frozen and
+        # membership sticky over an append-only corpus, a persisted key
+        # absent from this turn's node set can only be pre-flag history
+        # or eviction residue - no node exists for it to discount this
+        # turn or any later one, so carrying it forever is pure bloat.
+        n_orphans_dropped = 0
+        if stable_keys:
+            universe_now = cov.get("node_keys") or set()
+            before_n = len(self.coverage)
+            self.coverage = {k: v for k, v in self.coverage.items()
+                             if k in universe_now}
+            n_orphans_dropped = before_n - len(self.coverage)
+            if n_orphans_dropped:
+                self.coverage_turn = {k: t for k, t
+                                      in self.coverage_turn.items()
+                                      if k in self.coverage}
         # Freshness clock for stale-only damping: stamp every key CELF
         # actually incremented this call (returned vs seed-as-passed is the
         # true in/out diff on both paths), then drop stamps for keys the
@@ -730,6 +746,7 @@ class SessionTrie:
         stats["coverage_orphan_keys"] = len(seed_passed) - seed_matched
         stats["coverage_orphan_mass"] = round(
             sum(v for k, v in seed_passed.items() if k not in universe), 4)
+        stats["coverage_orphans_dropped"] = n_orphans_dropped
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)

@@ -306,8 +306,11 @@ instead of reshuffling the memory tree, so remembered discounts keep
 matching their branches. The flag also keeps theme membership sticky.
 A keyword that earned a place in the tree keeps it while its
 remembered counts are alive, so a branch cannot vanish from under its
-discount just because the theme cutoff moved. Off by default while
-the orphan numbers from real sessions are being judged.
+discount just because the theme cutoff moved. Keys left over from
+before the flag was on are dropped once on the next turn and counted
+in `/stats`, so a resumed session starts clean instead of carrying
+dead suppression forever. Off by default while the orphan numbers
+from real sessions are being judged.
 
 And a **ceiling**. The memory block is sized as a percentage of
 everything remembered, and a long session or a large attachment grows
