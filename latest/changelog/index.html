@@ -973,7 +973,14 @@ a session loaded silently and scored every later sentence against the
 wrong stored vector for the rest of its life. 2.9.41 adds
 <code>--per-source-themes</code>, which profiles the conversation and each
 attached file separately, so one large attachment can no longer crowd
-the conversation's own topics out of memory selection.</p>
+the conversation's own topics out of memory selection. 2.9.43 through
+2.9.47 stop the memory block from growing without bound. It was sized
+as a fixed percentage of an ever-growing memory, so a long session or
+a big attachment eventually overflowed the prompt and truncation ate
+the system prompt first. The block is now capped to what fits the
+model's window (<code>--memory-cap auto</code>, the default, with <code>off</code> restoring
+the old sizing), and the overflow warning counts the whole prompt and
+says which part is too big.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so

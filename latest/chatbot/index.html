@@ -1041,8 +1041,11 @@ reviewed or scored afterward.</p>
 <p>A <code>salt@</code> file becomes <strong>its own branch</strong> of the session trie, hanging off the
 conversation's root - so multiple attachments never crowd each other out, and
 the per-turn budget (default 20%) spreads across files and conversation
-themes. An <code>attach@</code> file skips the trie entirely: its full text rides
-uncompressed in every prompt.</p>
+themes. The percentage is bounded by what actually fits the model's
+window: <code>--memory-cap auto</code> (the default) sizes the block to the space
+left after the fixed prompt, and <code>--memory-cap off</code> restores the old
+unbounded sizing. An <code>attach@</code> file skips the trie entirely: its full text
+rides uncompressed in every prompt.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole (images ignored) and cleaned into proper
 sentences before they reach the trie: repeated headers/footers, page numbers,
@@ -1155,6 +1158,15 @@ the damping never reaches disk.</p>
 sentence too similar to an earlier one from the same speaker, so
 restatements and re-asked questions stop inflating the theme statistics.
 Attached files are never gated. <code>/stats</code> counts the suppressions.</p>
+<p>And a <strong>ceiling</strong>. The memory block is sized as a percentage of
+everything remembered, and a long session or a large attachment grows
+that number without limit. <code>--memory-cap</code> bounds it. <code>auto</code> (the
+default) fits the block to the space the model's window has left after
+the system prompt, attachments and the recent turns, a number caps the
+block at that many tokens, and <code>off</code> restores the old unbounded sizing.
+When the prompt would still overflow, the warning names which part is
+too big. <code>/stats</code> reports the prompt's fixed cost against the model's
+usable input.</p>
 <p>And a <strong>theme scope</strong> switch. Theme statistics normally pool the whole
 session, so one large attached file can set the bar for what counts as
 a theme and push the conversation's own keywords below it. With
