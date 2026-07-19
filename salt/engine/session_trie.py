@@ -169,6 +169,7 @@ class SessionTrie:
         self.drift_ema = None           # EMA of query-vs-recent-conversation cosine
         self.coverage_turn = {}         # dict[key -> compress call of last increment]
         self.kw_order = []              # frozen keyword order (stable_keys, append-only)
+        self.theme_admitted = set()     # sticky theme membership (stable_keys)
         self._n_compress = 0            # completed compress() calls (freshness clock)
         self.n_near_dups = 0            # sentences suppressed by the near-dup gate
         self.dirty = False              # unsaved add_turn(save=False) mutations
@@ -568,6 +569,22 @@ class SessionTrie:
         sent_data = self._sent_data()
         kw_df, theme_keywords = self._profile(sent_data, per_source_themes)
 
+        # Sticky theme membership (stable_keys only): a keyword that
+        # already earned a place in the tree keeps it while its remembered
+        # counts are alive, so branches cannot vanish from under their
+        # discounts when the percentile cutoff moves. Bounded by coverage
+        # mass: once the decay floor GCs a keyword's last key, it stops
+        # being sticky. Runs BEFORE the file-token injection, which
+        # re-copies theme_keywords.
+        n_sticky = 0
+        if stable_keys:
+            alive = set().union(*self.coverage) if self.coverage else set()
+            sticky = {k for k in self.theme_admitted
+                      if k in alive and k not in theme_keywords}
+            n_sticky = len(sticky)
+            theme_keywords = set(theme_keywords) | sticky
+            self.theme_admitted = set(theme_keywords)
+
         # Per-file branches: inject each attachment's synthetic root keyword
         # AFTER theme profiling (so the percentile threshold sees only real
         # keywords) with df just above the real maximum — high enough that
@@ -703,6 +720,7 @@ class SessionTrie:
         stats["theme_scope"] = "source" if per_source_themes else "global"
         stats["theme_sources"] = self._profile_diag["sources"]
         stats["theme_keywords_conv"] = self._profile_diag["keywords_conv"]
+        stats["theme_keywords_sticky"] = n_sticky
         stats["word_budget"] = word_budget
         stats["word_budget_capped"] = word_budget_capped
         universe = cov.get("node_keys") or set()
@@ -751,6 +769,7 @@ class SessionTrie:
             "n_compress": self._n_compress,
             "n_near_dups": self.n_near_dups,
             "kw_order": self.kw_order,
+            "theme_admitted": self.theme_admitted,
             "next_sentence_index": self._next_sentence_index,
             "next_turn_index": self._next_turn_index,
         }
@@ -789,6 +808,7 @@ class SessionTrie:
         self.n_near_dups = state.get("n_near_dups", 0)
         # sessions saved before stable coverage keys have no frozen order
         self.kw_order = state.get("kw_order", [])
+        self.theme_admitted = state.get("theme_admitted", set())
         self._next_sentence_index = state["next_sentence_index"]
         self._next_turn_index = state["next_turn_index"]
         self.dim = cfg.get("dim")

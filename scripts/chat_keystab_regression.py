@@ -123,9 +123,10 @@ def main():
               f"{s['coverage_orphan_keys']} orphaned "
               f"(mass {s['coverage_orphan_mass']})")
         if args.stable:
-            assert orphan_trail[-1] == 0, (
-                "stable mode still orphaned keys on the probe turn - "
-                "the frozen keyword order is not holding")
+            assert sum(orphan_trail) == 0, (
+                "stable mode orphaned keys somewhere in the replay - "
+                "the frozen order plus sticky membership is not holding: "
+                f"{orphan_trail}")
         print("PASS")
     finally:
         if args.keep:
