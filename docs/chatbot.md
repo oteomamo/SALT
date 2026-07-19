@@ -35,27 +35,10 @@ every turn (install vLLM first, see
 saltChat --model qwen05 --backend vllm --gpu 1
 ```
 
-`--gpu-mem-util` caps the engine's share of GPU memory (default `0.85`,
-leaving room for the BGE encoder on the same GPU). `--max-model-len` caps
-the context window when the model's full window would not fit in the KV
-cache. `/model` switching works on both in-process backends.
-
-A model too big for one card can split across several with a `--gpu` list.
-`saltChat --model llama-3.1-8b-instruct --backend hf --gpu 0,1` shards the
-weights across GPUs 0 and 1 with a balanced `device_map`, and `--backend
-vllm --gpu 0,1` makes the vllm engine tensor-parallel them. Either way the
-BGE encoder rides the last card, inside the memory the `--gpu-mem-util`
-cap leaves free (default `0.80` across several cards).
-
-The `--gpu-mem-util` cap is what leaves that headroom. It bounds the
-model's share of each card: the weights for the hf backend, and the
-weights plus the KV cache pool for the vllm backends. The default is
-`0.80` across several cards, `0.85` for a lone in-process card, and `0.90`
-for a lone `saltServe` card. Lower it when a large model or a long
-conversation runs a card out of memory, which reserves more room for
-activations, the cache, and the encoder. On the vllm backends
-`--max-model-len` helps too, by capping the window the KV cache must
-cover.
+A model too big for one card splits across several with a `--gpu` list,
+on either backend, with the encoder riding the last card. Memory
+shares, window caps and device flags are on the [Options](options.md)
+page.
 
 ## Persistent serving
 
@@ -114,61 +97,40 @@ rides uncompressed in every prompt.
 
 ## How PDFs are cleaned
 
-Attached PDFs are read whole (images ignored) and cleaned into proper
-sentences before they reach the trie: repeated headers/footers, page numbers,
-and ACL/NeurIPS-style margin line numbers are stripped, ligatures and
-hyphenation repaired, wrapped lines reflowed into paragraphs, and reference
-lists filtered - sentence boundaries never break inside citations.
-Paragraphs interrupted mid-sentence by a figure caption, table, or footnote
-are re-joined across the float instead of being severed. Tables and
-algorithm pseudocode are kept, grouped under their captions as
-`|`-separated rows so numbers stay readable against their column names.
-Section headings, panel labels, and equations survive ingestion (big
-operators pypdf flattens to Latin look-alikes are restored where
-unambiguous), and a sentence mentioning a URL keeps its prose with the
-link as `<url>`.
+Attached PDFs are read whole and cleaned into proper sentences before
+they reach the trie: headers, footers and reference lists go, broken
+lines and hyphenation are repaired, and paragraphs interrupted by a
+figure or footnote are re-joined. Tables and pseudocode are kept as
+rows grouped under their captions, and headings, panel labels and
+equations survive even though they are short. A sentence mentioning a
+URL keeps its prose with the link stored as `<url>`.
 
 ## What conversation text keeps
 
-Messages you type are stored the way you typed them. Code keeps its
-generics and brackets, markdown tables and shell pipelines keep their
-pipes, and pixel values stay put. Only whitespace is normalized, and a
-sentence mentioning a URL keeps its prose with the link stored as
-`<url>`. Lines that are mostly URL are not stored. Table rows, shell
-pipelines, link sentences and code-shaped lines are also protected from
-the length gates that filter document fragments, so a pasted table
-header or a one-line function reaches memory even though it is short.
-Earlier versions ran chat messages through the same scrubbing used for
-benchmark documents, which could quietly rewrite pasted code before it
-reached memory. Sessions created before this change keep whatever text
-was stored at ingest time and are not rewritten, so a long-running
-session resumed across versions may hold a mix of old and new forms.
+Messages are stored the way you typed them. Code keeps its generics,
+tables and pipelines keep their pipes, and short decisive turns like
+"go with option B" are kept rather than filtered as fragments. Only
+whitespace is normalized, a link becomes `<url>`, and lines that are
+mostly URL or pure junk still drop. Sessions from before this behavior
+keep their previously stored text as is.
 
 ## What the model sees
 
-The chat model is told what it is looking at: the system prompt carries a
-reading guide from
-[`salt/chat/instructions.md`](https://github.com/oteomamo/SALT/blob/main/salt/chat/instructions.md)
-(edit it to tune the wording - it is re-read every turn, even mid-session)
-plus an inventory of every attached file, and the compressed memory arrives
-at the top of the newest user message, grouped by origin - `[from attached
-file 'paper.pdf' - 42 of 358 indexed sentences]` versus `[from the earlier
-conversation - turn 12, user, 2h ago]` - so answers can cite their source
-file and the model knows the excerpts are partial.
+The system prompt carries a reading guide
+([`salt/chat/instructions.md`](https://github.com/oteomamo/SALT/blob/main/salt/chat/instructions.md))
+plus an inventory of attached files, and the compressed memory arrives
+at the top of the newest user message, grouped by origin: `[from
+attached file 'paper.pdf' - 42 of 358 indexed sentences]` versus
+`[from the earlier conversation - turn 12, user, 2h ago]`.
 
-Conversation excerpts carry their **provenance**. Each one is headed with
-the turn it was said on, who said it, and how long ago that was, so the
-model can tell your words from its own, see which of two conflicting
-statements came later, and answer questions like "what did I decide this
-morning". A session resumed from a release before 2.9.20 has no recorded
-times, and those labels simply leave the age out.
-The excerpts are split into one section per turn, and because sentences are
-selected in the order they were spoken, the sections read in order too.
-`--no-turn-labels` goes back to the plain `[from the earlier conversation]`
-header if you would rather spend those few tokens on content.
+Conversation excerpts carry their **provenance**: the turn, the
+speaker, and how long ago. The model can tell your words from its own,
+see which of two conflicting statements came later, and answer "what
+did I decide this morning". `--no-turn-labels` restores the plain
+anonymous header.
 
-`/stats` prints a **conversation map** alongside it, one line per recent
-turn with that turn's strongest keywords:
+`/stats` prints a **conversation map**, one line per recent turn with
+that turn's strongest keywords:
 
 ```
 conversation map (all 4 turns):
@@ -178,142 +140,63 @@ conversation map (all 4 turns):
   t13 assistant: coverage, half-life, themes
 ```
 
-It is built from the keywords SALT already extracted at ingest, so it
-costs no extra model work, and it is a quick way to see what a long
-session has actually covered. A long conversation shows only its recent
-turns, and the header says so rather than implying the older ones never
-happened.
-
-`--conversation-map` puts that same map into the prompt, as the first
-section of the memory block. The model can then see that a topic came up
-on turn 5 even when none of turn 5's sentences were selected this turn,
-and ask about it or say where to look. The map only adds pointers. It
-never changes which sentences get selected, and the reading guide tells
-the model to treat it as an index rather than as something anyone said.
+`--conversation-map` puts the map into the prompt as the first section
+of the memory block, so the model can see a topic came up even on a
+turn none of its sentences were selected. The map is a signal, never a
+gate: it changes nothing about which sentences are picked.
 
 ## The prompt layout
 
-The prompt is deliberately **KV-cache shaped**: everything stable (system
-prompt, `attach@` full texts, the verbatim tail) comes first, and the only
-per-turn content - the SALT memory selection and the question - comes last.
-The tail grows append-only and compacts **in blocks** (back to `--tail`
-exchanges once it hits twice that) instead of rolling every turn, so the
-prompt prefix stays byte-identical between compactions. Nothing is lost,
-since every sentence already entered the trie the moment it was spoken.
-Attachments render in the order they were attached, and that order is
-saved with the session, so a resumed conversation rebuilds the same
-prompt bytes and a persistent server can serve them from its warm cache.
-The tail is saved with the session too, so resuming restores the recent
-exchanges verbatim and the whole stable prefix can stay warm on a
-persistent server.
-With the default HF backend each turn still prefills the whole prompt.
-`--backend vllm` cashes the layout in. The engine's automatic prefix caching
-serves the stable prefix straight from the GPU KV cache and prefills only
-the fresh suffix - in practice ~95% of prompt tokens on quiet turns. Each
-turn's real hit count is recorded in the kvtrace ledger (`apc_cached_tokens`,
-next to the selection-overlap split, which measures a different thing), and
-`/stats` prints it live.
+The prompt is **KV-cache shaped**: everything stable comes first
+(system prompt, `attach@` texts, the verbatim tail, compacting in
+blocks so it stays byte-identical between compactions), and the only
+per-turn content, the memory selection and the question, comes last.
+Attachment order and the tail are saved with the session, so a resumed
+conversation rebuilds the same prompt bytes and a warm cache still
+matches. On the vllm backends the engine serves that stable prefix
+straight from the GPU KV cache, in practice ~95% of prompt tokens on
+quiet turns, and `/stats` shows the measured reuse.
 
 ## Memory knobs
 
-Cross-turn memory has a **forgetting** knob. By default a theme that
-has been surfaced stays discounted for the whole session, so the memory
-block keeps favoring new material - even when the conversation circles back.
-`--coverage-half-life 8` makes that suppression fade instead, halving every
-8 turns a theme goes unmentioned, so a topic you return to after a long
-detour resurfaces gradually rather than staying buried. Attached files are
-exempt (selection keeps advancing through a document) unless
-`--coverage-decay-docs` is set. `/stats` reports the decay state.
+Cross-turn memory has a set of switches. Each is reported in `/stats`
+so it can be judged on a real session, and the [Options](options.md)
+page lists them all with when to reach for each. In concept:
 
-And a **pivot** knob. Every query turn, the question's similarity to the
-recent conversation is measured against the session's own running baseline
-(`/stats` shows the reading, so the margin can be tuned before trusting
-it). With `--shift-damping 0.25`, a turn that drops `--shift-margin` below
-that baseline - a topic shift - hands the selector a seed whose **stale**
-suppression (themes untouched for a few turns) is scaled down for that
-turn only, and the query channels get a `--shift-query-boost` bump: a
-pivot back to a long-quiet topic stops being fought by the discount it
-accumulated, while the topic being left stays suppressed. Nothing is
-forgotten - the persisted counts are rebuilt from genuine increments, so
-the damping never reaches disk.
-
-And a **repetition** gate. `--dedup-cos 0.92` skips a new conversation
-sentence too similar to an earlier one from the same speaker, so
-restatements and re-asked questions stop inflating the theme statistics.
-Attached files are never gated. `/stats` counts the suppressions.
-
-The forgetting machinery leans on remembered **theme keys**, and
-`/stats` now reports how well they line up with the current memory
-tree: how many carried-over keys matched a branch this turn, and how
-many are orphaned, matching nothing. An orphaned key is suppression
-that has quietly stopped applying, so the same material can resurface
-as if it were never shown. The counts make that drift visible so it
-can be judged on real sessions. `/stats` also splits the whole
-remembered dictionary into live and orphaned keys, noting how many
-orphans came from attachments, so the dead weight a long session
-carries is a number rather than a guess. `--coverage-gc` collects
-those orphans after a short grace window, so a long session stops
-saving suppression that can never apply again. `--coverage-max-keys`
-adds a hard limit on the dictionary itself: past it, orphans go
-first, then the stalest and weakest live keys. Both are off by
-default and their effects are counted in `/stats`. With `--stable-coverage-keys` the
-session keeps one frozen keyword order: new keywords join at the end
-instead of reshuffling the memory tree, so remembered discounts keep
-matching their branches. The flag also keeps theme membership sticky.
-A keyword that earned a place in the tree keeps it while its
-remembered counts are alive, so a branch cannot vanish from under its
-discount just because the theme cutoff moved. Keys left over from
-before the flag was on are dropped once on the next turn and counted
-in `/stats`, so a resumed session starts clean instead of carrying
-dead suppression forever. Off by default while the orphan numbers
-from real sessions are being judged.
-
-And a **ceiling**. The memory block is sized as a percentage of
-everything remembered, and a long session or a large attachment grows
-that number without limit. `--memory-cap` bounds it. `auto` (the
-default) fits the block to the space the model's window has left after
-the system prompt, attachments and the recent turns, a number caps the
-block at that many tokens, and `off` restores the old unbounded sizing.
-When the prompt would still overflow, the warning names which part is
-too big. `/stats` reports the prompt's fixed cost against the model's
-usable input.
-
-And a **theme scope** switch. Theme statistics normally pool the whole
-session, so one large attached file can set the bar for what counts as
-a theme and push the conversation's own keywords below it. With
-`--per-source-themes` the conversation and each attached file are
-profiled separately and then merged as equals, so a big PDF cannot
-evict the conversation from memory selection. `/stats` shows how many
-conversation theme keywords the split recovers.
-
-And a **short turns** switch. The junk filter drops very short sentences,
-which protects attached documents from fragments but also throws away
-terse chat decisions like "go with option B" or "no, use PostgreSQL".
-Short user messages now enter conversation memory like any other
-sentence. Lines that are only a URL, only punctuation, or otherwise
-junk-shaped still drop. `--short-turns off` restores the old behavior.
-`--short-turns fuse` goes one step further for bare acknowledgements. A
-message like "yes" or "the second one" is stored together with the
-question it answers, quoted from the end of the previous reply, so the
-memory can find the decision later by the question's own words. The chat
-prompt itself still shows exactly what you typed.
+- **Forgetting.** A surfaced theme stays discounted for the whole
+  session by default. `--coverage-half-life` lets that discount fade
+  over turns of silence, so returning topics resurface.
+- **Pivots.** `--shift-damping` lifts stale discounts for a detected
+  topic pivot, that turn only, so coming back to an old topic is not
+  fought by its own accumulated suppression.
+- **Repetition.** `--dedup-cos` skips near restatements at ingest, so
+  rephrasing does not inflate what counts as a theme.
+- **Key stability.** Remembered discounts are keyed to branches of a
+  tree that is rebuilt every turn. `--stable-coverage-keys` freezes the
+  session's keyword order so those keys keep matching as it grows.
+- **Bookkeeping bounds.** `--coverage-gc` collects remembered keys that
+  match nothing anymore, and `--coverage-max-keys` puts a hard limit
+  on the remembered dictionary.
+- **Theme scope.** `--per-source-themes` profiles the conversation and
+  each attached file separately, so one large file cannot crowd the
+  conversation out of memory.
+- **Ceiling.** `--memory-cap auto` (the default) fits the memory block
+  to the space the model's window actually has left, instead of a
+  percentage that grows without bound.
+- **Short turns.** Terse decisions like "go with option B" stay in
+  memory by default, and `--short-turns fuse` stores a bare "yes"
+  together with the question it answers, so the decision is findable
+  by the question's own words.
 
 ## Background ingestion
 
-Ingestion runs **in the background**. After every message SALT has
-to index what was said (the keyword and embedding passes) so it can be
-recalled later. That work used to run right before the next prompt, so
-a long pasted message made the next `you>` slow to appear. It now runs
-on a worker thread: your message is indexed while the model writes its
-reply, and the reply is indexed while you read it. The next prompt
-appears immediately, however long the message was. Answers do not
-change, because the REPL always waits for the worker to finish before
-it reads the conversation memory. If indexing ever fails, the message
-text is kept in `ingest_failures.jsonl` in the session folder and the
-error is shown at the next prompt, so nothing is lost silently. A nice
-side effect: even when a reply fails halfway, your message has already
-reached the memory. `/stats` shows how much work stayed off the prompt
-path, and `--sync-ingest` restores the old inline behavior.
+Indexing what was said (the keyword and embedding passes) runs on a
+worker thread: your message is indexed while the model writes its
+reply, so the next prompt appears immediately however long the paste
+was. Answers do not change, because the REPL waits for the worker
+before reading memory. A failed indexing keeps the message text in
+`ingest_failures.jsonl` and reports at the next prompt, so nothing is
+lost silently. `--sync-ingest` restores the old inline behavior.
 
 ## Interrupted saves
 
