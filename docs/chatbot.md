@@ -189,7 +189,9 @@ the length gates that filter document fragments, so a pasted table
 header or a one-line function reaches memory even though it is short.
 Earlier versions ran chat messages through the same scrubbing used for
 benchmark documents, which could quietly rewrite pasted code before it
-reached memory.
+reached memory. Sessions created before this change keep whatever text
+was stored at ingest time and are not rewritten, so a long-running
+session resumed across versions may hold a mix of old and new forms.
 
 ## What the model sees
 

@@ -23,6 +23,8 @@ worker mirroring chat_turn's order - and asserts:
  11. Background mode saves once per turn and reloads identical to the
      per-call-saved direct run. An error turn stays dirty until the
      boundary save persists it.
+ 12. The stored corpus is faithful to what was typed: generics, table
+     rows and rescued link sentences appear in trie.texts verbatim.
 
 Needs the BGE encoder (fetched to the HF cache on first use). The CPU
 run takes under a minute. Refuses to run under `python -O`.
@@ -318,6 +320,27 @@ def main():
             "fuse mode")
         print("short turns: fuse stores ack+question, content-bearing "
               "short turns stay verbatim")
+
+        # assert 12: the CORPUS (not merely the embedding input) keeps
+        # code, tables and link sentences as typed
+        tf = SessionTrie("faithful", cache_dir=tmp, model_name=BGE_MODEL)
+        tf.add_turn("The cache is a HashMap<String, Vec<u8>> guarded by "
+                    "one mutex per shard.\n"
+                    "| Model | Score | Latency |\n"
+                    "| tiny | 61.2 | 12ms |\n"
+                    "The eviction notes live at https://ex.io/cache so "
+                    "read them before tomorrow.",
+                    role="user", tokenizer=tok, model=mdl,
+                    device=args.device)
+        assert any("HashMap<String, Vec<u8>>" in x for x in tf.texts), (
+            "generics were mangled on the way into the corpus")
+        assert "| Model | Score | Latency |" in tf.texts, (
+            "the table header row did not reach the corpus verbatim")
+        assert any(x.startswith("The eviction notes live at <url>")
+                   for x in tf.texts), (
+            "the link sentence did not survive with its prose")
+        print("faithful corpus: generics, table rows and the <url> "
+              "sentence stored as typed")
 
         # assert 10: failed-generation survival (background order)
         line = ("Please remember that the maintenance window moves to "

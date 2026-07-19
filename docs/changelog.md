@@ -64,7 +64,9 @@ pasted code keeps its generics, tables and pipelines keep their pipes,
 and a sentence with a link keeps its prose with the URL stored as
 `<url>`. 2.9.35 protects table rows, pipelines, link sentences and
 code-shaped lines from the short-fragment filter, so they reach memory
-even when brief.
+even when brief. 2.9.36 notes that sessions from earlier versions keep
+their previously stored text as is, so a session resumed across the
+change may hold a mix of old and new forms.
 
 ## 2.8.0 (2026-07-15)
 
