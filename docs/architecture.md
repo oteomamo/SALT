@@ -94,7 +94,8 @@ so it is the fastest way to find where a change belongs:
 
 ## Persistent serving
 
-The chat model can run as its own long-lived server instead of inside
+How to run it is on the [Serving](serving.md) page. The design: the
+chat model can run as its own long-lived server instead of inside
 saltChat. `saltServe` resolves a registered model and starts a
 `vllm serve` process that owns the GPU, and `saltChat --backend
 vllm-serve` connects to it as a thin client. The client renders and
@@ -213,6 +214,7 @@ Where each stage lives:
 | Few-shot bypass (`trec`, `triviaqa`, `samsum`) | `salt/engine/fewshot.py` |
 | Dataset adapters (`--synthetic`, `--code`) | `salt/engine/dataset_modes.py` |
 | Multi-turn session store | `salt/engine/session_trie.py` |
+| Chat text handling (verbatim storage, short turns) | `salt/engine/chat_text.py`, `salt/chat/shortturn.py` |
 | Background ingest worker (chat) | `salt/chat/ingest.py` |
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
