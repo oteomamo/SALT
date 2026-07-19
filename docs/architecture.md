@@ -1,5 +1,15 @@
 # 🧩 Architecture
 
+**Why SALT exists.** When a prompt is too long, most compressors give
+each sentence one relevance score and keep the top scorers until the
+budget runs out. Under a tight budget the document's main topic
+swallows everything, a failure called *theme collapse*: in a multi-hop
+question, the passages about the main entity survive while the one
+sentence linking it to the second entity is dropped. SALT's answer is
+to map the document's themes first and make every pick cheaper for a
+theme the selection has already served, so minor themes keep their
+share.
+
 Two phases. **Indexing** reads the document once and builds a keyword trie - a
 reusable map of its recurring themes. **Selection** then picks a sentence subset
 under a token budget, returned in original document order, query-biased or not.
