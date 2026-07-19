@@ -989,7 +989,12 @@ many remembered keys matched or orphaned each turn, and the opt-in
 <code>--stable-coverage-keys</code> freezes the session's keyword order, keeps
 theme membership sticky while a discount is alive, and cleans up keys
 from before the flag, driving the orphan count to zero on the
-regression that reproduces the churn.</p>
+regression that reproduces the churn. 2.9.55 through 2.9.58 finish
+the boundedness story. <code>/stats</code> splits the remembered dictionary into
+live and orphaned keys, <code>--coverage-gc</code> collects orphans after a
+grace window, <code>--coverage-max-keys</code> puts a hard limit on the
+dictionary, and the code stops claiming a bound the defaults never
+delivered.</p>
 <h2 id="280-2026-07-15">2.8.0 (2026-07-15)</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
