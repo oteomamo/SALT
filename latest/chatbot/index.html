@@ -16,7 +16,7 @@
         <link rel="prev" href="../usage/">
       
       
-        <link rel="next" href="../options/">
+        <link rel="next" href="../serving/">
       
       
         
@@ -562,6 +562,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../options/" class="md-nav__link">
         
   
@@ -951,52 +978,10 @@ activations, the cache, and the encoder. On the vllm backends
 <code>--max-model-len</code> helps too, by capping the window the KV cache must
 cover.</p>
 <h2 id="persistent-serving">Persistent serving</h2>
-<p>Both backends above load the model inside the saltChat process, so the
-model and its cache disappear when you exit. <code>saltServe</code> starts the model
-as its own long-lived server instead:</p>
-<div class="highlight"><pre><span></span><code>saltServe<span class="w"> </span>qwen05<span class="w"> </span>--gpu<span class="w"> </span><span class="m">1</span>
-</code></pre></div>
-<p>The command resolves the same registry entry, prints the full <code>vllm serve</code>
-invocation it runs, and serves an OpenAI compatible API on
-<code>http://127.0.0.1:8000</code> (change it with <code>--port</code>). The server keeps the
-model loaded and its prefix cache warm across saltChat runs. Stop it with
-Ctrl-C when you want the GPU back.</p>
-<p><code>--gpu-mem-util</code> sets the share of GPU memory the server claims (default
-<code>0.90</code>, the BGE encoder no longer shares its GPU). On cards older than
-Ampere the launcher serves <code>bfloat16</code> models in <code>float16</code>, which those
-GPUs require (it says so when the GPU generation cannot be detected, and
-<code>-- --dtype float16</code> forces it). <code>--vllm-bin</code> points at another
-environment's vllm, so the
-server can run whichever vLLM release fits your hardware while the SALT
-install stays unchanged. Anything after <code>--</code> is passed to <code>vllm serve</code>
-unchanged.</p>
-<p>Split a large model across several cards with a list. <code>saltServe
-llama-3.1-8b-instruct --gpu 0,1</code> tensor-parallels the weights across GPUs 0
-and 1, so a model too big for one card, or a box whose first card also
-drives the display, still serves. Every card in the group is capped at
-<code>0.80</code> of its memory by default (a single card keeps <code>0.90</code>), leaving each
-one headroom for the machine's own use. Pass <code>--gpu-mem-util</code> to override
-the cap. It applies to every card in the group.</p>
-<p>Connect saltChat to the running server:</p>
-<div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen05<span class="w"> </span>--backend<span class="w"> </span>vllm-serve
-</code></pre></div>
-<p><code>--server-url</code> points at a server on another port or machine (default
-<code>http://127.0.0.1:8000</code>). The prompt is rendered and tokenized in
-saltChat itself, so the text the server caches is exactly the text the
-kv ledger counts. Exit, come back later, resume the conversation by its
-id: the model is still loaded and the stable prompt head is still
-cached, so the first turn only prefills what changed. One server serves
-one model. To chat with a different model, start a second server with
-<code>saltServe</code> and launch saltChat again with its <code>--server-url</code>. <code>/stats</code>
-shows the measured reuse every turn.</p>
-<p>When the server spans several cards, give saltChat the same list. <code>saltChat
---backend vllm-serve --gpu 0,1</code> puts the BGE encoder on the last card (GPU
-1). That card also holds a model shard, so the default <code>0.80</code> memory cap
-leaves it room for the encoder. Passing the list pins the same PCI card
-order the server uses, so an index means the same physical card on both
-sides. The in-process <code>--backend vllm --gpu 0,1</code> reads the list the same
-way. It tensor-parallels the model across the cards and pins BGE on the
-last one, inside that same reserved headroom.</p>
+<p>The backends above load the model inside the saltChat process, so the
+model and its cache disappear on exit. <code>saltServe</code> keeps them alive as
+a separate long-lived server that chats connect to and resume warm. It
+has its own page: <a href="../serving/">Serving</a>.</p>
 <h2 id="repl-commands">REPL commands</h2>
 <table>
 <thead>
