@@ -119,10 +119,6 @@ plus the `salt` console command.
 
 CELF coverage selection became the default selector.
 
-## 1.2.0 (2026-07-03)
-
-QuALITY and NIAH experiments and downloaders.
-
 ## 1.0.0 (2026-07-03)
 
 First release: LongBench compression and evaluation.
