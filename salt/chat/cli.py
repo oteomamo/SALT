@@ -183,6 +183,7 @@ class ChatState:
         self.shift_query_boost = args.shift_query_boost
         self.per_source_themes = args.per_source_themes
         self.stable_coverage_keys = args.stable_coverage_keys
+        self.coverage_gc = args.coverage_gc
         self.dedup_cos = args.dedup_cos
         self.short_turns = args.short_turns
         self.turn_labels = not args.no_turn_labels
@@ -1075,7 +1076,8 @@ def chat_turn(state, line):
                                    shift_query_boost=state.shift_query_boost,
                                    per_source_themes=state.per_source_themes,
                                    max_words=memory_word_cap(state, line),
-                                   stable_keys=state.stable_coverage_keys)
+                                   stable_keys=state.stable_coverage_keys,
+                                   coverage_gc=state.coverage_gc)
         selected_idx = comp["selected_sent_idx"]
         state.last_stats = comp["stats"]
         memory_block = format_memory_block(state.trie, selected_idx,
@@ -1391,6 +1393,13 @@ def build_parser():
                    help="multiplier (>= 1) on the query-mass ratio during a "
                         "shift turn while --shift-damping is active "
                         "(default: 1.5)")
+    p.add_argument("--coverage-gc", action="store_true",
+                   help="garbage-collect remembered theme keys that no "
+                        "longer match any branch of the memory tree, "
+                        "after a grace window, so long sessions stop "
+                        "carrying dead suppression in every save "
+                        "(default: off; /stats counts live vs orphaned "
+                        "keys either way)")
     p.add_argument("--stable-coverage-keys", action="store_true",
                    help="freeze the session's keyword order so cross-turn "
                         "memory discounts survive as the conversation "

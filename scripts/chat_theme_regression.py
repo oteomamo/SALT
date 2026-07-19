@@ -34,6 +34,12 @@ plumbing itself lives in salt/chat/cli.py, outside this harness). Asserts:
      least one conversation-only keyword the pooled profile evicted,
      and at least one conversation sentence with an empty pooled theme
      intersection gains a non-empty one (path mass restored).
+  9. Flag-off drift guard: the legacy run's persisted coverage dict
+     matches the recorded key count and total mass exactly (an encoder
+     or default change trips here before it ships silently).
+ 10. Orphan GC (coverage_gc=True): orphaned keys drain to zero after
+     the grace window, stamps never outnumber keys, live attachment
+     keys survive while attachment orphans are collected.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is the
 default device; the run takes well under a minute.
@@ -372,6 +378,64 @@ def main():
             "was restored")
         print(f"theme scope 8: {regained} conversation sentences regained "
               f"path mass under per-source profiling")
+
+        # group 9: flag-off drift guard - the legacy run's persisted
+        # dict is pinned (an encoder or default change trips here)
+        LEGACY_KEYS, LEGACY_MASS = 32, 98.0
+        lc = legacy["coverage"]
+        assert (len(lc), round(sum(lc.values()), 1)) == (LEGACY_KEYS,
+                                                         LEGACY_MASS), (
+            f"flag-off coverage drifted: {len(lc)} keys, mass "
+            f"{round(sum(lc.values()), 1)} (pinned {LEGACY_KEYS}/"
+            f"{LEGACY_MASS}; encoder change?)")
+        print(f"coverage pin: legacy dict still {LEGACY_KEYS} keys / "
+              f"mass {LEGACY_MASS}")
+
+        # group 10: orphan GC under coverage_gc=True
+        from salt.engine.session_trie import COVERAGE_GC_GRACE
+        tg = SessionTrie("covgc", cache_dir=tmp, model_name=BGE_MODEL)
+        tg.add_turn(DOC_TEXT, role="doc", tokenizer=tok, model=mdl,
+                    device=args.device, source=DOC_NAME)
+        big2 = " ".join(
+            f"Attachment beta clause {i} covers invoice retention audit "
+            f"sampling and the ledger reconciliation window for "
+            f"account {i}." for i in range(25))
+        orphan_seen, gc_total = 0, 0
+        for xi, (user, assistant) in enumerate(TOPIC_X + TOPIC_Y):
+            if xi == 5:
+                tg.add_turn(big2, role="doc", source="beta.txt",
+                            tokenizer=tok, model=mdl, device=args.device)
+            s9 = tg.compress(query=user, budget_pct=args.budget,
+                             tokenizer=tok, model=mdl, device=args.device,
+                             coverage_gc=True)["stats"]
+            assert len(tg.coverage_turn) <= len(tg.coverage), (
+                f"gc exchange {xi + 1}: stamps outnumber keys")
+            orphan_seen = max(orphan_seen, s9["coverage_persisted_orphans"])
+            gc_total += s9["coverage_gc_dropped"]
+            tg.add_turn(user, "user", tokenizer=tok, model=mdl,
+                        device=args.device)
+            tg.add_turn(assistant, "assistant", tokenizer=tok, model=mdl,
+                        device=args.device)
+        assert orphan_seen > 0, (
+            "the gc transcript minted no orphans - the collection "
+            "assertions below are vacuous (encoder change?)")
+        for _ in range(COVERAGE_GC_GRACE + 2):
+            s9 = tg.compress(query="", budget_pct=args.budget,
+                             tokenizer=tok, model=mdl, device=args.device,
+                             coverage_gc=True)["stats"]
+            gc_total += s9["coverage_gc_dropped"]
+        assert s9["coverage_persisted_orphans"] == 0, (
+            f"orphans survived {COVERAGE_GC_GRACE + 2} turns of gc: "
+            f"{s9['coverage_persisted_orphans']}")
+        assert gc_total > 0, "gc never dropped anything"
+        doc_alive = sum(1 for k in tg.coverage
+                        if any(t.startswith(FILE_TOKEN_PREFIX) for t in k))
+        assert doc_alive > 0, (
+            "gc collected live attachment keys - the doc exemption for "
+            "live branches is broken")
+        print(f"coverage gc: peak {orphan_seen} orphans drained to 0 "
+              f"({gc_total} collected), {doc_alive} live attachment keys "
+              f"kept")
         print("PASS")
     finally:
         if args.keep:

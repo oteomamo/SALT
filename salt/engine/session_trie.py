@@ -83,6 +83,13 @@ COVERAGE_DECAY_FLOOR = 0.05
 DF_SCALE = 1000
 MIN_SOURCE_SENTENCES = 3
 
+# Orphan-GC grace (compress calls): an orphaned coverage key is inert
+# while orphaned, so the only cost of dropping one is that a later
+# reordering could resurrect the same prefix and find its suppression
+# gone. The grace window keeps recently-touched keys around long enough
+# for that to be rare.
+COVERAGE_GC_GRACE = 8
+
 # Topic-shift drift detection. Each query's BGE cosine against the mean of
 # the last DRIFT_WINDOW conversation-sentence embeddings is compared to the
 # session's own EMA baseline — BGE cosines have a high, corpus-shaped floor,
@@ -490,7 +497,7 @@ class SessionTrie:
                  coverage_half_life=None, coverage_decay_docs=False,
                  shift_damping=None, shift_margin=0.12,
                  shift_query_boost=1.5, per_source_themes=False,
-                 max_words=None, stable_keys=False):
+                 max_words=None, stable_keys=False, coverage_gc=False):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -730,6 +737,22 @@ class SessionTrie:
         if len(self.coverage_turn) > len(self.coverage):
             self.coverage_turn = {k: t for k, t in self.coverage_turn.items()
                                   if k in self.coverage}
+        # Orphan GC (opt-in): a key absent from the live node set cannot
+        # discount anything this turn either way; the grace window only
+        # hedges a later reordering resurrecting the same prefix. Doc keys
+        # get no immortality here - the decay exemption protects
+        # progressive coverage of a LIVE document branch, never orphans.
+        n_gc_dropped = 0
+        if coverage_gc:
+            cutoff = self._n_compress - COVERAGE_GC_GRACE
+            drop = [k for k in self.coverage
+                    if k not in universe_now
+                    and (self.coverage_turn.get(k) is None
+                         or self.coverage_turn[k] < cutoff)]
+            for k in drop:
+                del self.coverage[k]
+                self.coverage_turn.pop(k, None)
+            n_gc_dropped = len(drop)
         self._n_compress += 1
         if drift_cos is not None:
             self.drift_ema = (drift_cos if drift_baseline is None
@@ -764,6 +787,7 @@ class SessionTrie:
         stats["coverage_orphan_doc_keys"] = n_orphan_doc
         stats["coverage_persisted_orphan_mass"] = round(
             persisted_orphan_mass, 4)
+        stats["coverage_gc_dropped"] = n_gc_dropped
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
