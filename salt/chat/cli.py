@@ -185,6 +185,7 @@ class ChatState:
         self.tail_min = args.tail
         self.tail_max = 2 * args.tail
         self.last_stats = None
+        self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
         self.load_tail()
@@ -712,6 +713,40 @@ def handle_attach_at(state, line):
     warn_attachment_budget(state)
 
 
+def prompt_fixed_tokens(state):
+    """Tokens the prompt spends before the memory block: the system
+    message build_messages assembles (base prompt, instructions,
+    inventory, attach@ full texts) plus the verbatim tail. The system
+    part is tokenized once per model/attachment/instructions change and
+    cached on state; the tail is small and recounted each call. None
+    when no runner is loaded or tokenization fails."""
+    if state.runner is None:
+        return None
+    instructions = load_instructions()
+    inventory = attachment_inventory(state.trie, state.full_attachments)
+    system = SYSTEM_PROMPT
+    if instructions:
+        system += "\n\n" + instructions
+    if inventory:
+        system += "\n\n" + inventory
+    for name, text in state.full_attachments.items():
+        system += (f"\n\nAttached document '{name}' (full text):"
+                   f"\n---\n{text}\n---")
+    key = (tuple(state.full_attachments), instructions, inventory,
+           state.runner.alias)
+    if state._fixed_tokens_cache is None or \
+            state._fixed_tokens_cache[0] != key:
+        n = state.count_tokens(system)
+        if n is None:
+            return None
+        state._fixed_tokens_cache = (key, n)
+    fixed = state._fixed_tokens_cache[1]
+    if not state.tail:
+        return fixed
+    tail_n = state.count_tokens("\n".join(m["content"] for m in state.tail))
+    return None if tail_n is None else fixed + tail_n
+
+
 def warn_attachment_budget(state):
     """Warn when the full attachments plus the fixed system-prompt overhead
     (instructions + inventory) exceed the active model's context window (the
@@ -839,6 +874,12 @@ def handle_command(line, state):
                   f"{s.get('theme_coverage_pct', 0):.1%}, "
                   f"{trie_info.get('n_nodes', '?')} nodes / "
                   f"{trie_info.get('n_branches', '?')} branches")
+        fixed = prompt_fixed_tokens(state)
+        if fixed is not None:
+            limit = state.runner.input_budget()
+            of = f" of {int(limit)} usable input tokens" if limit else ""
+            print(f"prompt fixed cost: ~{fixed} tokens ahead of the "
+                  f"memory block{of}")
         # reported from ChatState, not last_stats: the setting is visible
         # even before the first compress of a session
         if state.coverage_half_life:
