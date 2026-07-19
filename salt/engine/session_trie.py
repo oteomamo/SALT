@@ -497,6 +497,128 @@ class SessionTrie:
                               "keywords_conv": keywords_conv}
         return merged_df, merged_themes
 
+    def _plan_commit(self, cov, seed, seed_passed, damped, drift_cos,
+                     drift_baseline, stable_keys, coverage_gc,
+                     coverage_max_keys):
+        """Compute the turn's coverage/EMA commit without touching any
+        session state. Returns (new_coverage, new_coverage_turn,
+        new_drift_ema, diag); _apply_commit() makes it real."""
+        if damped:
+            # Increments-only merge — the one real trap of seed scaling:
+            # CELF's returned coverage is seed-AS-PASSED + this turn's
+            # increments, so persisting it wholesale here would persist the
+            # scaled counts too — a permanent forgetting event on every
+            # shift turn. Rebuild from the unscaled base instead; untouched
+            # keys subtract to exactly 0.0 (the dict is copied, never
+            # re-derived), so the guard only filters float noise.
+            new_coverage = dict(seed)
+            for k, v in cov["coverage"].items():
+                d = v - seed_passed.get(k, 0.0)
+                if d > 1e-12:
+                    new_coverage[k] = new_coverage.get(k, 0.0) + d
+        else:
+            # same object, not a copy: the non-damped path has always
+            # adopted CELF's returned dict wholesale
+            new_coverage = cov["coverage"]
+        new_coverage_turn = dict(self.coverage_turn)
+        # Reconcile (stable_keys only): with the order frozen and
+        # membership sticky over an append-only corpus, a persisted key
+        # absent from this turn's node set can only be pre-flag history
+        # or eviction residue - no node exists for it to discount this
+        # turn or any later one, so carrying it forever is pure bloat.
+        universe_now = cov.get("node_keys") or set()
+        n_orphans_dropped = 0
+        if stable_keys:
+            before_n = len(new_coverage)
+            new_coverage = {k: v for k, v in new_coverage.items()
+                            if k in universe_now}
+            n_orphans_dropped = before_n - len(new_coverage)
+            if n_orphans_dropped:
+                new_coverage_turn = {k: t for k, t
+                                     in new_coverage_turn.items()
+                                     if k in new_coverage}
+        # Persisted-dict liveness measurement (free: the live set is this
+        # turn's node keys, already built by coverage_select). Orphans are
+        # keys no current trie node can match - inert for selection but
+        # copied forward and saved every turn.
+        persisted_orphans = [k for k in new_coverage
+                             if k not in universe_now]
+        n_orphan_doc = sum(1 for k in persisted_orphans
+                           if any(t.startswith(FILE_TOKEN_PREFIX)
+                                  for t in k))
+        persisted_orphan_mass = sum(new_coverage[k]
+                                    for k in persisted_orphans)
+        # Freshness clock for stale-only damping: stamp every key CELF
+        # actually incremented this call (returned vs seed-as-passed is the
+        # true in/out diff on both paths), then drop stamps for keys the
+        # decay floor garbage-collected so the dict stays bounded with the
+        # coverage itself. Stamps carry the PRE-increment compress counter.
+        for k, v in cov["coverage"].items():
+            if v > seed_passed.get(k, 0.0) + 1e-12:
+                new_coverage_turn[k] = self._n_compress
+        if len(new_coverage_turn) > len(new_coverage):
+            new_coverage_turn = {k: t for k, t in new_coverage_turn.items()
+                                 if k in new_coverage}
+        # Orphan GC (opt-in): a key absent from the live node set cannot
+        # discount anything this turn either way; the grace window only
+        # hedges a later reordering resurrecting the same prefix. Doc keys
+        # get no immortality here - the decay exemption protects
+        # progressive coverage of a LIVE document branch, never orphans.
+        n_gc_dropped = 0
+        if coverage_gc:
+            cutoff = self._n_compress - COVERAGE_GC_GRACE
+            drop = [k for k in new_coverage
+                    if k not in universe_now
+                    and (new_coverage_turn.get(k) is None
+                         or new_coverage_turn[k] < cutoff)]
+            for k in drop:
+                del new_coverage[k]
+                new_coverage_turn.pop(k, None)
+            n_gc_dropped = len(drop)
+        # Hard cap (opt-in): the only unconditional bound with decay off.
+        # Orphans go first regardless of grace, then live keys stalest
+        # and weakest first.
+        n_cap_dropped = 0
+        if coverage_max_keys is not None and int(coverage_max_keys) > 0:
+            cap = int(coverage_max_keys)
+            if len(new_coverage) > cap:
+                victims = sorted(
+                    new_coverage,
+                    key=lambda k: (k in universe_now,
+                                   new_coverage_turn.get(k, -1),
+                                   new_coverage[k]))
+                for k in victims[:len(new_coverage) - cap]:
+                    del new_coverage[k]
+                    new_coverage_turn.pop(k, None)
+                    n_cap_dropped += 1
+        new_drift_ema = None
+        if drift_cos is not None:
+            new_drift_ema = (drift_cos if drift_baseline is None
+                             else DRIFT_EMA_ALPHA * drift_cos
+                             + (1.0 - DRIFT_EMA_ALPHA) * drift_baseline)
+        diag = {"orphans_dropped": n_orphans_dropped,
+                "persisted_orphans": len(persisted_orphans),
+                "orphan_doc_keys": n_orphan_doc,
+                "persisted_orphan_mass": persisted_orphan_mass,
+                "gc_dropped": n_gc_dropped,
+                "cap_dropped": n_cap_dropped}
+        return new_coverage, new_coverage_turn, new_drift_ema, diag
+
+    def _apply_commit(self, new_coverage, new_coverage_turn, new_drift_ema,
+                      drift_cos, save=True):
+        """Make a planned commit real: coverage, freshness stamps, the
+        compress counter, the drift EMA, then persist (save=False marks
+        the state dirty for the caller's own save path)."""
+        self.coverage = new_coverage
+        self.coverage_turn = new_coverage_turn
+        self._n_compress += 1
+        if drift_cos is not None:
+            self.drift_ema = new_drift_ema
+        if save:
+            self.save()
+        else:
+            self.dirty = True
+
     def compress(self, query="", budget_pct=None, *, tokenizer, model,
                  device="cpu", delimiter=" ",
                  coverage_half_life=None, coverage_decay_docs=False,
@@ -691,100 +813,14 @@ class SessionTrie:
             seed_coverage=seed_passed, return_coverage=True,
             kw_rank=kw_rank)
 
-        if damped:
-            # Increments-only merge — the one real trap of seed scaling:
-            # CELF's returned coverage is seed-AS-PASSED + this turn's
-            # increments, so persisting it wholesale here would persist the
-            # scaled counts too — a permanent forgetting event on every
-            # shift turn. Rebuild from the unscaled base instead; untouched
-            # keys subtract to exactly 0.0 (the dict is copied, never
-            # re-derived), so the guard only filters float noise.
-            merged = dict(seed)
-            for k, v in cov["coverage"].items():
-                d = v - seed_passed.get(k, 0.0)
-                if d > 1e-12:
-                    merged[k] = merged.get(k, 0.0) + d
-            self.coverage = merged
-        else:
-            self.coverage = cov["coverage"]
-        # Reconcile (stable_keys only): with the order frozen and
-        # membership sticky over an append-only corpus, a persisted key
-        # absent from this turn's node set can only be pre-flag history
-        # or eviction residue - no node exists for it to discount this
-        # turn or any later one, so carrying it forever is pure bloat.
-        universe_now = cov.get("node_keys") or set()
-        n_orphans_dropped = 0
-        if stable_keys:
-            before_n = len(self.coverage)
-            self.coverage = {k: v for k, v in self.coverage.items()
-                             if k in universe_now}
-            n_orphans_dropped = before_n - len(self.coverage)
-            if n_orphans_dropped:
-                self.coverage_turn = {k: t for k, t
-                                      in self.coverage_turn.items()
-                                      if k in self.coverage}
-        # Persisted-dict liveness measurement (free: the live set is this
-        # turn's node keys, already built by coverage_select). Orphans are
-        # keys no current trie node can match - inert for selection but
-        # copied forward and saved every turn.
-        persisted_orphans = [k for k in self.coverage
-                             if k not in universe_now]
-        n_orphan_doc = sum(1 for k in persisted_orphans
-                           if any(t.startswith(FILE_TOKEN_PREFIX)
-                                  for t in k))
-        persisted_orphan_mass = sum(self.coverage[k]
-                                    for k in persisted_orphans)
-        # Freshness clock for stale-only damping: stamp every key CELF
-        # actually incremented this call (returned vs seed-as-passed is the
-        # true in/out diff on both paths), then drop stamps for keys the
-        # decay floor garbage-collected so the dict stays bounded with the
-        # coverage itself.
-        for k, v in cov["coverage"].items():
-            if v > seed_passed.get(k, 0.0) + 1e-12:
-                self.coverage_turn[k] = self._n_compress
-        if len(self.coverage_turn) > len(self.coverage):
-            self.coverage_turn = {k: t for k, t in self.coverage_turn.items()
-                                  if k in self.coverage}
-        # Orphan GC (opt-in): a key absent from the live node set cannot
-        # discount anything this turn either way; the grace window only
-        # hedges a later reordering resurrecting the same prefix. Doc keys
-        # get no immortality here - the decay exemption protects
-        # progressive coverage of a LIVE document branch, never orphans.
-        n_gc_dropped = 0
-        if coverage_gc:
-            cutoff = self._n_compress - COVERAGE_GC_GRACE
-            drop = [k for k in self.coverage
-                    if k not in universe_now
-                    and (self.coverage_turn.get(k) is None
-                         or self.coverage_turn[k] < cutoff)]
-            for k in drop:
-                del self.coverage[k]
-                self.coverage_turn.pop(k, None)
-            n_gc_dropped = len(drop)
-        # Hard cap (opt-in): the only unconditional bound with decay off.
-        # Orphans go first regardless of grace, then live keys stalest
-        # and weakest first.
-        n_cap_dropped = 0
-        if coverage_max_keys is not None and int(coverage_max_keys) > 0:
-            cap = int(coverage_max_keys)
-            if len(self.coverage) > cap:
-                victims = sorted(
-                    self.coverage,
-                    key=lambda k: (k in universe_now,
-                                   self.coverage_turn.get(k, -1),
-                                   self.coverage[k]))
-                for k in victims[:len(self.coverage) - cap]:
-                    del self.coverage[k]
-                    self.coverage_turn.pop(k, None)
-                    n_cap_dropped += 1
-        self._n_compress += 1
-        if drift_cos is not None:
-            self.drift_ema = (drift_cos if drift_baseline is None
-                              else DRIFT_EMA_ALPHA * drift_cos
-                              + (1.0 - DRIFT_EMA_ALPHA) * drift_baseline)
-        self.save()
+        (new_coverage, new_coverage_turn, new_drift_ema,
+         commit_diag) = self._plan_commit(
+             cov, seed, seed_passed, damped, drift_cos, drift_baseline,
+             stable_keys, coverage_gc, coverage_max_keys)
+        self._apply_commit(new_coverage, new_coverage_turn, new_drift_ema,
+                           drift_cos)
 
-        stats["coverage_keys"] = len(self.coverage)
+        stats["coverage_keys"] = len(new_coverage)
         stats["coverage_half_life"] = coverage_half_life
         stats["drift_cos"] = drift_cos
         stats["drift_ema"] = drift_baseline
@@ -804,15 +840,15 @@ class SessionTrie:
         stats["coverage_orphan_keys"] = len(seed_passed) - seed_matched
         stats["coverage_orphan_mass"] = round(
             sum(v for k, v in seed_passed.items() if k not in universe), 4)
-        stats["coverage_orphans_dropped"] = n_orphans_dropped
-        stats["coverage_persisted_live"] = (len(self.coverage)
-                                            - len(persisted_orphans))
-        stats["coverage_persisted_orphans"] = len(persisted_orphans)
-        stats["coverage_orphan_doc_keys"] = n_orphan_doc
+        stats["coverage_orphans_dropped"] = commit_diag["orphans_dropped"]
+        stats["coverage_persisted_live"] = (len(new_coverage)
+                                            - commit_diag["persisted_orphans"])
+        stats["coverage_persisted_orphans"] = commit_diag["persisted_orphans"]
+        stats["coverage_orphan_doc_keys"] = commit_diag["orphan_doc_keys"]
         stats["coverage_persisted_orphan_mass"] = round(
-            persisted_orphan_mass, 4)
-        stats["coverage_gc_dropped"] = n_gc_dropped
-        stats["coverage_capped_dropped"] = n_cap_dropped
+            commit_diag["persisted_orphan_mass"], 4)
+        stats["coverage_gc_dropped"] = commit_diag["gc_dropped"]
+        stats["coverage_capped_dropped"] = commit_diag["cap_dropped"]
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
