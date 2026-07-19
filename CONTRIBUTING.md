@@ -98,6 +98,44 @@ Everyday feature work does not need any of this: the conversation layer
 (`salt/engine/session_trie.py` and everything under `salt/chat/`) plus
 `docs/` is where features live, and it is not frozen.
 
+## Adding a saltChat option, the golden path
+
+The most common change in this repo. The flag itself is the smallest
+part. A finished option touches these places, in this order:
+
+1. The flag in `build_parser()` (`salt/chat/cli.py`), defaulting to
+   today's behavior.
+2. `ChatState.__init__` stores it.
+3. The call site passes it (usually the `compress()` call in
+   `chat_turn`).
+4. The behavior reports itself in the returned `stats`, so it can be
+   judged before it is trusted.
+5. The `/stats` handler prints one line when the option is active.
+6. A one or two sentence concept bullet on `docs/chatbot.md`.
+7. A one line row on `docs/options.md` (what it does, when to turn it
+   on).
+8. A changelog bullet under the current minor, when behavior changes.
+9. A regression check that pins the new behavior on AND pins the
+   default identical to before.
+
+Then `bash scripts/verify.sh chat`, all in the same PR. An option
+nobody can discover, judge, or trust is not finished.
+
+## Adding a regression check
+
+The harnesses under `scripts/` share idioms. Match them:
+
+- Assert-based, refusing `python -O` (see the `__debug__` guard at the
+  top of any harness), one printed line per check group, `PASS` at the
+  end.
+- CPU-only and deterministic: fixed transcripts and fixtures, no clocks
+  and no randomness.
+- Pin both sides of a change: the new behavior with its option on, and
+  the old behavior byte-identical with it off.
+- A new script gets a row in the table above and a line in
+  `scripts/README.md`. A new group in an existing harness extends that
+  harness's numbered docstring list.
+
 ## Commit messages
 
 A short imperative subject, then a body of two to six lines covering what
