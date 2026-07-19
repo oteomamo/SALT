@@ -151,10 +151,13 @@ Where each stage lives:
 | Few-shot bypass (`trec`, `triviaqa`, `samsum`) | `salt/engine/fewshot.py` |
 | Dataset adapters (`--synthetic`, `--code`) | `salt/engine/dataset_modes.py` |
 | Multi-turn session store | `salt/engine/session_trie.py` |
+| Chat text handling (verbatim storage, short turns) | `salt/engine/chat_text.py`, `salt/chat/shortturn.py` |
 | Background ingest worker (chat) | `salt/chat/ingest.py` |
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
-| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat` |
+| Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
+| Multi-GPU placement (`--gpu` list) | `salt/chat/runner.py`, `salt/chat/serve.py` |
+| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat`, `saltServe` |
 
 ## 📦 Installation
 
@@ -255,10 +258,13 @@ saltChat --model qwen05 --conversation-id demo1 --doc report.txt
 
 A persistent server started with `saltServe` keeps the model loaded and
 its cache warm between chats, so a resumed conversation picks up without
-re-reading its documents. Attachments, PDF cleaning, the KV-cache-shaped
-prompt layout, persistent serving, the memory knobs, background
-ingestion, and the per-turn KV ledger are all covered in the
-[Chatbot mode guide](https://oteomamo.github.io/SALT/chatbot/).
+re-reading its documents. The
+[Chatbot mode guide](https://oteomamo.github.io/SALT/chatbot/) covers
+the concepts, the [Serving](https://oteomamo.github.io/SALT/serving/)
+page covers the server, and the
+[Options](https://oteomamo.github.io/SALT/options/) page lists every
+flag in one line each, including the off-by-default switches that make
+long sessions better.
 
 ## 🔬 Results
 
