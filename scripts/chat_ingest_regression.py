@@ -29,6 +29,9 @@ worker mirroring chat_turn's order - and asserts:
      repaired on load: orphan rows drop byte-exact, an over-long corpus
      truncates with hashes withdrawn, the turn clock never rewinds, and
      a clean session reloads as a strict no-op.
+ 14. compress(max_words=None) is byte-identical to omitting the arg;
+     with a cap the selected word count never exceeds it and the budget
+     plateaus, while the uncapped budget keeps growing with the corpus.
 
 Needs the BGE encoder (fetched to the HF cache on first use). The CPU
 run takes under a minute. Refuses to run under `python -O`.
@@ -437,6 +440,54 @@ def main():
         print("torn save: orphan rows dropped byte-exact, truncated "
               "matrix shrinks the corpus, hashes withdrawn, repair "
               "persists and is idempotent")
+
+        # assert 14: the word-budget cap (W20)
+        ckw = dict(tokenizer=tok, model=mdl, device=args.device)
+        ta14 = SessionTrie("cap-a", cache_dir=tmp, model_name=BGE_MODEL)
+        tb14 = SessionTrie("cap-b", cache_dir=tmp, model_name=BGE_MODEL)
+        for t14 in (ta14, tb14):
+            for i in range(5):
+                t14.add_turn(f"Seed sentence {i} covers the intake filter "
+                             f"swap and the flow calibration for line {i}.",
+                             "user", **ckw)
+        ca = ta14.compress(query="what covers the filters?", budget_pct=0.3,
+                           **ckw)
+        cb = tb14.compress(query="what covers the filters?", budget_pct=0.3,
+                           max_words=None, **ckw)
+        assert ca["context"] == cb["context"] and (
+            ca["stats"]["word_budget"] == cb["stats"]["word_budget"]), (
+            "max_words=None diverged from omitting the argument")
+        assert ca["stats"]["word_budget_capped"] is False
+
+        CAP = 40
+        tu = SessionTrie("cap-grow-u", cache_dir=tmp, model_name=BGE_MODEL)
+        tc = SessionTrie("cap-grow-c", cache_dir=tmp, model_name=BGE_MODEL)
+        budgets_u, budgets_c, capped_seen = [], [], False
+        for i in range(30):
+            s14 = (f"Maintenance item {i} covers the pump gasket swap and "
+                   f"the pressure flow test for line {i}.")
+            tu.add_turn(s14, "user", save=False, **ckw)
+            tc.add_turn(s14, "user", save=False, **ckw)
+            cu = tu.compress(query="pump maintenance status?",
+                             budget_pct=0.2, **ckw)
+            cc = tc.compress(query="pump maintenance status?",
+                             budget_pct=0.2, max_words=CAP, **ckw)
+            budgets_u.append(cu["stats"]["word_budget"])
+            budgets_c.append(cc["stats"]["word_budget"])
+            sel_words = sum(tc.n_words[j] for j in cc["selected_sent_idx"])
+            assert sel_words <= CAP, (
+                f"turn {i}: capped selection used {sel_words} words > {CAP}")
+            capped_seen = capped_seen or cc["stats"]["word_budget_capped"]
+        assert budgets_u == sorted(budgets_u) and budgets_u[-1] > budgets_u[0], (
+            "the uncapped budget stopped growing with the corpus - the "
+            "growth premise of this check is broken")
+        assert capped_seen and budgets_c[-1] == CAP == max(budgets_c), (
+            "the capped budget never plateaued at the cap")
+        assert budgets_u[-1] > CAP, (
+            "the uncapped run never outgrew the cap, so the comparison "
+            "is vacuous")
+        print(f"word cap: None identical to omitted, capped run plateaus "
+              f"at {CAP} words (uncapped reached {budgets_u[-1]})")
 
         # asserts 3+4: deferred failure report + journal recovery
         jdir = tmp / "failsession"

@@ -487,7 +487,8 @@ class SessionTrie:
                  device="cpu", delimiter=" ",
                  coverage_half_life=None, coverage_decay_docs=False,
                  shift_damping=None, shift_margin=0.12,
-                 shift_query_boost=1.5, per_source_themes=False):
+                 shift_query_boost=1.5, per_source_themes=False,
+                 max_words=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -522,6 +523,14 @@ class SessionTrie:
         carried by the query channels and the verbatim tail, not by a
         lifted discount. Default None keeps selection and persisted
         coverage bit-identical to the flag-off behavior.
+
+        `max_words` (opt-in): absolute ceiling on the selection word
+        budget. The budget is normally a fraction of the ever-growing
+        corpus, so the memory block grows without bound; a positive
+        `max_words` clamps it (word_budget = min(fraction, max_words)) so
+        the block stops growing once the corpus outruns the cap. Stats
+        report word_budget and word_budget_capped. Default None reproduces
+        today's selection exactly.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_sentences == 0:
@@ -572,6 +581,10 @@ class SessionTrie:
 
         orig_words = sum(self.n_words)
         word_budget = int(orig_words * budget_pct)
+        word_budget_capped = False
+        if max_words is not None and int(max_words) > 0:
+            word_budget_capped = word_budget > int(max_words)
+            word_budget = min(word_budget, int(max_words))
 
         query = (query or "").strip()
         q_kws = q_pns = q_emb = None
@@ -674,6 +687,8 @@ class SessionTrie:
         stats["theme_scope"] = "source" if per_source_themes else "global"
         stats["theme_sources"] = self._profile_diag["sources"]
         stats["theme_keywords_conv"] = self._profile_diag["keywords_conv"]
+        stats["word_budget"] = word_budget
+        stats["word_budget_capped"] = word_budget_capped
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
