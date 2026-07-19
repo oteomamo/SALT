@@ -1337,13 +1337,13 @@ def build_parser():
                         "memory)")
     p.add_argument("--budget-pct", type=float, default=0.20,
                    help="token budget for the compressed memory block")
-    p.add_argument("--memory-cap", default="off", metavar="N|auto|off",
+    p.add_argument("--memory-cap", default="auto", metavar="N|auto|off",
                    help="absolute ceiling on the compressed memory block, "
                         "in tokens. 'auto' fits the block to the space the "
                         "model's window has left after the fixed prompt "
                         "and a reply reserve, a number caps it at that "
-                        "many tokens, 'off' keeps the unbounded "
-                        "percentage sizing (default: off)")
+                        "many tokens, 'off' restores the old unbounded "
+                        "percentage sizing (default: auto)")
     p.add_argument("--doc", action="append", default=[], metavar="PATH",
                    help="text or PDF file to ingest into the trie at startup "
                         "(repeatable)")

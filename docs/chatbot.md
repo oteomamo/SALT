@@ -158,8 +158,11 @@ reviewed or scored afterward.
 A `salt@` file becomes **its own branch** of the session trie, hanging off the
 conversation's root - so multiple attachments never crowd each other out, and
 the per-turn budget (default 20%) spreads across files and conversation
-themes. An `attach@` file skips the trie entirely: its full text rides
-uncompressed in every prompt.
+themes. The percentage is bounded by what actually fits the model's
+window: `--memory-cap auto` (the default) sizes the block to the space
+left after the fixed prompt, and `--memory-cap off` restores the old
+unbounded sizing. An `attach@` file skips the trie entirely: its full text
+rides uncompressed in every prompt.
 
 ## How PDFs are cleaned
 
@@ -290,6 +293,16 @@ And a **repetition** gate. `--dedup-cos 0.92` skips a new conversation
 sentence too similar to an earlier one from the same speaker, so
 restatements and re-asked questions stop inflating the theme statistics.
 Attached files are never gated. `/stats` counts the suppressions.
+
+And a **ceiling**. The memory block is sized as a percentage of
+everything remembered, and a long session or a large attachment grows
+that number without limit. `--memory-cap` bounds it. `auto` (the
+default) fits the block to the space the model's window has left after
+the system prompt, attachments and the recent turns, a number caps the
+block at that many tokens, and `off` restores the old unbounded sizing.
+When the prompt would still overflow, the warning names which part is
+too big. `/stats` reports the prompt's fixed cost against the model's
+usable input.
 
 And a **theme scope** switch. Theme statistics normally pool the whole
 session, so one large attached file can set the bar for what counts as
