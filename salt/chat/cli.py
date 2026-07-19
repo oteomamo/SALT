@@ -46,6 +46,7 @@ from salt.chat.runner import make_runner
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
 from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
                                  is_short_user_unit)
+from salt.engine.chat_text import is_protected_chat_unit
 from salt.engine.compressor import load_bge
 from salt.engine.session_trie import VALID_ROLES, SessionTrie
 
@@ -509,10 +510,16 @@ def print_models(active=None):
               f"[{m['dtype']}, {state}]")
 
 
+def _user_keep(t):
+    # add_turn's default protects code/table/link units; user turns must
+    # keep that protection alongside the short-turn one
+    return is_short_user_unit(t) or is_protected_chat_unit(t)
+
+
 def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
                 save=True, context=None):
     if keep is None and role == "user" and state.short_turns != "off":
-        keep = is_short_user_unit
+        keep = _user_keep
         if (state.short_turns == "fuse" and context
                 and acknowledgement_only(text)):
             text = fuse_with_question(text, context)

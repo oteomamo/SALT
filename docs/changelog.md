@@ -62,7 +62,9 @@ decision can be found again later by the question's own words. 2.9.34
 stops chat ingest from scrubbing messages like benchmark documents, so
 pasted code keeps its generics, tables and pipelines keep their pipes,
 and a sentence with a link keeps its prose with the URL stored as
-`<url>`.
+`<url>`. 2.9.35 protects table rows, pipelines, link sentences and
+code-shaped lines from the short-fragment filter, so they reach memory
+even when brief.
 
 ## 2.8.0 (2026-07-15)
 

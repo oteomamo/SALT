@@ -183,9 +183,13 @@ Messages you type are stored the way you typed them. Code keeps its
 generics and brackets, markdown tables and shell pipelines keep their
 pipes, and pixel values stay put. Only whitespace is normalized, and a
 sentence mentioning a URL keeps its prose with the link stored as
-`<url>`. Lines that are mostly URL are not stored. Earlier versions ran
-chat messages through the same scrubbing used for benchmark documents,
-which could quietly rewrite pasted code before it reached memory.
+`<url>`. Lines that are mostly URL are not stored. Table rows, shell
+pipelines, link sentences and code-shaped lines are also protected from
+the length gates that filter document fragments, so a pasted table
+header or a one-line function reaches memory even though it is short.
+Earlier versions ran chat messages through the same scrubbing used for
+benchmark documents, which could quietly rewrite pasted code before it
+reached memory.
 
 ## What the model sees
 

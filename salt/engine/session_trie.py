@@ -46,7 +46,8 @@ from pathlib import Path
 
 import numpy as np
 
-from salt.engine.chat_text import clean_chat_text, resolve_chat_urls
+from salt.engine.chat_text import (clean_chat_text, is_protected_chat_unit,
+                                   resolve_chat_urls)
 from salt.engine.embedder import split_sentences as embed_split_sentences
 from salt.engine.sentence_filter import filter_texts
 from salt.engine.trie_core import (
@@ -220,7 +221,10 @@ class SessionTrie:
         built-in clean+split pass; the junk filter, cross-turn dedupe and the
         per-unit token cap still apply. `keep` (a text predicate, e.g.
         `pdfio.is_protected_unit`) exempts structural units — headings,
-        grouped tables, equations — from the junk filter.
+        grouped tables, equations — from the junk filter. Raw conversation
+        ingest with no predicate defaults to `is_protected_chat_unit`, so
+        table rows, pipelines, rescued link sentences and code-shaped lines
+        survive the junk filter's length gates.
 
         Chat text is stored verbatim apart from whitespace normalization
         and the <url> substitution (url-dominated lines drop): code,
@@ -268,6 +272,8 @@ class SessionTrie:
             cleaned = clean_chat_text(text)
             raw = embed_split_sentences(cleaned, max_tokens=400, tokenizer=tokenizer)
             all_texts = resolve_chat_urls([s for s, _, _ in raw])
+        if keep is None and sentences is None:
+            keep = is_protected_chat_unit
         sentences, *_ = filter_texts(all_texts, aggressive=True,
                                      remove_urls=True, deduplicate=True,
                                      strip_urls=True, lenient=True, keep=keep)
