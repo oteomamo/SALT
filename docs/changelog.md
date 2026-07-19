@@ -81,7 +81,16 @@ a big attachment eventually overflowed the prompt and truncation ate
 the system prompt first. The block is now capped to what fits the
 model's window (`--memory-cap auto`, the default, with `off` restoring
 the old sizing), and the overflow warning counts the whole prompt and
-says which part is too big.
+says which part is too big. 2.9.49 through 2.9.53 take on the memory
+tree's deepest defect. The discounts that stop SALT from repeating
+itself are keyed to branches of a tree that is rebuilt every turn, and
+as a conversation grows a branch could come back under a different
+keyword order, quietly detaching its discount. `/stats` now shows how
+many remembered keys matched or orphaned each turn, and the opt-in
+`--stable-coverage-keys` freezes the session's keyword order, keeps
+theme membership sticky while a discount is alive, and cleans up keys
+from before the flag, driving the orphan count to zero on the
+regression that reproduces the churn.
 
 ## 2.8.0 (2026-07-15)
 

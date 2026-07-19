@@ -184,11 +184,23 @@ selected again as if it were never shown.
 `--stable-coverage-keys` freezes the keyword order per session. A new
 keyword joins at the tail of a persisted order rather than at its
 current frequency rank, so every existing branch keeps its identity and
-the remembered counts keep applying. The cost is ordering quality: a
-topic that becomes dominant late sits deeper in the tree than frequency
-ordering would place it. The flag is off by default, and `/stats`
-reports how many remembered keys matched or orphaned each turn so the
-trade can be judged on real sessions.
+the remembered counts keep applying. Append-only ordering is the whole
+mechanism: a keyword added at the tail of the order lands at the tail
+of every branch that contains it, so every existing branch prefix, and
+with it every remembered count, survives untouched.
+
+Two companions complete it. Theme membership is sticky under the flag,
+because a keyword falling below the theme cutoff would otherwise remove
+its branches wholesale no matter how the order is frozen. A keyword
+keeps its place while its remembered counts are alive and lets go once
+forgetting clears them. And keys with no matching branch left, from
+before the flag was on, are dropped once and counted, instead of being
+carried forever.
+
+The cost is ordering quality: a topic that becomes dominant late sits
+deeper in the tree than frequency ordering would place it. The flag is
+off by default, and `/stats` reports how many remembered keys matched
+or orphaned each turn so the trade can be judged on real sessions.
 
 Where each stage lives:
 
