@@ -43,7 +43,17 @@ are about making changes easy to follow:
 - **Update the docs in the same PR** when behavior changes: the README, the
   files under `docs/`, and any `--help` text your change touches.
 
-Regression scripts to run, by area:
+One command runs the right suites for an area:
+
+```bash
+bash scripts/verify.sh chat      # after touching the chat loop or session trie
+bash scripts/verify.sh all      # every CPU suite plus the eval smoke run
+```
+
+The script picks the `salt` conda environment automatically when it
+exists (the suites need its dependencies, `pypdf` among them) and
+retries the PDF suite before believing a failure, since `pypdf` is not
+deterministic. The table it wraps, for reference:
 
 | If you touched | Run |
 |---|---|

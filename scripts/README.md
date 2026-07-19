@@ -18,12 +18,17 @@ plain install stays green.
 - `chat_dedup_regression.py` covers the near-duplicate memory gate
   (`--dedup-cos`).
 - `chat_pdf_regression.py` covers PDF and text ingestion.
+- `chat_textclean_regression.py` covers chat-side text handling (what
+  conversation memory stores verbatim).
+- `chat_keystab_regression.py` covers cross-turn coverage-key stability.
 - `chat_vllm_regression.py` covers the in-process `--backend vllm`.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.
 
 ## 📦 Utilities
 
+- `verify.sh` runs the regression suites for one area in one command
+  (`bash scripts/verify.sh chat`, or `all`). Start here.
 - `setup_env.sh` creates the `salt` conda environment and installs the
   dependencies.
 - `run_datasets.sh` compresses the LongBench datasets and can then

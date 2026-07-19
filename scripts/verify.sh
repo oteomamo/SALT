@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# One command per verification area, so "which suites do I run" is never
+# a memory exercise. Wraps the regression table in CONTRIBUTING.md.
+#
+# Usage:
+#   bash scripts/verify.sh chat      # chat ingest + theme suites
+#   bash scripts/verify.sh all      # every CPU suite + eval smoke + docs
+#
+# Areas: chat, engine, dedup, keys, text, pdf, docs, smoke, vllm, serve,
+# all. `all` covers everything that runs on CPU with no server (vllm and
+# serve need a GPU or a running server, run them explicitly).
+#
+# Suites run under the `salt` conda environment when it exists (they need
+# its dependencies, e.g. pypdf), else under the current python.
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+PY=(python)
+if command -v conda >/dev/null 2>&1 \
+    && conda env list 2>/dev/null | awk '{print $1}' | grep -qx salt; then
+  PY=(conda run --no-capture-output -n salt python)
+fi
+
+FAILED=()
+
+run() {
+  local label="$1"; shift
+  echo "== $label"
+  if ! "$@"; then
+    FAILED+=("$label")
+    echo "-- FAILED: $label"
+  fi
+}
+
+pdf_suite() {
+  # pypdf is nondeterministic: believe a failure only when it repeats
+  local n
+  for n in 1 2 3; do
+    if "${PY[@]}" scripts/chat_pdf_regression.py; then return 0; fi
+    echo "-- pdf suite attempt $n/3 failed (pypdf nondeterminism, retrying)"
+  done
+  return 1
+}
+
+smoke_suite() {
+  MAX_SAMPLES=5 RUN_EVAL=0 bash scripts/run_datasets.sh
+}
+
+area_chat()   { run "chat ingest"     "${PY[@]}" scripts/chat_ingest_regression.py
+                run "chat themes"     "${PY[@]}" scripts/chat_theme_regression.py; }
+area_dedup()  { run "near-dup gate"   "${PY[@]}" scripts/chat_dedup_regression.py; }
+area_keys()   { run "coverage keys"   "${PY[@]}" scripts/chat_keystab_regression.py; }
+area_text()   { run "chat text"       "${PY[@]}" scripts/chat_textclean_regression.py; }
+area_pdf()    { run "pdf ingestion"   pdf_suite; }
+area_smoke()  { run "eval smoke"      smoke_suite; }
+area_docs()   { run "mkdocs strict"   mkdocs build --strict; }
+area_engine() { area_chat; area_smoke; }
+area_vllm()   { run "vllm backend"    "${PY[@]}" scripts/chat_vllm_regression.py; }
+area_serve()  { run "serving"         "${PY[@]}" scripts/chat_serve_regression.py; }
+area_all()    { area_text; area_keys; area_chat; area_dedup; area_pdf
+                area_smoke; area_docs; }
+
+case "${1:-}" in
+  chat|engine|dedup|keys|text|pdf|docs|smoke|vllm|serve|all)
+    "area_$1" ;;
+  *)
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2 ;;
+esac
+
+echo
+if [ "${#FAILED[@]}" -eq 0 ]; then
+  echo "verify: all green"
+else
+  echo "verify: FAILED - ${FAILED[*]}"
+  exit 1
+fi
