@@ -1040,9 +1040,13 @@ link as <code>&lt;url&gt;</code>.</p>
 generics and brackets, markdown tables and shell pipelines keep their
 pipes, and pixel values stay put. Only whitespace is normalized, and a
 sentence mentioning a URL keeps its prose with the link stored as
-<code>&lt;url&gt;</code>. Lines that are mostly URL are not stored. Earlier versions ran
-chat messages through the same scrubbing used for benchmark documents,
-which could quietly rewrite pasted code before it reached memory.</p>
+<code>&lt;url&gt;</code>. Lines that are mostly URL are not stored. Table rows, shell
+pipelines, link sentences and code-shaped lines are also protected from
+the length gates that filter document fragments, so a pasted table
+header or a one-line function reaches memory even though it is short.
+Earlier versions ran chat messages through the same scrubbing used for
+benchmark documents, which could quietly rewrite pasted code before it
+reached memory.</p>
 <h2 id="what-the-model-sees">What the model sees</h2>
 <p>The chat model is told what it is looking at: the system prompt carries a
 reading guide from
