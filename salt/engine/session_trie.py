@@ -697,9 +697,9 @@ class SessionTrie:
         # absent from this turn's node set can only be pre-flag history
         # or eviction residue - no node exists for it to discount this
         # turn or any later one, so carrying it forever is pure bloat.
+        universe_now = cov.get("node_keys") or set()
         n_orphans_dropped = 0
         if stable_keys:
-            universe_now = cov.get("node_keys") or set()
             before_n = len(self.coverage)
             self.coverage = {k: v for k, v in self.coverage.items()
                              if k in universe_now}
@@ -708,6 +708,17 @@ class SessionTrie:
                 self.coverage_turn = {k: t for k, t
                                       in self.coverage_turn.items()
                                       if k in self.coverage}
+        # Persisted-dict liveness measurement (free: the live set is this
+        # turn's node keys, already built by coverage_select). Orphans are
+        # keys no current trie node can match - inert for selection but
+        # copied forward and saved every turn.
+        persisted_orphans = [k for k in self.coverage
+                             if k not in universe_now]
+        n_orphan_doc = sum(1 for k in persisted_orphans
+                           if any(t.startswith(FILE_TOKEN_PREFIX)
+                                  for t in k))
+        persisted_orphan_mass = sum(self.coverage[k]
+                                    for k in persisted_orphans)
         # Freshness clock for stale-only damping: stamp every key CELF
         # actually incremented this call (returned vs seed-as-passed is the
         # true in/out diff on both paths), then drop stamps for keys the
@@ -747,6 +758,12 @@ class SessionTrie:
         stats["coverage_orphan_mass"] = round(
             sum(v for k, v in seed_passed.items() if k not in universe), 4)
         stats["coverage_orphans_dropped"] = n_orphans_dropped
+        stats["coverage_persisted_live"] = (len(self.coverage)
+                                            - len(persisted_orphans))
+        stats["coverage_persisted_orphans"] = len(persisted_orphans)
+        stats["coverage_orphan_doc_keys"] = n_orphan_doc
+        stats["coverage_persisted_orphan_mass"] = round(
+            persisted_orphan_mass, 4)
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)

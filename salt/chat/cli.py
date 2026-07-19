@@ -958,6 +958,11 @@ def handle_command(line, state):
                   f"{s['coverage_seed_keys']} carried-over keys matched "
                   f"this turn's memory tree, {s['coverage_orphan_keys']} "
                   f"orphaned (mass {s['coverage_orphan_mass']:g})")
+        if s.get("coverage_persisted_orphans") is not None:
+            print(f"coverage dict: {s['coverage_persisted_live']} live "
+                  f"keys, {s['coverage_persisted_orphans']} orphaned "
+                  f"({s['coverage_orphan_doc_keys']} from attachments, "
+                  f"mass {s['coverage_persisted_orphan_mass']:g})")
         if state.per_source_themes:
             note = ""
             if s.get("theme_scope") == "source":
