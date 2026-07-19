@@ -218,6 +218,20 @@ def main():
     print("short turns: predicate keeps the four W9 utterances, drops "
           "junk, filter still drops them without keep=")
 
+    # fuse helpers (pure): acks are classified, the fused unit carries
+    # both the utterance and the question it answers
+    from salt.chat.shortturn import acknowledgement_only, fuse_with_question
+    for t in ("yes", "ok sure", "the second one"):
+        assert acknowledgement_only(t), f"ack not classified: {t!r}"
+    for t in ("no, use PostgreSQL", "go with option B"):
+        assert not acknowledgement_only(t), f"non-ack classified: {t!r}"
+    fused = fuse_with_question("the second one",
+                               "Two choices.\nRed option, or the blue one?")
+    assert "the second one" in fused and "blue one?" in fused, fused
+    assert "Two choices" not in fused, (
+        "fuse quoted more than the last sentence of the reply")
+    print("short turns: fuse quotes the answered question, acks classified")
+
     print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
     tok, mdl = load_bge(BGE_MODEL, args.device)
     tmp = Path(tempfile.mkdtemp(prefix="salt_ingest_regression_"))
@@ -283,6 +297,27 @@ def main():
             "keep=is_short_user_unit did not ingest the short user turn")
         print("short turns: add_turn keeps the decision under keep=, "
               "drops it by default")
+
+        # fuse through the real add_to_trie wiring: an ack is stored fused
+        # with its question, a non-ack short turn stays verbatim
+        import types
+        from salt.chat.cli import add_to_trie
+        ns = types.SimpleNamespace(trie=st, bge_tok=tok, bge_model=mdl,
+                                   bge_device=args.device, dedup_cos=None,
+                                   short_turns="fuse")
+        info = add_to_trie(ns, "the second one", "user", save=False,
+                           context="Do you want the red option, or the "
+                                   "blue option?")
+        assert info["added"] == 1, "fused ack did not enter the trie"
+        assert ("the second one" in st.texts[-1]
+                and "blue option?" in st.texts[-1]), st.texts[-1]
+        info = add_to_trie(ns, "no, use MariaDB", "user", save=False,
+                           context="SQLite then?")
+        assert info["added"] == 1 and st.texts[-1] == "no, use MariaDB", (
+            "a content-bearing short turn was not stored verbatim in "
+            "fuse mode")
+        print("short turns: fuse stores ack+question, content-bearing "
+              "short turns stay verbatim")
 
         # assert 10: failed-generation survival (background order)
         line = ("Please remember that the maintenance window moves to "

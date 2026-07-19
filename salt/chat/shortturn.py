@@ -60,3 +60,20 @@ def acknowledgement_only(text):
     answers."""
     words = _WORD_RE.findall(text.lower())
     return all(w in ACK_WORDS for w in words if is_content_word(w))
+
+
+_SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def fuse_with_question(text, context, max_ctx=120):
+    """Trie unit for a bare acknowledgement: the utterance plus the last
+    sentence of the assistant turn it answers, so "yes" is retrievable by
+    the question's own words. Only the stored unit changes - the tail and
+    the prompt keep the clean user line."""
+    lines = [l.strip() for l in context.strip().splitlines() if l.strip()]
+    last = lines[-1] if lines else ""
+    parts = [p for p in _SENT_SPLIT_RE.split(last) if p]
+    last = parts[-1] if parts else last
+    if len(last) > max_ctx:
+        last = "..." + last[-max_ctx:]
+    return f'{text.strip()}  [in reply to: "{last}"]'

@@ -281,6 +281,11 @@ terse chat decisions like "go with option B" or "no, use PostgreSQL".
 Short user messages now enter conversation memory like any other
 sentence. Lines that are only a URL, only punctuation, or otherwise
 junk-shaped still drop. `--short-turns off` restores the old behavior.
+`--short-turns fuse` goes one step further for bare acknowledgements. A
+message like "yes" or "the second one" is stored together with the
+question it answers, quoted from the end of the previous reply, so the
+memory can find the decision later by the question's own words. The chat
+prompt itself still shows exactly what you typed.
 
 ## Background ingestion
 

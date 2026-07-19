@@ -56,6 +56,9 @@ never reads as proof that an older topic was never discussed. 2.9.31
 stops the junk filter from dropping short user messages, so terse
 decisions like "go with option B" stay in conversation memory for the
 whole session. `--short-turns off` restores the old dropping behavior.
+2.9.32 adds `--short-turns fuse`, which stores a bare acknowledgement
+like "the second one" together with the question it answers, so the
+decision can be found again later by the question's own words.
 
 ## 2.8.0 (2026-07-15)
 

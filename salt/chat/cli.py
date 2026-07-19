@@ -44,7 +44,8 @@ from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
 from salt.chat.runner import make_runner
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
-from salt.chat.shortturn import is_short_user_unit
+from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
+                                 is_short_user_unit)
 from salt.engine.compressor import load_bge
 from salt.engine.session_trie import VALID_ROLES, SessionTrie
 
@@ -509,19 +510,23 @@ def print_models(active=None):
 
 
 def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
-                save=True):
+                save=True, context=None):
     if keep is None and role == "user" and state.short_turns != "off":
         keep = is_short_user_unit
+        if (state.short_turns == "fuse" and context
+                and acknowledgement_only(text)):
+            text = fuse_with_question(text, context)
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
                                model=state.bge_model, device=state.bge_device,
                                source=source, sentences=sentences, keep=keep,
                                dedup_cos=state.dedup_cos, save=save)
 
 
-def submit_ingest(state, text, role, save=True):
+def submit_ingest(state, text, role, save=True, context=None):
     """Queue one side of an exchange for background ingest (inline under
     --sync-ingest, where a failure raises here)."""
-    state.ingest.submit(lambda: add_to_trie(state, text, role, save=save),
+    state.ingest.submit(lambda: add_to_trie(state, text, role, save=save,
+                                            context=context),
                         label=f"{role}-message ingest", payload=text)
 
 
@@ -945,7 +950,9 @@ def chat_turn(state, line):
     # this turn's trie reads are done, so the user line encodes while
     # the model generates (sync mode keeps the post-reply position below)
     if not state.sync_ingest:
-        submit_ingest(state, line, "user", save=False)
+        submit_ingest(state, line, "user", save=False,
+                      context=state.tail[-1]["content"] if state.tail
+                      else None)
     messages = build_messages(memory_block, state.tail, line,
                               state.full_attachments, inventory, instructions)
     # cleared per turn so an interrupt before tokenization can't record the
@@ -981,7 +988,9 @@ def chat_turn(state, line):
         print(f"[kvtrace] recording failed for this turn: {exc}")
     # sync mode ingests both sides here, post-reply, as before the worker
     if state.sync_ingest:
-        submit_ingest(state, line, "user")
+        submit_ingest(state, line, "user",
+                      context=state.tail[-1]["content"] if state.tail
+                      else None)
     if reply:
         submit_ingest(state, reply, "assistant",
                       save=state.sync_ingest)  # seam: --no-assistant-memory
@@ -1233,11 +1242,15 @@ def build_parser():
                         "so restatements and re-asked questions stop "
                         "inflating theme statistics (default: off; attached "
                         "files are never gated; /stats counts suppressions)")
-    p.add_argument("--short-turns", choices=("off", "keep"), default="keep",
+    p.add_argument("--short-turns", choices=("off", "keep", "fuse"),
+                   default="keep",
                    help="keep short user messages ('go with option B') in "
                         "conversation memory instead of letting the junk "
                         "filter's length gates drop them. URL-only and "
-                        "junk-shaped lines still drop (default: keep; "
+                        "junk-shaped lines still drop. 'fuse' additionally "
+                        "stores a bare acknowledgement ('yes', 'the second "
+                        "one') together with the question it answers, "
+                        "quoted from the previous reply (default: keep; "
                         "'off' restores the old dropping behavior)")
     p.add_argument("--no-turn-labels", action="store_true",
                    help="head each conversation excerpt with the plain "
