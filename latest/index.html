@@ -356,7 +356,9 @@
           
             
               
-              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" hidden>
                 <div class="md-sidebar__scrollwrap">
                   <div class="md-sidebar__inner">
                     
@@ -456,10 +458,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#salience-aware-lexical-trie-for-long-context-compression" class="md-nav__link">
+  <a href="#new-here" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Salience-Aware Lexical Trie for Long-Context Compression
+        🧭 New here
       
     </span>
   </a>
@@ -467,32 +469,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#three-commands" class="md-nav__link">
+  <a href="#where-the-project-is-going" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🧰 Three commands
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#where-to-go" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🧭 Where to go
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#at-a-glance" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🔬 At a glance
+        🔭 Where the project is going
       
     </span>
   </a>
@@ -1080,7 +1060,9 @@
             
             
               
-              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" hidden>
                 <div class="md-sidebar__scrollwrap">
                   <div class="md-sidebar__inner">
                     
@@ -1099,10 +1081,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#salience-aware-lexical-trie-for-long-context-compression" class="md-nav__link">
+  <a href="#new-here" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Salience-Aware Lexical Trie for Long-Context Compression
+        🧭 New here
       
     </span>
   </a>
@@ -1110,32 +1092,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#three-commands" class="md-nav__link">
+  <a href="#where-the-project-is-going" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🧰 Three commands
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#where-to-go" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🧭 Where to go
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#at-a-glance" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🔬 At a glance
+        🔭 Where the project is going
       
     </span>
   </a>
@@ -1156,6 +1116,8 @@
               <article class="md-content__inner md-typeset">
                 
                   
+  
+
 
 
   
@@ -1163,55 +1125,77 @@
 
 
 <h1 id="salt">SALT</h1>
-<p align="center">
-  <img src="assets/banner.png" width="100%">
-</p>
-
-<h2 id="salience-aware-lexical-trie-for-long-context-compression">Salience-Aware Lexical Trie for Long-Context Compression</h2>
-<p>SALT shrinks a long document down to a fixed size before it is sent to a language
-model, keeping the sentences that carry the most information. It works with any
-model, produces a shorter plain-text prompt, and cuts the compute, memory, and
-wait time that long inputs cost.</p>
-<p><strong>The problem.</strong> When a prompt is too long, existing compressors give each
-sentence a single relevance score and keep the top-scoring ones until the budget
-runs out. Under a tight budget this lets the document's main topic swallow the
-whole budget, so smaller but still important points get dropped - a failure called
-<em>theme collapse</em> (in multi-hop questions, for example, it can keep
-passages about the main entity yet lose the one sentence that links it to a
-second).</p>
-<p><strong>The solution.</strong> SALT first maps the document's recurring themes by organizing
-each sentence's keywords into a trie, a small keyword tree ordered by how often
-those keywords recur, then spreads the budget across those theme branches
-before choosing sentences, so minor themes keep their share instead of being
-crowded out. Because the theme map is built once, it can be reused across the
-turns of a conversation without re-reading the document.</p>
-<h2 id="three-commands">🧰 Three commands</h2>
+<div class="salt-hero">
+<p><img alt="SALT banner" src="assets/banner.png" /></p>
+</div>
+<p><strong>SALT keeps long context small.</strong> It compresses documents and whole
+conversations down to the sentences that carry the most information,
+spreading the budget across a document's themes instead of ranking
+everything by one score, so the minor points that answer real questions
+survive. Any model, plain text out, less compute in.</p>
+<div class="salt-buttons">
+<p><a class="md-button md-button--primary" href="installation/">Get started</a>
+<a class="md-button" href="architecture/">How it works</a></p>
+</div>
+<div class="grid cards">
 <ul>
-<li><strong><code>salt</code></strong> compresses a document or dataset once. It is the
-  compression engine itself and the surface the evaluation runs on.</li>
-<li><strong><code>saltChat</code></strong> is a chat REPL where SALT is the conversation memory,
-  so long conversations and attached files stay recallable at a fixed
-  prompt size.</li>
-<li><strong><code>saltServe</code></strong> keeps a model loaded as a persistent server, so chats
-  connect, disconnect and resume with their cache warm.</li>
+<li>
+<p>🧂 <strong>salt</strong></p>
+<hr />
+<p>Compress a document or dataset in one shot. The engine itself, and
+the surface the evaluation runs on.</p>
+<p><a href="usage/">Usage</a></p>
+</li>
+<li>
+<p>🤖 <strong>saltChat</strong></p>
+<hr />
+<p>A chat REPL where SALT is the conversation memory, so long chats
+and attached files stay recallable at a fixed prompt size.</p>
+<p><a href="chatbot/">Chatbot mode</a></p>
+</li>
+<li>
+<p>🔌 <strong>saltServe</strong></p>
+<hr />
+<p>A persistent model server chats connect to and resume against with
+their cache still warm.</p>
+<p><a href="serving/">Serving</a></p>
+</li>
+<li>
+<p>🎛 <strong>Options</strong></p>
+<hr />
+<p>Every flag of the three commands in one line each, including the
+off by default switches that make long sessions better.</p>
+<p><a href="options/">Options</a></p>
+</li>
+<li>
+<p>🧩 <strong>Architecture</strong></p>
+<hr />
+<p>The ideas behind the features: the keyword trie, coverage
+selection, the memory contract, and where each stage lives.</p>
+<p><a href="architecture/">Architecture</a></p>
+</li>
+<li>
+<p>📈 <strong>Results</strong></p>
+<hr />
+<p>A 44.60 LongBench average with Llama 3.1 8B at a 20% token budget,
+per dataset.</p>
+<p><a href="results/">Results</a></p>
+</li>
 </ul>
-<h2 id="where-to-go">🧭 Where to go</h2>
-<ul>
-<li><a href="installation/">Installation</a> - set up the environment and the three commands</li>
-<li><a href="usage/">Usage</a> - compress datasets and single documents, run the evaluation</li>
-<li><a href="chatbot/">Chatbot mode</a> - <code>saltChat</code>, the chat REPL where SALT is the conversation memory</li>
-<li><a href="serving/">Serving</a> - <code>saltServe</code>, the persistent server chats resume against</li>
-<li><a href="options/">Options</a> - every flag of the three commands, one line each</li>
-<li><a href="architecture/">Architecture</a> - the ideas behind the features, and where each stage lives</li>
-<li><a href="datasets/">Datasets</a> - fetching and preparing LongBench</li>
-<li><a href="results/">Results</a> - LongBench scores at a 20% token budget</li>
-<li><a href="changelog/">Changelog</a> - what each version added</li>
-<li><a href="roadmap/">Roadmap</a> - what is in progress and what comes next</li>
-</ul>
-<h2 id="at-a-glance">🔬 At a glance</h2>
-<p>SALT reaches an overall <strong>44.60</strong> LongBench average with Llama-3.1-8B-Instruct
-at a 20% token budget. The full per-dataset table is on the
-<a href="results/">Results</a> page.</p>
+</div>
+<h2 id="new-here">🧭 New here</h2>
+<ol>
+<li><a href="installation/">Install</a> the environment and the three commands.</li>
+<li><a href="usage/">Compress</a> one document and read what SALT kept.</li>
+<li><a href="chatbot/">Chat</a> with a file attached and watch the memory block
+   choose what to remember.</li>
+<li><a href="architecture/">Read why</a> selection spreads the budget across
+   themes instead of ranking sentences.</li>
+</ol>
+<h2 id="where-the-project-is-going">🔭 Where the project is going</h2>
+<p>The <a href="roadmap/">Roadmap</a> lists what is in progress and what comes
+next, and the <a href="changelog/">Changelog</a> explains what every version
+changed in plain language.</p>
 
 
 
@@ -1219,8 +1203,13 @@ at a 20% token budget. The full per-dataset table is on the
 
 
 
+  
+  
 
 
+
+
+  
 
 
 
@@ -1243,6 +1232,8 @@ at a 20% token budget. The full per-dataset table is on the
         <footer class="md-footer">
   
     
+      
+        
       
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
