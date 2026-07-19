@@ -11,91 +11,49 @@ pasted messages never delay the next prompt. Failed ingests keep the message
 text in `ingest_failures.jsonl`. The session is saved once per turn instead
 of once per message. `--sync-ingest` restores the old inline behavior.
 
-Patch releases: 2.9.4 adds `saltServe`, a command that launches a
-persistent `vllm serve` process from registered weights, so the model and
-its cache outlive individual chat sessions. 2.9.5 adds
-`saltChat --backend vllm-serve` with `--server-url`, the client side of
-persistent serving, so a chat can connect to the running server and
-`/stats` reports the server's measured prefix-cache reuse. 2.9.6 keeps
-attachments in their attach order when a session resumes, so the prompt
-renders the same bytes across restarts and stays warm in the server
-cache. 2.9.7 saves the recent exchanges with the session, so a resumed
-conversation remembers its last turns verbatim instead of starting from
-compressed memory alone. 2.9.9 surfaces server errors that arrive
-mid-reply instead of presenting a truncated answer as complete, streams
-any unicode safely, keeps long prompts within the server's window, and
-hardens the launcher's GPU detection. 2.9.12 lets `saltServe --gpu 0,1`
-split a model's weights across several cards (tensor parallel), so a model
-too big for one card still serves. Every card in the group is capped at
-0.80 of its memory by default. 2.9.13 extends `--gpu` on saltChat to a
-card list too. The `--backend vllm` engine tensor-parallels the model
-across the cards and the BGE encoder rides the last one, which the 0.80
-memory cap keeps room for. 2.9.14 pins the same PCI card order for the
-encoder and the model, so a `--gpu` index means the same physical card
-for both. 2.9.16 extends the `--gpu` list to the hf backend, which shards
-the model across the cards with a balanced device_map (the BGE encoder
-still rides the last card). 2.9.19 adds `--turns FILE`, which runs a
-scripted conversation from a JSON or JSONL file one turn after the next
-into the same session, so a canned set of questions builds SALT's memory
-just like a live chat. `--turns-out` records each answer as JSONL. 2.9.21
-labels every conversation excerpt in the memory block with the turn it was
-said on and who said it, so the model can tell your words from its own and
-can see which of two conflicting statements came later.
-`--no-turn-labels` restores the plain unlabeled header. 2.9.22 adds a
-conversation map to `/stats`, one line per recent turn with that turn's
-strongest keywords, so a long session's coverage is visible at a glance.
-2.9.23 adds `--conversation-map`, which puts that map at the top of the
-memory block so the model can see a topic came up on a given turn even
-when none of that turn's sentences were selected. 2.9.24 adds how long ago
-to those labels, so the model can answer questions about when something
-was said instead of only about what and by whom. 2.9.26 and 2.9.27 refine
-the map. Keyword ranking no longer favors short sentences over the long
-ones that carry a turn's actual topic, and the map header states how many
-turns it covers, so a long conversation showing only its recent turns
-never reads as proof that an older topic was never discussed. 2.9.31
-stops the junk filter from dropping short user messages, so terse
-decisions like "go with option B" stay in conversation memory for the
-whole session. `--short-turns off` restores the old dropping behavior.
-2.9.32 adds `--short-turns fuse`, which stores a bare acknowledgement
-like "the second one" together with the question it answers, so the
-decision can be found again later by the question's own words. 2.9.34
-stops chat ingest from scrubbing messages like benchmark documents, so
-pasted code keeps its generics, tables and pipelines keep their pipes,
-and a sentence with a link keeps its prose with the URL stored as
-`<url>`. 2.9.35 protects table rows, pipelines, link sentences and
-code-shaped lines from the short-fragment filter, so they reach memory
-even when brief. 2.9.36 notes that sessions from earlier versions keep
-their previously stored text as is, so a session resumed across the
-change may hold a mix of old and new forms. 2.9.37 and 2.9.38 make an
-interrupted save safe. A session whose files disagree after a crash is
-rolled back to the last complete state on the next open, with a notice
-printed and the details kept in `load_repairs.jsonl`. Before this, such
-a session loaded silently and scored every later sentence against the
-wrong stored vector for the rest of its life. 2.9.41 adds
-`--per-source-themes`, which profiles the conversation and each
-attached file separately, so one large attachment can no longer crowd
-the conversation's own topics out of memory selection. 2.9.43 through
-2.9.47 stop the memory block from growing without bound. It was sized
-as a fixed percentage of an ever-growing memory, so a long session or
-a big attachment eventually overflowed the prompt and truncation ate
-the system prompt first. The block is now capped to what fits the
-model's window (`--memory-cap auto`, the default, with `off` restoring
-the old sizing), and the overflow warning counts the whole prompt and
-says which part is too big. 2.9.49 through 2.9.53 take on the memory
-tree's deepest defect. The discounts that stop SALT from repeating
-itself are keyed to branches of a tree that is rebuilt every turn, and
-as a conversation grows a branch could come back under a different
-keyword order, quietly detaching its discount. `/stats` now shows how
-many remembered keys matched or orphaned each turn, and the opt-in
-`--stable-coverage-keys` freezes the session's keyword order, keeps
-theme membership sticky while a discount is alive, and cleans up keys
-from before the flag, driving the orphan count to zero on the
-regression that reproduces the churn. 2.9.55 through 2.9.58 finish
-the boundedness story. `/stats` splits the remembered dictionary into
-live and orphaned keys, `--coverage-gc` collects orphans after a
-grace window, `--coverage-max-keys` puts a hard limit on the
-dictionary, and the code stops claiming a bound the defaults never
-delivered.
+Patch releases, grouped where several versions shipped one thing:
+
+- **2.9.4 - 2.9.9** Persistent serving. `saltServe` launches a
+  long-lived `vllm serve` process, `saltChat --backend vllm-serve`
+  connects to it, and a resumed session renders the same prompt bytes
+  (attach order and recent exchanges saved), so it picks up warm.
+  Server errors surface instead of passing off truncated replies.
+- **2.9.12 - 2.9.16** Multi-GPU. `--gpu 0,1` splits a model across
+  cards on `saltServe` and both chat backends, the encoder rides the
+  last card, and card order is pinned so an index always means the
+  same physical card.
+- **2.9.19** Scripted turns. `--turns FILE` replays a JSON or JSONL
+  conversation into one session and `--turns-out` records each answer.
+- **2.9.21 - 2.9.27** Provenance-aware memory. Every excerpt is labeled
+  with its turn, speaker and age, and a conversation map (one line per
+  turn, `--conversation-map` to put it in the prompt) shows what a long
+  session has covered. Refinements keep short sentences from dominating
+  the map and make a partial map say so.
+- **2.9.31 - 2.9.32** Short turns. Terse decisions like "go with
+  option B" stay in conversation memory, and `--short-turns fuse`
+  stores a bare "yes" together with the question it answers.
+- **2.9.34 - 2.9.36** Verbatim conversation text. Pasted code keeps its
+  generics, tables and pipelines keep their pipes, link sentences keep
+  their prose with the URL as `<url>`. Older sessions keep their stored
+  text as is.
+- **2.9.37 - 2.9.38** Interrupted saves. A session whose files disagree
+  after a crash rolls back to the last complete state on the next open,
+  with a notice and a record in `load_repairs.jsonl`.
+- **2.9.41** Theme scope. `--per-source-themes` profiles the
+  conversation and each attached file separately, so one large
+  attachment cannot crowd the conversation out of memory.
+- **2.9.43 - 2.9.47** Memory ceiling. `--memory-cap auto` (the default)
+  fits the memory block to the model's window instead of a percentage
+  that grows without bound, and the overflow warning counts the whole
+  prompt.
+- **2.9.49 - 2.9.53** Stable coverage keys. `/stats` counts remembered
+  keys that matched or orphaned each turn, and the opt-in
+  `--stable-coverage-keys` freezes the keyword order so remembered
+  discounts survive as the session grows.
+- **2.9.55 - 2.9.58** Bounded bookkeeping. `/stats` splits remembered
+  keys into live and orphaned, `--coverage-gc` collects the orphans,
+  `--coverage-max-keys` puts a hard limit on the dictionary, and the
+  code stops claiming a bound the defaults never delivered.
 
 ## 2.8.0 (2026-07-15)
 
