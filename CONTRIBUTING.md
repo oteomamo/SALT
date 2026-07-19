@@ -69,6 +69,35 @@ deterministic. The table it wraps, for reference:
 All of them run on CPU. If a script needs a model, it downloads to your HF
 cache on first use.
 
+## The frozen core
+
+SALT's published results come from the one-shot compression path, and
+every past and future result must stay reproducible. These files are
+therefore frozen: `salt/compress.py` and `salt/engine/celf.py`,
+`trie_core.py`, `embedder.py`, `dataset_modes.py`, `sentence_filter.py`,
+`retrieval.py`.
+
+Frozen does not mean untouchable. It means a change there must be
+strictly additive: a new parameter whose default reproduces today's
+behavior exactly, so a run with no flags selects byte-identical output.
+PRs that reorder, re-tune, or "clean up" these files will be asked to
+restructure. PRs that add an opt-in seam with the default proven
+unchanged are welcome, and the chat layer adds them regularly.
+
+To prove a default is unchanged, run the eval smoke on `main` and on
+your branch with fixed output dirs and diff the results:
+
+```bash
+MAX_SAMPLES=5 RUN_EVAL=0 OUT_DIR=runs/base bash scripts/run_datasets.sh
+MAX_SAMPLES=5 RUN_EVAL=0 OUT_DIR=runs/mine bash scripts/run_datasets.sh
+```
+
+Timing fields may differ. The compressed text may not.
+
+Everyday feature work does not need any of this: the conversation layer
+(`salt/engine/session_trie.py` and everything under `salt/chat/`) plus
+`docs/` is where features live, and it is not frozen.
+
 ## Commit messages
 
 A short imperative subject, then a body of two to six lines covering what
