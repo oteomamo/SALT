@@ -6,22 +6,33 @@ repo_name: oteomamo/SALT
 
 theme:
   name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: teal
+      primary: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: teal
+      primary: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
   features:
     - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
     - content.code.copy
+
+extra_css:
+  - assets/extra.css
 
 extra:
   version:
@@ -30,6 +41,8 @@ extra:
 markdown_extensions:
   - admonition
   - tables
+  - attr_list
+  - md_in_html
   - pymdownx.superfences
 
 nav:
