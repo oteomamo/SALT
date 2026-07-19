@@ -303,7 +303,12 @@ as if it were never shown. The counts make that drift visible so it
 can be judged on real sessions. `/stats` also splits the whole
 remembered dictionary into live and orphaned keys, noting how many
 orphans came from attachments, so the dead weight a long session
-carries is a number rather than a guess. With `--stable-coverage-keys` the
+carries is a number rather than a guess. `--coverage-gc` collects
+those orphans after a short grace window, so a long session stops
+saving suppression that can never apply again. `--coverage-max-keys`
+adds a hard limit on the dictionary itself: past it, orphans go
+first, then the stalest and weakest live keys. Both are off by
+default and their effects are counted in `/stats`. With `--stable-coverage-keys` the
 session keeps one frozen keyword order: new keywords join at the end
 instead of reshuffling the memory tree, so remembered discounts keep
 matching their branches. The flag also keeps theme membership sticky.

@@ -90,7 +90,12 @@ many remembered keys matched or orphaned each turn, and the opt-in
 `--stable-coverage-keys` freezes the session's keyword order, keeps
 theme membership sticky while a discount is alive, and cleans up keys
 from before the flag, driving the orphan count to zero on the
-regression that reproduces the churn.
+regression that reproduces the churn. 2.9.55 through 2.9.58 finish
+the boundedness story. `/stats` splits the remembered dictionary into
+live and orphaned keys, `--coverage-gc` collects orphans after a
+grace window, `--coverage-max-keys` puts a hard limit on the
+dictionary, and the code stops claiming a bound the defaults never
+delivered.
 
 ## 2.8.0 (2026-07-15)
 

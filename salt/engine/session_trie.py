@@ -71,8 +71,11 @@ FILE_TOKEN_PREFIX = "§file:"
 
 # Coverage-decay floor: entries whose decayed count falls below this are
 # dropped from the persisted dict entirely. Content is never deleted — only
-# a node's residual suppression — and the floor is what keeps the coverage
-# dict bounded over long sessions instead of growing forever.
+# a node's residual suppression. The floor bounds the dict ONLY under its
+# conditions: --coverage-half-life must be on (off by default), attachment
+# branches are exempt unless --coverage-decay-docs, and keys orphaned by
+# trie churn never decay-match anything — those need --coverage-gc, and an
+# unconditional bound needs --coverage-max-keys.
 COVERAGE_DECAY_FLOOR = 0.05
 
 # Per-source theme profiling (opt-in): each source's df values are rescaled
@@ -440,7 +443,9 @@ class SessionTrie:
     def _evict_if_needed(self):
         """v1 keeps everything; `max_sentences` is a hook for a future bounded
         policy (e.g. keep last K turns + all `doc` sentences). Stale coverage
-        keys are harmless, so eviction would only prune the corpus columns."""
+        keys are NOT harmless — they ride every seed copy and save, and
+        `coverage_gc` / `coverage_max_keys` exist to collect them — but
+        eviction here would only prune the corpus columns."""
         cap = self.config.get("max_sentences")
         if cap is None or self.n_sentences <= cap:
             return
@@ -512,7 +517,9 @@ class SessionTrie:
         `coverage_half_life` turns it goes unselected, so topics the
         conversation left behind resurface gradually instead of staying
         discounted forever. Entries decayed below COVERAGE_DECAY_FLOOR are
-        dropped, which also bounds the dict. Attachment branches (§file:)
+        dropped, which bounds the decaying part of the dict (exempt
+        attachment branches and orphaned keys are outside that bound —
+        see `coverage_gc` and `coverage_max_keys`). Attachment branches (§file:)
         are exempt unless `coverage_decay_docs` is set — decaying them makes
         selection oscillate back to a document's head themes instead of
         progressively covering the file. Default None keeps the original
