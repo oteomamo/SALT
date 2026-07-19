@@ -198,6 +198,26 @@ def main():
     print("--turns parsing: json array, jsonl, bare strings, field "
           "auto-detect and override, ambiguous item rejected")
 
+    # short-turn predicate (pure, no encoder): the four W9 utterances pass,
+    # junk still drops, and the filter without keep= still drops them all
+    from salt.chat.shortturn import is_short_user_unit
+    from salt.engine.sentence_filter import filter_texts
+    for t in ("yes", "Go with option B.", "the second one",
+              "no, use PostgreSQL"):
+        assert is_short_user_unit(t), f"short decisive turn rejected: {t!r}"
+    for t in ("https://example.com/decision", "?!.,",
+              "This ordinary sentence is long enough to pass the junk "
+              "filter's length gates entirely on its own."):
+        assert not is_short_user_unit(t), f"non-target unit kept: {t!r}"
+    kept, *_ = filter_texts(["yes", "no, use PostgreSQL"], aggressive=True,
+                            remove_urls=True, deduplicate=True,
+                            strip_urls=True, lenient=True)
+    assert kept == [], (
+        "chat-ingest filter defaults now keep short turns WITHOUT keep= - "
+        "sentence_filter's frozen behavior changed")
+    print("short turns: predicate keeps the four W9 utterances, drops "
+          "junk, filter still drops them without keep=")
+
     print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
     tok, mdl = load_bge(BGE_MODEL, args.device)
     tmp = Path(tempfile.mkdtemp(prefix="salt_ingest_regression_"))
@@ -247,6 +267,22 @@ def main():
                 f"{mode}: reloaded embeddings differ from the direct run's")
         print("persistence: coalesced background disk state reloads "
               "identical to per-call-saved direct")
+
+        # short turns through the real ingest path: keep= admits the unit,
+        # default ingest still drops it
+        st = SessionTrie("shortturn", cache_dir=tmp, model_name=BGE_MODEL)
+        info = st.add_turn("no, use PostgreSQL", role="user", tokenizer=tok,
+                           model=mdl, device=args.device)
+        assert info["added"] == 0, (
+            "a short user turn entered the trie with keep=None - the "
+            "default-off contract is broken")
+        info = st.add_turn("no, use PostgreSQL", role="user", tokenizer=tok,
+                           model=mdl, device=args.device,
+                           keep=is_short_user_unit)
+        assert info["added"] == 1 and st.roles[-1] == "user", (
+            "keep=is_short_user_unit did not ingest the short user turn")
+        print("short turns: add_turn keeps the decision under keep=, "
+              "drops it by default")
 
         # assert 10: failed-generation survival (background order)
         line = ("Please remember that the maintenance window moves to "

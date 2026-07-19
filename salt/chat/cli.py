@@ -44,6 +44,7 @@ from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
 from salt.chat.runner import make_runner
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
+from salt.chat.shortturn import is_short_user_unit
 from salt.engine.compressor import load_bge
 from salt.engine.session_trie import VALID_ROLES, SessionTrie
 
@@ -168,6 +169,7 @@ class ChatState:
         self.shift_margin = args.shift_margin
         self.shift_query_boost = args.shift_query_boost
         self.dedup_cos = args.dedup_cos
+        self.short_turns = args.short_turns
         self.turn_labels = not args.no_turn_labels
         self.conversation_map = args.conversation_map
         self.sync_ingest = args.sync_ingest
@@ -506,6 +508,8 @@ def print_models(active=None):
 
 def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
                 save=True):
+    if keep is None and role == "user" and state.short_turns != "off":
+        keep = is_short_user_unit
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
                                model=state.bge_model, device=state.bge_device,
                                source=source, sentences=sentences, keep=keep,
@@ -1227,6 +1231,11 @@ def build_parser():
                         "so restatements and re-asked questions stop "
                         "inflating theme statistics (default: off; attached "
                         "files are never gated; /stats counts suppressions)")
+    p.add_argument("--short-turns", choices=("off", "keep"), default="off",
+                   help="keep short user messages ('go with option B') in "
+                        "conversation memory instead of letting the junk "
+                        "filter's length gates drop them. URL-only and "
+                        "junk-shaped lines still drop (default: off)")
     p.add_argument("--no-turn-labels", action="store_true",
                    help="head each conversation excerpt with the plain "
                         "'[from the earlier conversation]' label instead of "

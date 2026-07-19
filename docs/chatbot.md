@@ -275,6 +275,13 @@ sentence too similar to an earlier one from the same speaker, so
 restatements and re-asked questions stop inflating the theme statistics.
 Attached files are never gated. `/stats` counts the suppressions.
 
+And a **short turns** switch. The junk filter drops very short sentences,
+which protects attached documents from fragments but also throws away
+terse chat decisions like "go with option B" or "no, use PostgreSQL".
+With `--short-turns keep` those short user messages enter conversation
+memory like any other sentence. Lines that are only a URL, only
+punctuation, or otherwise junk-shaped still drop. Off by default for now.
+
 ## Background ingestion
 
 Ingestion runs **in the background**. After every message SALT has
