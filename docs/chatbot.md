@@ -59,62 +59,10 @@ cover.
 
 ## Persistent serving
 
-Both backends above load the model inside the saltChat process, so the
-model and its cache disappear when you exit. `saltServe` starts the model
-as its own long-lived server instead:
-
-```bash
-saltServe qwen05 --gpu 1
-```
-
-The command resolves the same registry entry, prints the full `vllm serve`
-invocation it runs, and serves an OpenAI compatible API on
-`http://127.0.0.1:8000` (change it with `--port`). The server keeps the
-model loaded and its prefix cache warm across saltChat runs. Stop it with
-Ctrl-C when you want the GPU back.
-
-`--gpu-mem-util` sets the share of GPU memory the server claims (default
-`0.90`, the BGE encoder no longer shares its GPU). On cards older than
-Ampere the launcher serves `bfloat16` models in `float16`, which those
-GPUs require (it says so when the GPU generation cannot be detected, and
-`-- --dtype float16` forces it). `--vllm-bin` points at another
-environment's vllm, so the
-server can run whichever vLLM release fits your hardware while the SALT
-install stays unchanged. Anything after `--` is passed to `vllm serve`
-unchanged.
-
-Split a large model across several cards with a list. `saltServe
-llama-3.1-8b-instruct --gpu 0,1` tensor-parallels the weights across GPUs 0
-and 1, so a model too big for one card, or a box whose first card also
-drives the display, still serves. Every card in the group is capped at
-`0.80` of its memory by default (a single card keeps `0.90`), leaving each
-one headroom for the machine's own use. Pass `--gpu-mem-util` to override
-the cap. It applies to every card in the group.
-
-Connect saltChat to the running server:
-
-```bash
-saltChat --model qwen05 --backend vllm-serve
-```
-
-`--server-url` points at a server on another port or machine (default
-`http://127.0.0.1:8000`). The prompt is rendered and tokenized in
-saltChat itself, so the text the server caches is exactly the text the
-kv ledger counts. Exit, come back later, resume the conversation by its
-id: the model is still loaded and the stable prompt head is still
-cached, so the first turn only prefills what changed. One server serves
-one model. To chat with a different model, start a second server with
-`saltServe` and launch saltChat again with its `--server-url`. `/stats`
-shows the measured reuse every turn.
-
-When the server spans several cards, give saltChat the same list. `saltChat
---backend vllm-serve --gpu 0,1` puts the BGE encoder on the last card (GPU
-1). That card also holds a model shard, so the default `0.80` memory cap
-leaves it room for the encoder. Passing the list pins the same PCI card
-order the server uses, so an index means the same physical card on both
-sides. The in-process `--backend vllm --gpu 0,1` reads the list the same
-way. It tensor-parallels the model across the cards and pins BGE on the
-last one, inside that same reserved headroom.
+The backends above load the model inside the saltChat process, so the
+model and its cache disappear on exit. `saltServe` keeps them alive as
+a separate long-lived server that chats connect to and resume warm. It
+has its own page: [Serving](serving.md).
 
 ## REPL commands
 

@@ -1,9 +1,9 @@
 # 🎛 Options
 
 Every flag of the three commands, one line each. The concepts live on
-the [Chatbot mode](chatbot.md) and [Architecture](architecture.md)
-pages, and the full detail lives in the code. Defaults shown are what a
-plain run uses.
+the [Chatbot mode](chatbot.md), [Serving](serving.md) and
+[Architecture](architecture.md) pages, and the full detail lives in the
+code. Defaults shown are what a plain run uses.
 
 ## saltChat quality switches
 

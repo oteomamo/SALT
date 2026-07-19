@@ -37,6 +37,7 @@ nav:
   - Installation: installation.md
   - Usage: usage.md
   - Chatbot mode: chatbot.md
+  - Serving: serving.md
   - Options: options.md
   - Architecture: architecture.md
   - Datasets: datasets.md
