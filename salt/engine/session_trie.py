@@ -421,8 +421,11 @@ class SessionTrie:
         the batch mirrors the cross-turn direction: the first phrasing wins,
         the restatement is the duplicate. Embeddings are L2-normalized, so
         cosine is a plain dot product."""
+        # living rows only: a masked sentence is out of memory, so a later
+        # restatement of it is the only copy left and must be ingestible
         prior_idx = [j for j in range(self.n_sentences)
-                     if self.sources[j] is None and self.roles[j] == role]
+                     if self.alive[j] and self.sources[j] is None
+                     and self.roles[j] == role]
         prior = self.embeddings[prior_idx] if prior_idx else None
         keep_rows, records = [], []
         for i, v in enumerate(bge):
@@ -468,10 +471,16 @@ class SessionTrie:
 
     # ── compression ───────────────────────────────────────────────────────
     def _sent_data(self):
+        """The living corpus, as CELF's record dicts. `sent_idx` stays the
+        row's own index, so a masked row leaves a GAP rather than shifting
+        the rows after it — kvtrace and the persisted coverage keys both
+        read those indices. CELF orders records positionally and touches
+        sent_idx only for the final document-order sort, which monotonic
+        gaps leave correct."""
         return [{"sent_idx": i, "text": self.texts[i], "n_words": self.n_words[i],
                  "keyword_weights": self.keyword_weights[i],
                  "embedding_l2": self.embeddings[i]}
-                for i in range(self.n_sentences)]
+                for i in range(self.n_sentences) if self.alive[i]]
 
     def _profile(self, sent_data, per_source=False):
         """One (kw_df, theme_keywords) pair for CELF. Global mode is the
@@ -705,9 +714,10 @@ class SessionTrie:
         Default False commits inside the call exactly as before.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
-        if self.n_sentences == 0:
+        if self.n_alive == 0:
             out = {"context": "", "stats": {}, "selected_sent_idx": [],
-                   "n_total_sentences": 0, "n_turns": self.n_turns}
+                   "n_total_sentences": self.n_sentences,
+                   "n_turns": self.n_turns}
             if defer_commit:
                 out["commit"] = None
             return out
@@ -778,7 +788,7 @@ class SessionTrie:
             self.kw_order.extend(fresh_kws)
             kw_rank = {kw: r for r, kw in enumerate(self.kw_order)}
 
-        orig_words = sum(self.n_words)
+        orig_words = sum(w for w, a in zip(self.n_words, self.alive) if a)
         word_budget = int(orig_words * budget_pct)
         word_budget_capped = False
         if max_words is not None and int(max_words) > 0:
@@ -801,7 +811,7 @@ class SessionTrie:
         drift_cos, drift_baseline, shifted = None, self.drift_ema, False
         if q_emb is not None:
             conv_idx = [i for i in range(self.n_sentences)
-                        if self.sources[i] is None]
+                        if self.alive[i] and self.sources[i] is None]
             if len(conv_idx) >= DRIFT_MIN_SENTENCES:
                 recent = self.embeddings[conv_idx[-DRIFT_WINDOW:]]
                 drift_cos = float(np.dot(recent.mean(axis=0), q_emb))
