@@ -292,9 +292,9 @@ is on the [Results](https://oteomamo.github.io/SALT/results/) page.
 
 In progress:
 
-- **Bounded long sessions** - mask-based (never-delete) eviction and
-  growth-stable theme bookkeeping, so long-running sessions stay fast and
-  exact as conversations and attachments accumulate.
+- **Bounded long sessions** - mask-based (never-delete) eviction, so
+  long-running sessions stay fast and exact as conversations and
+  attachments accumulate.
 - **MCP server** - a `salt-mcp` entry point exposing compression and session
   memory as tools, so AI clients (Claude Code, Claude Desktop, Cursor) can use
   SALT as their conversation memory without the REPL.
