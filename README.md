@@ -306,5 +306,5 @@ SALT is released under the [MIT License](LICENSE).
 [docs-link]: https://oteomamo.github.io/SALT/
 [version-shield]: https://img.shields.io/github/v/tag/oteomamo/SALT?label=version&sort=semver
 [release-link]: https://github.com/oteomamo/SALT/tags
-[license-shield]: https://img.shields.io/github/license/oteomamo/SALT
+[license-shield]: https://img.shields.io/badge/license-MIT-green
 [license-link]: LICENSE
