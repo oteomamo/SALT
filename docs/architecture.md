@@ -213,6 +213,41 @@ deeper in the tree than frequency ordering would place it. The flag is
 off by default, and `/stats` reports how many remembered keys matched
 or orphaned each turn so the trade can be judged on real sessions.
 
+## Bounded long sessions
+
+A conversation that never ends used to grow in the one place that
+costs something every turn. Selection read the whole session store,
+and the memory block's size is a share of the words stored, so the
+per-turn work and the memory block both swelled with the full history.
+`--max-sentences` caps that: past the cap, the oldest conversation
+sentences are masked out of selection, oldest first, and `/stats`
+reports how many are still live.
+
+Masked is not deleted. A masked sentence keeps its text, its embedding
+and its row number, so the saved session stays complete, the kv
+ledger's earlier references still resolve, and a resumed session sees
+the store it saved. Attached files are never masked and never count
+against the cap. An attachment is a bounded cost the user chose, while
+conversation is the part that grows without asking. The near-duplicate
+gate compares against living sentences only, so restating what the cap
+masked away stores the restatement instead of suppressing the only
+living copy, and the conversation map draws from living turns only,
+because a line pointing at a masked turn would point at nothing.
+
+The cap bounds each turn, not the record. Selection reads at most a
+cap's worth of conversation plus the attachments, and the memory
+block's base stops climbing with age. The stored session itself still
+grows with everything ever said, about 1.7 KB per sentence kept,
+because keeping everything is what makes the record and its references
+permanent. Bookkeeping follows the content: remembered coverage counts
+whose sentences are all masked stop matching any branch, so a capped
+session usually wants a coverage bound as well, and `/stats` says so
+when nothing is set to collect them. Under `--stable-coverage-keys`
+the frozen keyword order also keeps absorbing new theme keywords,
+measured in kilobytes even at a hundred thousand sentences, and left
+append-only on purpose: reordering it is the one thing the stable keys
+above cannot survive.
+
 Where each stage lives:
 
 | Stage | Code |
