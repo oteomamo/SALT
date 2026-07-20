@@ -21,6 +21,8 @@ plain install stays green.
 - `chat_textclean_regression.py` covers chat-side text handling (what
   conversation memory stores verbatim).
 - `chat_keystab_regression.py` covers cross-turn coverage-key stability.
+- `chat_evict_regression.py` covers the bounded-session mask
+  (`--max-sentences`).
 - `chat_vllm_regression.py` covers the in-process `--backend vllm`.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.
