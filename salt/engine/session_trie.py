@@ -241,7 +241,7 @@ class SessionTrie:
 
     def add_turn(self, text, role="user", *, tokenizer, model, device="cpu",
                  source=None, sentences=None, keep=None, dedup_cos=None,
-                 save=True):
+                 max_sentences=None, save=True):
         """Split/filter/encode NEW text and append it to the growing corpus.
 
         Runs the dense-attention keyword pass and the BGE [CLS] embedding pass on
@@ -285,6 +285,15 @@ class SessionTrie:
         in the session dir (with its cosine, so the threshold can be tuned
         against real data) and counted in the persisted `n_near_dups`.
 
+        `max_sentences` (opt-in, None = off) caps the living conversation
+        corpus: once this ingest pushes it past the cap, the oldest living
+        conversation rows are masked out of memory until it meets the cap
+        again. Attachments are never masked. Nothing is deleted, so the
+        text, the vector and above all the row index of a masked sentence
+        stay valid forever — see `_evict_if_needed`, which also explains
+        why a bounded session wants one of the coverage bounds on too.
+        The returned `masked` count says how many rows this call retired.
+
         `save=False` skips the end-of-call `save()` and marks the trie
         `dirty` instead. The caller owns persisting the batch: `dirty`
         clears on the next `save()`.
@@ -293,7 +302,7 @@ class SessionTrie:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
         text = (text or "").strip()
         if sentences is None and not text:
-            return {"added": 0, "filtered": 0, "near_dups": 0,
+            return {"added": 0, "filtered": 0, "near_dups": 0, "masked": 0,
                     "n_total": self.n_sentences,
                     "turn": self._next_turn_index}
 
@@ -324,7 +333,7 @@ class SessionTrie:
             turn = self._next_turn_index
             self._next_turn_index += 1
             return {"added": 0, "filtered": n_filtered, "near_dups": 0,
-                    "n_total": self.n_sentences, "turn": turn}
+                    "masked": 0, "n_total": self.n_sentences, "turn": turn}
 
         # --- the two expensive model passes, on NEW sentences only ---
         attn = run_dense_attention(
@@ -379,7 +388,7 @@ class SessionTrie:
             else:
                 self.dirty = True
             return {"added": 0, "filtered": n_filtered,
-                    "near_dups": n_near_dups,
+                    "near_dups": n_near_dups, "masked": 0,
                     "n_total": self.n_sentences, "turn": turn}
 
         turn = self._next_turn_index
@@ -404,13 +413,13 @@ class SessionTrie:
         self.embeddings = (bge if self.embeddings is None
                            else np.vstack([self.embeddings, bge]))
         self._next_turn_index += 1
-        self._evict_if_needed()
+        n_masked = self._evict_if_needed(max_sentences)
         if save:
             self.save()
         else:
             self.dirty = True
         return {"added": len(fresh), "filtered": n_filtered,
-                "near_dups": n_near_dups,
+                "near_dups": n_near_dups, "masked": n_masked,
                 "n_total": self.n_sentences, "turn": turn}
 
     def _near_dup_gate(self, fresh, bge, role, threshold):
@@ -458,16 +467,35 @@ class SessionTrie:
         except OSError:
             pass
 
-    def _evict_if_needed(self):
-        """v1 keeps everything; `max_sentences` is a hook for a future bounded
-        policy (e.g. keep last K turns + all `doc` sentences). Stale coverage
-        keys are NOT harmless — they ride every seed copy and save, and
-        `coverage_gc` / `coverage_max_keys` exist to collect them — but
-        eviction here would only prune the corpus columns."""
-        cap = self.config.get("max_sentences")
-        if cap is None or self.n_sentences <= cap:
-            return
-        # TODO: bounded eviction (drop oldest non-doc sentences) once needed.
+    def _evict_if_needed(self, cap=None):
+        """Mask the oldest living CONVERSATION rows once they outnumber
+        `cap`, so a long session stops growing without bound. Nothing is
+        deleted — a masked row keeps its text, its vector and its index
+        (see `alive`) — and attachment rows are never masked and never
+        counted: a document is a bounded cost the user chose, while the
+        conversation is the part that grows forever. Returns how many rows
+        this call retired. `cap` of None falls back to the persisted
+        `max_sentences`; anything <= 0 is off, matching `coverage_max_keys`.
+
+        What this does NOT bound is the coverage dict. Retiring a theme's
+        last living rows leaves its keys in the persisted dict, inert but
+        copied into every seed and every save. A conversation key decays
+        away once `coverage_half_life` is on, since nothing re-increments
+        it; a `§file:` key is exempt unless `coverage_decay_docs`. With
+        decay off neither is collected, so a bounded session wants
+        `coverage_gc`, `coverage_max_keys` or the `stable_keys` reconcile
+        on as well."""
+        cap = self.config.get("max_sentences") if cap is None else cap
+        if cap is None or int(cap) <= 0:
+            return 0
+        live_conv = [i for i in range(self.n_sentences)
+                     if self.alive[i] and self.sources[i] is None]
+        n_evict = len(live_conv) - int(cap)
+        if n_evict <= 0:
+            return 0
+        for i in live_conv[:n_evict]:
+            self.alive[i] = False
+        return n_evict
 
     # ── compression ───────────────────────────────────────────────────────
     def _sent_data(self):
