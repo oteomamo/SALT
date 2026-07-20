@@ -749,10 +749,11 @@ class SessionTrie:
             for s in attached:
                 kw_df[file_token(s)] = top_df
                 theme_keywords.add(file_token(s))
-            for i, sd in enumerate(sent_data):
-                if self.sources[i]:
+            for sd in sent_data:
+                src = self.sources[sd["sent_idx"]]
+                if src:
                     kw = dict(sd["keyword_weights"])
-                    kw[file_token(self.sources[i])] = max(kw.values(), default=1.0)
+                    kw[file_token(src)] = max(kw.values(), default=1.0)
                     sd["keyword_weights"] = kw
 
         kw_rank = None
