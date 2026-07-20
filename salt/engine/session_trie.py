@@ -171,6 +171,12 @@ class SessionTrie:
         self.timestamps = []            # list[float|None] (None = pre-2.9.20)
         self.n_words = []               # list[int]
         self.keyword_weights = []       # list[dict[str, float]]  (cached attention keywords)
+        # A bounded session masks rows dead rather than deleting them. Row
+        # indices are permanent — kvtrace references sent_idx for the whole
+        # life of the session and coverage keys are df-rank-sensitive, so a
+        # removal would renumber both — and a masked row keeps its text,
+        # its vector and its place.
+        self.alive = []                 # list[bool] (False = masked out)
         self.embeddings = None          # np.ndarray (n, dim) float32  (cached BGE [CLS])
 
         # --- cross-turn state ---
@@ -211,6 +217,14 @@ class SessionTrie:
     @property
     def n_sentences(self):
         return len(self.texts)
+
+    @property
+    def n_alive(self):
+        return sum(1 for a in self.alive if a)
+
+    @property
+    def n_masked(self):
+        return len(self.alive) - self.n_alive
 
     @property
     def n_turns(self):
@@ -384,6 +398,7 @@ class SessionTrie:
             self.timestamps.append(filed_at)
             self.n_words.append(len(sent.split()))
             self.keyword_weights.append(kw)
+            self.alive.append(True)
             self._next_sentence_index += 1
 
         self.embeddings = (bge if self.embeddings is None
@@ -897,6 +912,7 @@ class SessionTrie:
     def save(self):
         self.config["dim"] = self.dim
         self.config["n_sentences"] = self.n_sentences
+        self.config["n_alive"] = self.n_alive
         self.config["n_turns"] = self.n_turns
         # embeddings-first on purpose: a crash in the gap leaves orphan
         # matrix rows load() can drop; state-first would leave real
@@ -912,6 +928,7 @@ class SessionTrie:
             "texts": self.texts, "roles": self.roles, "turns": self.turns,
             "sources": self.sources, "timestamps": self.timestamps,
             "n_words": self.n_words, "keyword_weights": self.keyword_weights,
+            "alive": self.alive,
             "coverage": self.coverage, "seen_hashes": self._seen_hashes,
             "drift_ema": self.drift_ema,
             "coverage_turn": self.coverage_turn,
@@ -945,6 +962,8 @@ class SessionTrie:
         # and those saved before ingest time was recorded have no timestamps
         self.sources = state.get("sources", [None] * len(self.texts))
         self.timestamps = state.get("timestamps", [None] * len(self.texts))
+        # sessions saved before bounded eviction carry no mask: all alive
+        self.alive = state.get("alive", [True] * len(self.texts))
         self.keyword_weights = state["keyword_weights"]
         self.coverage = state["coverage"]; self._seen_hashes = state["seen_hashes"]
         # sessions saved before topic-shift detection have no drift baseline
@@ -1000,6 +1019,7 @@ class SessionTrie:
             self.timestamps = self.timestamps[:n]
             self.n_words = self.n_words[:n]
             self.keyword_weights = self.keyword_weights[:n]
+            self.alive = self.alive[:n]
             for t in dropped:
                 self._seen_hashes.discard(self._norm_hash(t))
         self._next_sentence_index = n
