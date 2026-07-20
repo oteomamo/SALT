@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.78
+## 2.9.0 - 2.9.87
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
@@ -58,6 +58,11 @@ Patch releases, grouped where several versions shipped one thing:
   discounts, freshness stamps and topic baseline now commit only after
   the model answers. A turn that errors out leaves memory as it was,
   so the retry is not fighting a discount from the failed attempt.
+- **2.9.82 - 2.9.87** Bounded long sessions. `--max-sentences` caps how
+  many conversation sentences stay in memory, masking the oldest out of
+  selection instead of deleting them, so their text, their numbering
+  and the saved record all survive. Attached files are never masked.
+  `/stats` reports how many sentences are still live.
 
 ## 2.8.0
 

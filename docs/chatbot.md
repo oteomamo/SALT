@@ -177,6 +177,12 @@ page lists them all with when to reach for each. In concept:
 - **Bookkeeping bounds.** `--coverage-gc` collects remembered keys that
   match nothing anymore, and `--coverage-max-keys` puts a hard limit
   on the remembered dictionary.
+- **Session bounds.** `--max-sentences` caps how many conversation
+  sentences stay in memory. Past the cap the oldest are masked out of
+  selection rather than deleted, so their text and their numbering
+  survive while a long session stops growing. Attached files are never
+  masked. Reach for one of the bookkeeping bounds above alongside it,
+  which collect the theme keys the masked sentences leave behind.
 - **Theme scope.** `--per-source-themes` profiles the conversation and
   each attached file separately, so one large file cannot crowd the
   conversation out of memory.

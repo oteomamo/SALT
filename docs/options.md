@@ -22,6 +22,7 @@ real session before it is trusted.
 | `--stable-coverage-keys` | freezes the session's keyword order so remembered discounts keep matching their branches | long sessions re-show material because themes reshuffled |
 | `--coverage-gc` | collects remembered keys that no longer match any branch of the memory tree | long sessions carry dead suppression in every save |
 | `--coverage-max-keys 500` | hard limit on remembered theme keys | you want a strict bound no matter what else is on |
+| `--max-sentences 400` | keeps the most recent conversation sentences in memory and masks older ones instead of deleting them | a long session keeps slowing down as its memory grows |
 | `--short-turns fuse` | stores a bare "yes" together with the question it answers | terse decisions should be findable by the question's own words |
 
 ## saltChat reference

@@ -358,7 +358,7 @@ def main():
         from salt.chat.cli import add_to_trie
         ns = types.SimpleNamespace(trie=st, bge_tok=tok, bge_model=mdl,
                                    bge_device=args.device, dedup_cos=None,
-                                   short_turns="fuse")
+                                   max_sentences=None, short_turns="fuse")
         info = add_to_trie(ns, "the second one", "user", save=False,
                            context="Do you want the red option, or the "
                                    "blue option?")

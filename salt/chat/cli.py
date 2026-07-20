@@ -186,6 +186,7 @@ class ChatState:
         self.coverage_gc = args.coverage_gc
         self.coverage_max_keys = args.coverage_max_keys
         self.dedup_cos = args.dedup_cos
+        self.max_sentences = args.max_sentences
         self.short_turns = args.short_turns
         self.turn_labels = not args.no_turn_labels
         self.conversation_map = args.conversation_map
@@ -570,7 +571,8 @@ def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
                                model=state.bge_model, device=state.bge_device,
                                source=source, sentences=sentences, keep=keep,
-                               dedup_cos=state.dedup_cos, save=save)
+                               dedup_cos=state.dedup_cos,
+                               max_sentences=state.max_sentences, save=save)
 
 
 def submit_ingest(state, text, role, save=True, context=None):
@@ -911,7 +913,9 @@ def handle_command(line, state):
         print(f"Memory budget set to {val:.0%}.")
     elif cmd == "/stats":
         t = state.trie
-        print(f"session {t.conversation_id!r}: {t.n_sentences} sentences over "
+        counted = (f"{t.n_sentences} sentences" if not t.n_masked
+                   else f"{t.n_alive} of {t.n_sentences} sentences live")
+        print(f"session {t.conversation_id!r}: {counted} over "
               f"{t.n_turns} turns, budget {state.budget:.0%}, "
               f"model {state.runner.alias if state.runner else 'none'}")
         files = t.attached_sources
@@ -984,6 +988,21 @@ def handle_command(line, state):
         elif t.n_near_dups:
             print(f"near-dup gate: off this launch; {t.n_near_dups} "
                   f"sentences suppressed earlier in this session")
+        # same reason as the near-dup counter: masking happens at ingest,
+        # so a resumed session reports its state even with the flag off
+        if state.max_sentences:
+            bounded = (state.coverage_gc or state.coverage_max_keys
+                       or state.coverage_half_life
+                       or state.stable_coverage_keys)
+            note = ("" if bounded else
+                    " - no coverage bound is on, so the theme keys those "
+                    "sentences left behind stay in the dictionary")
+            print(f"session cap: {state.max_sentences} conversation "
+                  f"sentences kept, {t.n_masked} masked out of memory so "
+                  f"far{note}")
+        elif t.n_masked:
+            print(f"session cap: off this launch; {t.n_masked} sentences "
+                  f"masked earlier in this session")
         ing = state.ingest.stats
         fail_note = (f", {ing['failures']} failed (ingest_failures.jsonl)"
                      if ing["failures"] else "")
@@ -1423,6 +1442,15 @@ def build_parser():
                         "orphaned keys drop first, then the stalest and "
                         "weakest live ones. The only unconditional bound "
                         "when decay is off (default: off)")
+    p.add_argument("--max-sentences", type=int, default=None, metavar="N",
+                   help="cap the conversation sentences kept in memory: "
+                        "past N the oldest are masked out of selection "
+                        "rather than deleted, so their text and their "
+                        "numbering survive while a long session stops "
+                        "growing. Attached files are never masked "
+                        "(default: off; pair it with --coverage-gc or "
+                        "--coverage-max-keys, which bound the theme keys "
+                        "masked sentences leave behind)")
     p.add_argument("--stable-coverage-keys", action="store_true",
                    help="freeze the session's keyword order so cross-turn "
                         "memory discounts survive as the conversation "
