@@ -409,9 +409,11 @@ def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):
     conversation instead of implying it covers everything. Built purely
     from the attention keywords already cached at ingest, so it costs no
     model pass. Attachments are left out - they are inventoried elsewhere
-    and one file would otherwise flood the map. When the character cap
-    bites the OLDEST lines go, since the recent end is what orients a
-    reader.
+    and one file would otherwise flood the map. Rows a session cap has
+    masked are left out too: the map points at material selection can
+    still reach, and a line for a retired turn is a pointer to nothing.
+    When the character cap bites the OLDEST lines go, since the recent
+    end is what orients a reader.
 
     Cached weights are renormalized per sentence upstream (they sum to 1
     across the words of their own sentence), so a raw weight means "share
@@ -424,7 +426,7 @@ def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):
     overshoots to 2.4x the other way."""
     by_turn = {}
     for i in range(trie.n_sentences):
-        if trie.sources[i] is not None:
+        if trie.sources[i] is not None or not trie.alive[i]:
             continue
         role, kws = by_turn.setdefault(trie.turns[i], (trie.roles[i], {}))
         scale = math.sqrt(max(trie.n_words[i], 1))
@@ -816,7 +818,7 @@ def warn_prompt_budget(state):
     if cap_words is not None:
         mem_tokens = int(cap_words * state.tokens_per_word)
     else:
-        mem_tokens = int(sum(state.trie.n_words) * state.budget
+        mem_tokens = int(state.trie.live_words * state.budget
                          * state.tokens_per_word)
     total = fixed + mem_tokens
     if total <= limit:

@@ -227,6 +227,13 @@ class SessionTrie:
         return len(self.alive) - self.n_alive
 
     @property
+    def live_words(self):
+        """The selection budget's base. One definition on purpose: the CLI
+        sizes its prompt warning from the same number compress() divides,
+        and a second copy of the filter is how the two drift apart."""
+        return sum(w for w, a in zip(self.n_words, self.alive) if a)
+
+    @property
     def n_turns(self):
         return self._next_turn_index
 
@@ -816,7 +823,7 @@ class SessionTrie:
             self.kw_order.extend(fresh_kws)
             kw_rank = {kw: r for r, kw in enumerate(self.kw_order)}
 
-        orig_words = sum(w for w, a in zip(self.n_words, self.alive) if a)
+        orig_words = self.live_words
         word_budget = int(orig_words * budget_pct)
         word_budget_capped = False
         if max_words is not None and int(max_words) > 0:
