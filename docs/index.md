@@ -93,3 +93,23 @@ survive. Any model, plain text out, less compute in.
 The [Roadmap](roadmap.md) lists what is in progress and what comes
 next, and the [Changelog](changelog.md) explains what every version
 changed in plain language.
+
+## 📝 Paper
+
+SALT is described in
+[arXiv:2607.17486](https://arxiv.org/abs/2607.17486). The paper covers
+the legacy selector, tagged
+[v1.0.0](https://github.com/oteomamo/SALT/releases/tag/v1.0.0).
+Current releases default to the coverage selector described on the
+[Architecture](architecture.md) page.
+
+```bibtex
+@misc{mamo2026saltsalienceawarelexicaltrie,
+      title={SALT: Salience-Aware Lexical Trie for Long-Context Compression},
+      author={Oteo Mamo and Hyunjin Yi and Joydhriti Choudhury and Shangqian Gao and Weikuan Yu},
+      year={2026},
+      eprint={2607.17486},
+      archivePrefix={arXiv},
+      url={https://arxiv.org/abs/2607.17486}
+}
+```
