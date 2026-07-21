@@ -11,7 +11,7 @@
 [![][docs-shield]][docs-link]
 [![][version-shield]][release-link]
 [![][license-shield]][license-link]
-
+[![][arxiv-shield]][arxiv-link]
 </div>
 
 > [!NOTE]
@@ -48,6 +48,12 @@ before choosing sentences, so minor themes keep their share instead of being
 crowded out. Because the theme map is built once, it can be reused across the
 turns of a conversation without re-reading the document.
 
+
+[arxiv-shield]: https://img.shields.io/badge/arXiv-2607.17486-b31b1b.svg
+[arxiv-link]: https://arxiv.org/abs/2607.17486
+
+> The previous **legacy** selector as described in the paper release is tagged [`v1.0.0`](https://github.com/oteomamo/SALT/releases/tag/v1.0.0);
+> `main` now defaults to the coverage/CELF selector described below.
 
 ## 📑 Table of contents
 
@@ -314,6 +320,19 @@ Next:
 ## 🤝 Contributing
 
 PRs welcome - see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+
+## Reference
+
+If you find this project useful for your research, please consider citing our paper：
+```
+@misc{mamo2026saltsalienceawarelexicaltrie,
+      title={SALT: Salience-Aware Lexical Trie for Long-Context Compression}, 
+      author={Oteo Mamo and Hyunjin Yi and Joydhriti Choudhury and Shangqian Gao and Weikuan Yu},
+      year={2026},
+      eprint={arXiv:2607.17486}
+}
+```
 
 ## 📄 License
 
