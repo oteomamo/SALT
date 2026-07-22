@@ -19,6 +19,9 @@ Design:
     SEEDS the prior-turn per-node coverage so already-surfaced material is
     discounted, runs `coverage_select`, and persists the merged coverage. Each
     turn therefore favors still-uncovered content (cross-turn submodular memory).
+    Per-sentence work whose answer cannot change — the expanded lexical token
+    set the query's lexical channel scores against — is derived once at ingest
+    and carried forward; the trie itself is still rebuilt every turn.
   * Cross-turn coverage is keyed by the canonical frozenset of each trie node's
     root->node keyword path, so it survives the trie being rebuilt (and grown)
     every turn — see `coverage_select(seed_coverage=...)` in salt.engine.celf.
@@ -52,7 +55,7 @@ from salt.engine.embedder import split_sentences as embed_split_sentences
 from salt.engine.sentence_filter import filter_texts
 from salt.engine.trie_core import (
     run_dense_attention, get_bge_sentence_embeddings, embed_query,
-    profile_themes, is_content_word,
+    profile_themes, is_content_word, clean_text_words, expand_with_stems,
     extract_query_keywords, extract_proper_nouns_in_query,
 )
 from salt.engine.celf import coverage_select
@@ -179,6 +182,10 @@ class SessionTrie:
         self.alive = []                 # list[bool] (False = masked out)
         self.embeddings = None          # np.ndarray (n, dim) float32  (cached BGE [CLS])
 
+        # --- derived caches: reconstructible, never persisted, never
+        # authoritative. See _lex_tokens for why a miss is only ever slow.
+        self._lex = {}                  # text -> expanded lexical token set
+
         # --- cross-turn state ---
         self.coverage = {}              # dict[frozenset[str], float]  accumulated per-node coverage
         self._seen_hashes = set()       # cross-turn sentence dedupe
@@ -240,6 +247,29 @@ class SessionTrie:
     @property
     def attached_sources(self):
         return sorted({s for s in self.sources if s})
+
+    # ── derived caches ────────────────────────────────────────────────────
+    def _lex_tokens(self, text):
+        """One sentence's expanded lexical tokens, derived once and reused.
+
+        `coverage_select` scores the query's lexical channel against this set
+        for every living sentence on every turn, and re-derives it from the
+        text each time. The answer cannot change:
+        `expand_with_stems(clean_text_words(...))` is pure and a stored
+        sentence is immutable, so the whole per-turn pass is recomputation.
+
+        Ingest fills the cache while the two model passes are already
+        running, which is why the cost disappears rather than moves. Text
+        that arrives another way — a session resumed from disk, a corpus
+        assembled field by field — fills on its first miss with the value
+        the selector would have built itself. The cache is therefore never
+        authoritative and a miss costs time, not accuracy. It is not
+        persisted: refilling is cheaper than a state format change."""
+        toks = self._lex.get(text)
+        if toks is None:
+            toks = expand_with_stems(clean_text_words(text))
+            self._lex[text] = toks
+        return toks
 
     # ── ingest ────────────────────────────────────────────────────────────
     @staticmethod
@@ -408,6 +438,7 @@ class SessionTrie:
                     if j < len(ar["word_attns"]):
                         kw[w] = max(kw.get(w, 0.0), float(ar["word_attns"][j]))
             self.texts.append(sent)
+            self._lex_tokens(sent)      # while the model passes already cost
             self.roles.append(role)
             self.turns.append(turn)
             self.sources.append(source)
@@ -885,6 +916,7 @@ class SessionTrie:
             sent_data, dict(kw_df), theme_keywords, word_budget,
             query_keywords=q_kws, query_embedding=q_emb, query_proper_nouns=q_pns,
             lam=self.config["lam"], query_mass_ratio=query_mass_ratio,
+            token_fn=self._lex_tokens,
             seed_coverage=seed_passed, return_coverage=True,
             kw_rank=kw_rank)
 
