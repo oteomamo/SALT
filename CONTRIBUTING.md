@@ -62,6 +62,7 @@ deterministic. The table it wraps, for reference:
 | Cross-turn coverage keys (`salt/engine/session_trie.py`, `salt/engine/celf.py`) | `python scripts/chat_keystab_regression.py` |
 | The near-duplicate gate (`--dedup-cos` paths) | `python scripts/chat_dedup_regression.py` |
 | The session cap (`--max-sentences` paths) | `python scripts/chat_evict_regression.py` |
+| The per-turn work the session trie carries forward | `python scripts/chat_incremental_regression.py` |
 | `salt/chat/pdfio.py` (PDF or text ingestion) | `python scripts/chat_pdf_regression.py` |
 | The vLLM backend (`--backend vllm`) | `python scripts/chat_vllm_regression.py` |
 | Persistent serving (`saltServe`, `--backend vllm-serve`) | `python scripts/chat_serve_regression.py` |
