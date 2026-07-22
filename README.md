@@ -22,8 +22,6 @@
 >   their conversation memory without the REPL.
 > - **Tail-aware memory selection** - stop spending the memory budget on text
 >   the model is already reading in the recent messages.
-> - **Incremental compression** - reuse the previous turn's work instead of
->   rebuilding the whole selection every turn.
 > - **Graduating the memory switches** - decide which off-by-default memory
 >   behaviors become defaults, using numbers from real sessions.
 > - **Scripted conversation runs** - richer tooling around `--turns` for
@@ -301,9 +299,6 @@ In progress:
 - **Tail-aware memory selection** - skip sentences the model is already
   reading verbatim in the recent messages, so the memory budget buys new
   context instead of repeating what is on screen.
-- **Incremental compression** - carry the previous turn's selection work
-  forward on an append-only conversation, instead of redoing all of it every
-  turn.
 - **Graduating the memory switches** - several memory behaviors ship off
   by default (see the
   [Options](https://oteomamo.github.io/SALT/options/) page) while
