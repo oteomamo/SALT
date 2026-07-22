@@ -992,10 +992,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#290-2987" class="md-nav__link">
+  <a href="#290-2997" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.9.0 - 2.9.87
+        2.9.0 - 2.9.97
       
     </span>
   </a>
@@ -1183,10 +1183,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#290-2987" class="md-nav__link">
+  <a href="#290-2997" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.9.0 - 2.9.87
+        2.9.0 - 2.9.97
       
     </span>
   </a>
@@ -1326,7 +1326,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="290-2987">2.9.0 - 2.9.87</h2>
+<h2 id="290-2997">2.9.0 - 2.9.97</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
 pasted messages never delay the next prompt. Failed ingests keep the message
@@ -1384,6 +1384,11 @@ of once per message. <code>--sync-ingest</code> restores the old inline behavior
   selection instead of deleting them, so their text, their numbering
   and the saved record all survive. Attached files are never masked.
   <code>/stats</code> reports how many sentences are still live.</li>
+<li><strong>2.9.94 - 2.9.96</strong> Incremental compression. Each sentence's lexical
+  tokens and the session's keyword profile are worked out once, when
+  the text arrives, and carried forward instead of being rebuilt from
+  the whole conversation every turn. What memory selects is unchanged,
+  only the work behind it is smaller.</li>
 </ul>
 <h2 id="280">2.8.0</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
