@@ -599,6 +599,13 @@ class SessionTrie:
         for i in live_conv[:n_evict]:
             self.alive[i] = False
             self._kw_df_drop(self.keyword_weights[i])
+            # Derived state follows the row out of memory, or the cap
+            # would bound what selection reads while the tokens of every
+            # sentence ever said stayed resident. Two rows can hold the
+            # same text (a withdrawn near-dup hash, a repaired load), and
+            # dropping a living row's entry with them costs that row one
+            # re-derivation, never a wrong answer.
+            self._lex.pop(self.texts[i], None)
         return n_evict
 
     # ── compression ───────────────────────────────────────────────────────
@@ -1137,10 +1144,11 @@ class SessionTrie:
         ep = self._p("embeddings.npy")
         self.embeddings = np.load(ep) if ep.exists() else None
         self.load_repair = self._reconcile_after_load()
-        # A whole new corpus arrived: drop the count rather than count into
-        # it, and do it AFTER the repair above, which can shorten the rows.
-        # The token cache needs no reset - its keys are the texts it
-        # answers for, so a stale entry is unreachable, not wrong.
+        # A whole new corpus arrived: drop what the old one derived rather
+        # than derive into it, and do it AFTER the repair above, which can
+        # shorten the rows. A stale token entry would be unreachable
+        # rather than wrong, but it would also never be freed.
+        self._lex = {}
         self._kw_df = self._kw_df_rows = None
         return True
 

@@ -43,6 +43,10 @@ plumbing lives in salt/chat/cli.py, outside this harness. Asserts:
      content words) profiles to an empty pair and still compresses.
  11. Resume identity: a session saved and reopened selects exactly what
      the session that never left memory selects.
+ 12. The token cache is bounded by the living session: masking a row
+     drops what it derived, so a capped session holds no more entries
+     than it has living rows. Otherwise the cap would bound what
+     selection reads while every sentence ever said stayed resident.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes well under a minute. The checks are
@@ -342,6 +346,23 @@ def main():
         assert np.array_equal(warm2.embeddings, resumed.embeddings)
         print(f"resume: reopened session selected the same "
               f"{len(back_out['selected_sent_idx'])} rows as the live one")
+
+        # 12. the token cache leaves with the rows the cap retires
+        living = {warm2.texts[i] for i in range(warm2.n_sentences)
+                  if warm2.alive[i]}
+        retired = {warm2.texts[i] for i in range(warm2.n_sentences)
+                   if not warm2.alive[i]} - living
+        assert retired, ("fixture too small: the cap retired no text, so "
+                         "the cache bound is untested")
+        assert not (set(warm2._lex) & retired), (
+            f"{len(set(warm2._lex) & retired)} masked sentences still hold "
+            f"their tokens - the cap bounds selection but not memory")
+        assert len(warm2._lex) <= warm2.n_alive, (
+            f"the cache holds {len(warm2._lex)} entries for "
+            f"{warm2.n_alive} living rows")
+        print(f"cache bound: {len(warm2._lex)} entries for "
+              f"{warm2.n_alive} living rows, {len(retired)} retired with "
+              f"the sentences the cap masked")
 
         print("PASS")
     finally:
