@@ -19,9 +19,10 @@ Design:
     SEEDS the prior-turn per-node coverage so already-surfaced material is
     discounted, runs `coverage_select`, and persists the merged coverage. Each
     turn therefore favors still-uncovered content (cross-turn submodular memory).
-    Per-sentence work whose answer cannot change — the expanded lexical token
-    set the query's lexical channel scores against — is derived once at ingest
-    and carried forward; the trie itself is still rebuilt every turn.
+    Per-turn work that only the newest sentences can change — each sentence's
+    expanded lexical token set, and the keyword document frequencies the theme
+    profile reads — is derived at ingest and carried forward; the trie itself
+    is still rebuilt every turn.
   * Cross-turn coverage is keyed by the canonical frozenset of each trie node's
     root->node keyword path, so it survives the trie being rebuilt (and grown)
     every turn — see `coverage_select(seed_coverage=...)` in salt.engine.celf.
@@ -185,6 +186,8 @@ class SessionTrie:
         # --- derived caches: reconstructible, never persisted, never
         # authoritative. See _lex_tokens for why a miss is only ever slow.
         self._lex = {}                  # text -> expanded lexical token set
+        self._kw_df = None              # dict[str, int] over LIVING rows
+        self._kw_df_rows = None         # (n_rows, n_alive) the counts describe
 
         # --- cross-turn state ---
         self.coverage = {}              # dict[frozenset[str], float]  accumulated per-node coverage
@@ -270,6 +273,67 @@ class SessionTrie:
             toks = expand_with_stems(clean_text_words(text))
             self._lex[text] = toks
         return toks
+
+    def _live_kw_df(self):
+        """Keyword document frequency over the living corpus, carried
+        forward instead of recounted.
+
+        `profile_themes` derives df[kw] = how many living rows carry kw by
+        walking every row's keyword dict on every turn, but the living set
+        moves by exactly the rows one turn appends or masks. This count is
+        maintained at those two sites and REBUILT whenever the rows it
+        describes stop matching the corpus, so a resumed session, a
+        crash-repaired one, or a corpus assembled field by field falls back
+        to a full count instead of trusting stale numbers. Each maintenance
+        site updates the row pair last, so an interrupt between a row and
+        its count leaves a mismatch that rebuilds rather than a skew that
+        survives."""
+        rows = (len(self.texts), self.n_alive)
+        if self._kw_df is None or self._kw_df_rows != rows:
+            df = {}
+            for kw, alive in zip(self.keyword_weights, self.alive):
+                if alive:
+                    for k in kw:
+                        df[k] = df.get(k, 0) + 1
+            self._kw_df, self._kw_df_rows = df, rows
+        return self._kw_df
+
+    def _kw_df_add(self, kw):
+        if self._kw_df is None:
+            return
+        for k in kw:
+            self._kw_df[k] = self._kw_df.get(k, 0) + 1
+        self._kw_df_rows = (self._kw_df_rows[0] + 1, self._kw_df_rows[1] + 1)
+
+    def _kw_df_drop(self, kw):
+        # Delete at zero: profile_themes never mints a key for a row that
+        # is not there, and its theme threshold is an index into the count
+        # of keys, so a zero left behind would move the cutoff.
+        if self._kw_df is None:
+            return
+        for k in kw:
+            n = self._kw_df.get(k, 0) - 1
+            if n > 0:
+                self._kw_df[k] = n
+            else:
+                self._kw_df.pop(k, None)
+        self._kw_df_rows = (self._kw_df_rows[0], self._kw_df_rows[1] - 1)
+
+    def _themes_from_df(self, df):
+        """(kw_df, theme_keywords) from a maintained count, mirroring
+        `profile_themes` line for line: the same percentile index into the
+        sorted df values, the same `>=` membership, the same answer for a
+        corpus that mints no keywords at all (a living corpus can be all
+        table rows, whose words are no content words). The dict handed back
+        is a copy on purpose — compress() injects the §file: tokens into
+        what it gets — so the maintained count is never the thing a caller
+        mutates."""
+        if not df:
+            return {}, set()
+        values = sorted(df.values())
+        idx = int(len(values) * self.config["theme_percentile"])
+        threshold = values[min(idx, len(values) - 1)]
+        return dict(df), {k for k, v in df.items() if v >= threshold}
 
     # ── ingest ────────────────────────────────────────────────────────────
     @staticmethod
@@ -446,6 +510,7 @@ class SessionTrie:
             self.n_words.append(len(sent.split()))
             self.keyword_weights.append(kw)
             self.alive.append(True)
+            self._kw_df_add(kw)
             self._next_sentence_index += 1
 
         self.embeddings = (bge if self.embeddings is None
@@ -533,6 +598,7 @@ class SessionTrie:
             return 0
         for i in live_conv[:n_evict]:
             self.alive[i] = False
+            self._kw_df_drop(self.keyword_weights[i])
         return n_evict
 
     # ── compression ───────────────────────────────────────────────────────
@@ -560,6 +626,11 @@ class SessionTrie:
         max-merged df in both."""
         if not per_source:
             self._profile_diag = {"sources": 1, "keywords_conv": None}
+            # The maintained count describes the LIVING corpus and nothing
+            # else, so a caller handing over some other list of records
+            # gets the full recount it asked for.
+            if len(sent_data) == self.n_alive:
+                return self._themes_from_df(self._live_kw_df())
             return profile_themes(
                 sent_data, theme_percentile=self.config["theme_percentile"])
         buckets = {}
@@ -1066,6 +1137,11 @@ class SessionTrie:
         ep = self._p("embeddings.npy")
         self.embeddings = np.load(ep) if ep.exists() else None
         self.load_repair = self._reconcile_after_load()
+        # A whole new corpus arrived: drop the count rather than count into
+        # it, and do it AFTER the repair above, which can shorten the rows.
+        # The token cache needs no reset - its keys are the texts it
+        # answers for, so a stale entry is unreachable, not wrong.
+        self._kw_df = self._kw_df_rows = None
         return True
 
     def _reconcile_after_load(self):
