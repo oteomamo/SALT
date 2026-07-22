@@ -992,10 +992,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#290-2997" class="md-nav__link">
+  <a href="#290-29102" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.9.0 - 2.9.97
+        2.9.0 - 2.9.102
       
     </span>
   </a>
@@ -1183,10 +1183,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#290-2997" class="md-nav__link">
+  <a href="#290-29102" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.9.0 - 2.9.97
+        2.9.0 - 2.9.102
       
     </span>
   </a>
@@ -1326,7 +1326,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="290-2997">2.9.0 - 2.9.97</h2>
+<h2 id="290-29102">2.9.0 - 2.9.102</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
 pasted messages never delay the next prompt. Failed ingests keep the message
@@ -1389,6 +1389,10 @@ of once per message. <code>--sync-ingest</code> restores the old inline behavior
   the text arrives, and carried forward instead of being rebuilt from
   the whole conversation every turn. What memory selects is unchanged,
   only the work behind it is smaller.</li>
+<li><strong>2.9.102</strong> Repeating a capped sentence. With <code>--max-sentences</code> on,
+  saying something again after the cap masked the old copy away stores
+  it again, instead of dropping it as a copy of a sentence no longer in
+  memory.</li>
 </ul>
 <h2 id="280">2.8.0</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation

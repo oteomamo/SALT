@@ -1416,11 +1416,14 @@ and its row number, so the saved session stays complete, the kv
 ledger's earlier references still resolve, and a resumed session sees
 the store it saved. Attached files are never masked and never count
 against the cap. An attachment is a bounded cost the user chose, while
-conversation is the part that grows without asking. The near-duplicate
-gate compares against living sentences only, so restating what the cap
-masked away stores the restatement instead of suppressing the only
-living copy, and the conversation map draws from living turns only,
-because a line pointing at a masked turn would point at nothing.</p>
+conversation is the part that grows without asking. Masking a sentence
+also forgets its verbatim-dedupe hash, so re-sending it word for word
+stores it again rather than dropping it against a row no longer in
+memory. The near-duplicate gate likewise compares against living
+sentences only, so restating what the cap masked away stores the
+restatement instead of suppressing the only living copy, and the
+conversation map draws from living turns only, because a line pointing
+at a masked turn would point at nothing.</p>
 <p>The cap bounds each turn, not the record. Selection reads at most a
 cap's worth of conversation plus the attachments, and the memory
 block's base stops climbing with age. The stored session itself still
