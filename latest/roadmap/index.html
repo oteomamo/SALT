@@ -1043,9 +1043,6 @@
 <li><strong>Tail-aware memory selection</strong> - skip sentences the model is already
   reading verbatim in the recent messages, so the memory budget buys new
   context instead of repeating what is on screen.</li>
-<li><strong>Incremental compression</strong> - carry the previous turn's selection work
-  forward on an append-only conversation, instead of redoing all of it every
-  turn.</li>
 <li><strong>Graduating the memory switches</strong> - several memory behaviors ship off
   by default (see <a href="../options/">Options</a>) while <code>/stats</code> numbers from real
   sessions decide which of them become defaults.</li>
