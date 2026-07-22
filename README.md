@@ -18,6 +18,15 @@
 > [!NOTE]
 > **What is next**
 >
+> - **Repeating a capped sentence** - with `--max-sentences` on, saying
+>   something again after the cap masked the old copy away should store it
+>   again instead of reading as a copy.
+> - **Failure-safe frozen keys** - with `--stable-coverage-keys` on, a turn
+>   whose model call fails should leave the frozen keyword order exactly as
+>   it was.
+> - **Corrections in memory** - with `--dedup-cos` on, a short reversal of
+>   an earlier answer should not be dropped as a near-duplicate of the
+>   answer it corrects.
 > - **Tail-aware memory selection** - stop spending the memory budget on text
 >   the model is already reading in the recent messages.
 > - **Graduating the memory switches** - decide which off-by-default memory
