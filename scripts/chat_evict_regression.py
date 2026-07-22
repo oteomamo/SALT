@@ -44,6 +44,10 @@ salt/chat/cli.py, outside this harness. Asserts:
      restatement of a masked sentence is still ingestible — masking
      bounds what memory shows, it must not become a way to lose content
      the user supplied again.
+ 12. A masked sentence re-sent WORD FOR WORD, with the near-duplicate
+     gate off (the default path), ingests again and lands in a living
+     row. Masking withdraws the row's verbatim-dedupe hash, so the
+     always-on dedupe no longer drops the re-send against a dead row.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes well under a minute. The checks are
@@ -314,6 +318,32 @@ def main():
         assert gated.n_sentences == before + 1
         print(f"near-dup scope: restatement of masked row {first_row} "
               f"ingested (gate saw living rows only)")
+
+        # 12. a masked sentence re-sent VERBATIM, near-dup gate OFF (the
+        # default path). The verbatim dedupe used to keep the masked row's
+        # hash, so the re-send returned added 0 and the text lived in no
+        # living row. It must ingest again and land alive.
+        revb, _, _ = build(tmp, "revb", cap, tok, mdl, args.device)
+        masked_row = conv_rows(revb)[0]
+        assert not revb.alive[masked_row], (
+            "fixture: the first conversation row should be masked by now")
+        masked_text = revb.texts[masked_row]
+        assert not any(revb.texts[i] == masked_text and revb.alive[i]
+                       for i in range(revb.n_sentences)), (
+            "fixture: the masked text should live in no living row yet")
+        before = revb.n_sentences
+        rec = revb.add_turn(masked_text, role=revb.roles[masked_row],
+                            tokenizer=tok, model=mdl, device=args.device,
+                            max_sentences=cap)
+        assert rec["added"] == 1 and rec["filtered"] == 0, (
+            "a verbatim re-send of a masked sentence was dropped by the "
+            "stale dedupe hash - the text would live in no living row")
+        assert revb.n_sentences == before + 1
+        assert any(revb.texts[i] == masked_text and revb.alive[i]
+                   for i in range(revb.n_sentences)), (
+            "the re-sent masked sentence did not land in a living row")
+        print(f"verbatim re-send: masked row {masked_row} re-ingested with "
+              f"the near-dup gate off (stale hash discarded on masking)")
 
         print("PASS")
     finally:
