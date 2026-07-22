@@ -394,6 +394,9 @@ class SessionTrie:
         stay valid forever — see `_evict_if_needed`, which also explains
         why a bounded session wants one of the coverage bounds on too.
         The returned `masked` count says how many rows this call retired.
+        A masked sentence's verbatim-dedupe hash is withdrawn with it, so
+        re-sending it word for word stores it again rather than reading as
+        a duplicate of a row no longer in memory.
 
         `save=False` skips the end-of-call `save()` and marks the trie
         `dirty` instead. The caller owns persisting the batch: `dirty`
@@ -579,6 +582,9 @@ class SessionTrie:
         conversation is the part that grows forever. Returns how many rows
         this call retired. `cap` of None falls back to the persisted
         `max_sentences`; anything <= 0 is off, matching `coverage_max_keys`.
+        Masking also withdraws the row's verbatim-dedupe hash, so
+        re-sending a masked sentence word for word stores it again instead
+        of dropping it against a row no longer in memory.
 
         What this does NOT bound is the coverage dict. Retiring a theme's
         last living rows leaves its keys in the persisted dict, inert but
@@ -606,6 +612,13 @@ class SessionTrie:
             # dropping a living row's entry with them costs that row one
             # re-derivation, never a wrong answer.
             self._lex.pop(self.texts[i], None)
+            # The verbatim-dedupe hash goes with it: a masked sentence
+            # lives in memory nowhere, so an exact re-send must be judged
+            # afresh, not dropped against a dead row (the near-dup path
+            # withdraws for the same reason). Masking is oldest-first and
+            # two living rows never share a hash, so no living row's copy
+            # is exposed by the discard.
+            self._seen_hashes.discard(self._norm_hash(self.texts[i]))
         return n_evict
 
     # ── compression ───────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.97
+## 2.9.0 - 2.9.102
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
@@ -68,6 +68,10 @@ Patch releases, grouped where several versions shipped one thing:
   the text arrives, and carried forward instead of being rebuilt from
   the whole conversation every turn. What memory selects is unchanged,
   only the work behind it is smaller.
+- **2.9.102** Repeating a capped sentence. With `--max-sentences` on,
+  saying something again after the cap masked the old copy away stores
+  it again, instead of dropping it as a copy of a sentence no longer in
+  memory.
 
 ## 2.8.0
 
