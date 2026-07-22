@@ -18,12 +18,15 @@
 > [!NOTE]
 > **What is next**
 >
-> - **MCP server** - a `salt-mcp` entry point so AI clients can use SALT as
->   their conversation memory without the REPL.
 > - **Tail-aware memory selection** - stop spending the memory budget on text
 >   the model is already reading in the recent messages.
 > - **Graduating the memory switches** - decide which off-by-default memory
 >   behaviors become defaults, using numbers from real sessions.
+>
+> ---
+>
+> - **MCP server** - a `salt-mcp` entry point so AI clients can use SALT as
+>   their conversation memory without the REPL.
 > - **Scripted conversation runs** - richer tooling around `--turns` for
 >   driving and scoring long canned conversations.
 
