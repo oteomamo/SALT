@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.87
+## 2.9.0 - 2.9.97
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
@@ -63,6 +63,11 @@ Patch releases, grouped where several versions shipped one thing:
   selection instead of deleting them, so their text, their numbering
   and the saved record all survive. Attached files are never masked.
   `/stats` reports how many sentences are still live.
+- **2.9.94 - 2.9.96** Incremental compression. Each sentence's lexical
+  tokens and the session's keyword profile are worked out once, when
+  the text arrives, and carried forward instead of being rebuilt from
+  the whole conversation every turn. What memory selects is unchanged,
+  only the work behind it is smaller.
 
 ## 2.8.0
 

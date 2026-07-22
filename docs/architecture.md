@@ -248,6 +248,38 @@ measured in kilobytes even at a hundred thousand sentences, and left
 append-only on purpose: reordering it is the one thing the stable keys
 above cannot survive.
 
+## Incremental compression
+
+Selection reads the whole living session every turn, and much of what
+it read it had already worked out before. Every stored sentence was
+cleaned and stemmed again to score the question's words against it,
+and the keyword counts that decide which themes exist were tallied
+again across every sentence. Neither answer can change once a sentence
+is stored, so a long conversation kept paying for the same derivation.
+
+Both are now worked out once and carried forward. A sentence's lexical
+tokens are derived as it is ingested, where the keyword and embedding
+passes already run, so the cost lands in the turn that added the text
+rather than in every turn after it. The keyword counts are kept
+current as sentences arrive and as the session cap masks old ones out,
+which is the same arithmetic a full recount performs.
+
+What is carried is derived state, never the record. None of it is
+saved to disk, and anything the session cannot account for is worked
+out again rather than trusted. A session reopened from disk, one
+repaired after an interrupted save, or a corpus assembled some other
+way all fall back to the full derivation and reach the identical
+answer. That is what makes it safe to carry anything at all: a miss
+costs time and nothing else, so what memory returns is exactly what it
+returned before.
+
+What still runs every turn is the part that depends on the question.
+The trie is rebuilt and the selection pass runs across the living
+sentences each time, because both move with the question asked and
+with what memory has already surfaced. Per-file theme profiling
+(`--per-source-themes`) also keeps its own full recount, since its
+buckets shift as sentences are masked.
+
 Where each stage lives:
 
 | Stage | Code |
