@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.104
+## 2.9.0 - 2.9.106
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
@@ -76,6 +76,11 @@ Patch releases, grouped where several versions shipped one thing:
   on, a turn whose model call fails leaves the frozen keyword order and
   its sticky theme set exactly as they were, so a retry does not build
   on a discarded attempt.
+- **2.9.106** Corrections in memory. With `--dedup-cos` on, a fused
+  acknowledgement (`--short-turns fuse`) is exempt from the gate, so a
+  bare "no" is not dropped as a near-duplicate of the "yes" it corrects.
+  A short reversal built from the same words on the default path stays a
+  documented limit of the cosine gate.
 
 ## 2.8.0
 

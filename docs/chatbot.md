@@ -170,7 +170,11 @@ page lists them all with when to reach for each. In concept:
   topic pivot, that turn only, so coming back to an old topic is not
   fought by its own accumulated suppression.
 - **Repetition.** `--dedup-cos` skips near restatements at ingest, so
-  rephrasing does not inflate what counts as a theme.
+  rephrasing does not inflate what counts as a theme. It compares
+  meaning, so a short reversal built from the same words as the answer
+  it corrects ("no, use PostgreSQL" against "yes, use PostgreSQL") can
+  read as a restatement and be skipped. Fused acknowledgements
+  (`--short-turns fuse`) are exempt, and the gate stays off by default.
 - **Key stability.** Remembered discounts are keyed to branches of a
   tree that is rebuilt every turn. `--stable-coverage-keys` freezes the
   session's keyword order so those keys keep matching as it grows.

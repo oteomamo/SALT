@@ -563,15 +563,21 @@ def warn_load_repair(trie):
 
 def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
                 save=True, context=None):
+    dedup_cos = state.dedup_cos
     if keep is None and role == "user" and state.short_turns != "off":
         keep = _user_keep
         if (state.short_turns == "fuse" and context
                 and acknowledgement_only(text)):
             text = fuse_with_question(text, context)
+            # A fused ack quotes the SAME question on both sides, so "yes
+            # [in reply to: Q]" and "no [in reply to: Q]" score near
+            # identical. The near-dup gate would drop the reversal and keep
+            # the opposite decision, so fused acks skip it.
+            dedup_cos = None
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
                                model=state.bge_model, device=state.bge_device,
                                source=source, sentences=sentences, keep=keep,
-                               dedup_cos=state.dedup_cos,
+                               dedup_cos=dedup_cos,
                                max_sentences=state.max_sentences, save=save)
 
 
@@ -1470,7 +1476,8 @@ def build_parser():
                         "the same role reaches this threshold (e.g. 0.92), "
                         "so restatements and re-asked questions stop "
                         "inflating theme statistics (default: off; attached "
-                        "files are never gated; /stats counts suppressions)")
+                        "files and fused --short-turns acks are never gated; "
+                        "/stats counts suppressions)")
     p.add_argument("--short-turns", choices=("off", "keep", "fuse"),
                    default="keep",
                    help="keep short user messages ('go with option B') in "
