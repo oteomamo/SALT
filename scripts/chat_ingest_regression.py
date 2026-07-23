@@ -373,6 +373,30 @@ def main():
         print("short turns: fuse stores ack+question, content-bearing "
               "short turns stay verbatim")
 
+        # a fused reversal must survive --dedup-cos: fusion pads both acks
+        # with the SAME quoted question, so "yes [Q]" and "no [Q]" score
+        # above the gate (~0.96 on a real encoder). The gate must not see
+        # fused acks, or memory keeps the OPPOSITE decision. The general
+        # keep-path reversal stays a documented cosine-gate limit, not fixed.
+        gated = SessionTrie("fuse_dedup", cache_dir=tmp, model_name=BGE_MODEL)
+        gns = types.SimpleNamespace(trie=gated, bge_tok=tok, bge_model=mdl,
+                                    bge_device=args.device, dedup_cos=0.92,
+                                    max_sentences=None, short_turns="fuse")
+        q = "Should we migrate the store to PostgreSQL?"
+        y = add_to_trie(gns, "yes", "user", save=False, context=q)
+        n = add_to_trie(gns, "no", "user", save=False, context=q)
+        assert y["added"] == 1 and n["added"] == 1 and n["near_dups"] == 0, (
+            "a fused reversal was dropped by --dedup-cos - memory would keep "
+            f"the opposite decision (yes={y}, no={n})")
+        assert gated.n_sentences == 2, (
+            f"both fused acks must be stored, got {gated.n_sentences}")
+        cos = float(np.dot(gated.embeddings[-2], gated.embeddings[-1]))
+        assert cos >= 0.92, (
+            f"fixture: fused reversal cosine {cos:.4f} is below the gate, so "
+            "the assertion would hold even without the exemption")
+        print(f"short turns: a fused reversal survives --dedup-cos "
+              f"(cosine {cos:.4f} >= gate, gate exempts fused acks)")
+
         # assert 12: the CORPUS (not merely the embedding input) keeps
         # code, tables and link sentences as typed
         tf = SessionTrie("faithful", cache_dir=tmp, model_name=BGE_MODEL)
