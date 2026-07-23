@@ -13,6 +13,14 @@ accounting compress() reports every turn:
      Orphaning is the defect under study, not an error: today's default
      path is allowed to orphan, and the stable-keys work drives the
      printed numbers toward zero.
+  4. Deferred-turn atomicity: a compress with defer_commit=True whose
+     commit callable is never invoked leaves ALL SIX persisted fields -
+     coverage, coverage_turn, _n_compress, drift_ema, kw_order and
+     theme_admitted - exactly as they were, and invoking the callable
+     applies them. kw_order and theme_admitted used to be written inside
+     compress, outside the commit, so a turn saltChat dropped on a failed
+     generation widened the append-only order for good. Runs under
+     stable_keys regardless of --stable, the only path those two move on.
 
 With --stable the same replay runs under stable_keys=True and must end
 with zero orphans once the session's keyword order has warmed up.
@@ -74,6 +82,21 @@ PROBE = ("Back to the earlier equipment issue, what did we schedule for "
          "the reactor?")
 
 
+def persisted_state(trie):
+    """The six fields a turn commits, snapshotted so a discarded
+    defer_commit turn can be proven a no-op against them."""
+    return {"coverage": dict(trie.coverage),
+            "coverage_turn": dict(trie.coverage_turn),
+            "n_compress": trie._n_compress,
+            "drift_ema": trie.drift_ema,
+            "kw_order": list(trie.kw_order),
+            "theme_admitted": set(trie.theme_admitted)}
+
+
+def changed_fields(before, after):
+    return [k for k in before if before[k] != after[k]]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu")
@@ -127,6 +150,40 @@ def main():
                 "stable mode orphaned keys somewhere in the replay - "
                 "the frozen order plus sticky membership is not holding: "
                 f"{orphan_trail}")
+
+        # 4. deferred-turn atomicity: a discarded defer_commit turn must
+        # leave ALL SIX persisted fields untouched. Runs under stable_keys
+        # whatever --stable is, the only path kw_order/theme_admitted move.
+        d = SessionTrie("keystab_defer", cache_dir=tmp, model_name=BGE_MODEL)
+        for user, assistant in TOPIC_A:
+            d.compress(query=user, budget_pct=args.budget,
+                       stable_keys=True, **ckw)
+            d.add_turn(user, "user", **ckw)
+            d.add_turn(assistant, "assistant", **ckw)
+        # fresh-topic keywords enter the corpus WITHOUT a committed compress
+        # folding them into kw_order, so the next compress has real order
+        # growth to either apply or discard
+        for user, assistant in TOPIC_B:
+            d.add_turn(user, "user", **ckw)
+            d.add_turn(assistant, "assistant", **ckw)
+        before = persisted_state(d)
+        comp = d.compress(query=PROBE, budget_pct=args.budget,
+                          stable_keys=True, defer_commit=True, **ckw)
+        assert comp["commit"] is not None, "deferred turn returned no commit"
+        assert persisted_state(d) == before, (
+            "a discarded deferred turn changed a persisted field: "
+            f"{changed_fields(before, persisted_state(d))}")
+        # committing the same callable must move the frozen order, proving
+        # the discard withheld a real change rather than a no-op
+        comp["commit"](save=False)
+        after = persisted_state(d)
+        assert after != before, "the deferred commit was a no-op"
+        assert len(d.kw_order) > len(before["kw_order"]), (
+            "committing the fresh-topic turn did not extend the frozen "
+            f"order ({len(before['kw_order'])} -> {len(d.kw_order)})")
+        print(f"deferred atomicity: discard left all six fields, commit "
+              f"extended kw_order {len(before['kw_order'])} -> "
+              f"{len(d.kw_order)}")
         print("PASS")
     finally:
         if args.keep:
