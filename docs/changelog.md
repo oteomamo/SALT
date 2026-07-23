@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.102
+## 2.9.0 - 2.9.104
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
@@ -72,6 +72,10 @@ Patch releases, grouped where several versions shipped one thing:
   saying something again after the cap masked the old copy away stores
   it again, instead of dropping it as a copy of a sentence no longer in
   memory.
+- **2.9.104** Failure-safe frozen keys. With `--stable-coverage-keys`
+  on, a turn whose model call fails leaves the frozen keyword order and
+  its sticky theme set exactly as they were, so a retry does not build
+  on a discarded attempt.
 
 ## 2.8.0
 

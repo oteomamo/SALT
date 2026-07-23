@@ -786,15 +786,24 @@ class SessionTrie:
         return new_coverage, new_coverage_turn, new_drift_ema, diag
 
     def _apply_commit(self, new_coverage, new_coverage_turn, new_drift_ema,
-                      drift_cos, save=True):
+                      drift_cos, new_theme_admitted=None, new_kw_order=None,
+                      save=True):
         """Make a planned commit real: coverage, freshness stamps, the
-        compress counter, the drift EMA, then persist (save=False marks
+        compress counter, the drift EMA, and under stable_keys the frozen
+        keyword order and sticky theme set, then persist (save=False marks
         the state dirty for the caller's own save path)."""
         self.coverage = new_coverage
         self.coverage_turn = new_coverage_turn
         self._n_compress += 1
         if drift_cos is not None:
             self.drift_ema = new_drift_ema
+        # stable_keys only: both are computed during selection to build
+        # kw_rank, but applied HERE so a discarded defer_commit turn cannot
+        # widen the append-only order or the sticky set (both persisted).
+        if new_theme_admitted is not None:
+            self.theme_admitted = new_theme_admitted
+        if new_kw_order is not None:
+            self.kw_order = new_kw_order
         if save:
             self.save()
         else:
@@ -861,7 +870,8 @@ class SessionTrie:
 
         `defer_commit` (opt-in): when true, nothing of this turn is
         committed inside the call — coverage, the freshness stamps, the
-        drift EMA and the compress counter stay untouched — and the
+        drift EMA, the compress counter and, under stable_keys, the frozen
+        keyword order and sticky theme set stay untouched — and the
         returned dict carries a one-shot `commit` callable that applies
         and persists the turn (`commit(save=False)` only marks the state
         dirty, for callers that own the save). Never calling it discards
@@ -910,13 +920,14 @@ class SessionTrie:
         # being sticky. Runs BEFORE the file-token injection, which
         # re-copies theme_keywords.
         n_sticky = 0
+        new_theme_admitted = None
         if stable_keys:
             alive = set().union(*self.coverage) if self.coverage else set()
             sticky = {k for k in self.theme_admitted
                       if k in alive and k not in theme_keywords}
             n_sticky = len(sticky)
             theme_keywords = set(theme_keywords) | sticky
-            self.theme_admitted = set(theme_keywords)
+            new_theme_admitted = set(theme_keywords)   # applied at commit
 
         # Per-file branches: inject each attachment's synthetic root keyword
         # AFTER theme profiling (so the percentile threshold sees only real
@@ -939,11 +950,12 @@ class SessionTrie:
                     sd["keyword_weights"] = kw
 
         kw_rank = None
+        new_kw_order = None
         if stable_keys:
             fresh_kws = sorted(set(theme_keywords) - set(self.kw_order),
                                key=lambda k: (-kw_df.get(k, 0), k))
-            self.kw_order.extend(fresh_kws)
-            kw_rank = {kw: r for r, kw in enumerate(self.kw_order)}
+            new_kw_order = self.kw_order + fresh_kws   # applied at commit
+            kw_rank = {kw: r for r, kw in enumerate(new_kw_order)}
 
         orig_words = self.live_words
         word_budget = int(orig_words * budget_pct)
@@ -1025,10 +1037,13 @@ class SessionTrie:
                     return
                 committed.append(True)
                 self._apply_commit(new_coverage, new_coverage_turn,
-                                   new_drift_ema, drift_cos, save=save)
+                                   new_drift_ema, drift_cos,
+                                   new_theme_admitted, new_kw_order,
+                                   save=save)
         else:
             self._apply_commit(new_coverage, new_coverage_turn,
-                               new_drift_ema, drift_cos)
+                               new_drift_ema, drift_cos,
+                               new_theme_admitted, new_kw_order)
 
         stats["coverage_keys"] = len(new_coverage)
         stats["coverage_half_life"] = coverage_half_life

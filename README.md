@@ -18,9 +18,6 @@
 > [!NOTE]
 > **What is next**
 >
-> - **Failure-safe frozen keys** - with `--stable-coverage-keys` on, a turn
->   whose model call fails should leave the frozen keyword order exactly as
->   it was.
 > - **Corrections in memory** - with `--dedup-cos` on, a short reversal of
 >   an earlier answer should not be dropped as a near-duplicate of the
 >   answer it corrects.
