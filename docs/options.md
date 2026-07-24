@@ -24,6 +24,7 @@ real session before it is trusted.
 | `--coverage-max-keys 500` | hard limit on remembered theme keys | you want a strict bound no matter what else is on |
 | `--max-sentences 400` | keeps the most recent conversation sentences in memory and masks older ones instead of deleting them | a long session keeps slowing down as its memory grows |
 | `--short-turns fuse` | stores a bare "yes" together with the question it answers | terse decisions should be findable by the question's own words |
+| `--tail-exclude` | keeps sentences still shown verbatim in the recent messages out of the memory block | the memory block repeats what is already on screen |
 
 ## saltChat reference
 

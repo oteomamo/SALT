@@ -175,6 +175,12 @@ page lists them all with when to reach for each. In concept:
   it corrects ("no, use PostgreSQL" against "yes, use PostgreSQL") can
   read as a restatement and be skipped. Fused acknowledgements
   (`--short-turns fuse`) are exempt, and the gate stays off by default.
+- **Recent messages.** The last exchanges ride in the prompt verbatim,
+  and by default selection may still pick those same sentences into
+  the memory block. `--tail-exclude` keeps them out while they are
+  visible, so the budget buys older context instead of repeating what
+  is on screen. Their themes start counting as shown once they leave
+  the recent window.
 - **Key stability.** Remembered discounts are keyed to branches of a
   tree that is rebuilt every turn. `--stable-coverage-keys` freezes the
   session's keyword order so those keys keep matching as it grows.

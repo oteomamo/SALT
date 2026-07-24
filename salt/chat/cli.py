@@ -190,6 +190,7 @@ class ChatState:
         self.short_turns = args.short_turns
         self.turn_labels = not args.no_turn_labels
         self.conversation_map = args.conversation_map
+        self.tail_exclude = args.tail_exclude
         self.sync_ingest = args.sync_ingest
         # tail policy: grow append-only to tail_max exchanges, then compact
         # to tail_min in ONE stroke. A rolling window (deque) would drop the
@@ -485,6 +486,38 @@ def format_memory_block(trie, sel_idx, turn_labels=True, conv_map=False):
     if None in by_src:
         sections.extend(conversation_sections(trie, by_src[None], turn_labels))
     return MEMORY_BLOCK.format(body="\n\n".join(sections))
+
+
+def tail_resident_sent_idx(trie, tail):
+    """Row indices whose text the model is already reading verbatim in
+    the tail, for compress(exclude_sent_idx=...). Conversation rows only:
+    an attached document is never excluded on coincidental overlap.
+    Matching is normalized space-bounded substring: a stored sentence is
+    a whitespace-normalized piece cut from its message at word
+    boundaries, so the exact run reappears space-delimited in the
+    normalized message, while the padding keeps a short sentence from
+    matching inside a longer word ("yes" in "yesterday"). It
+    under-matches when ingest cleaning altered the text (the <url>
+    substitution), which fails safe to selecting as before. Messages
+    join on newline, which normalized text cannot contain, so a needle
+    never matches across two messages. When every living row is
+    tail-resident there is nothing else to select, so no exclusion is
+    returned."""
+    if not tail:
+        return set()
+    hay = "\n".join(
+        " " + " ".join((m.get("content") or "").lower().split()) + " "
+        for m in tail)
+    idx = set()
+    for i in range(trie.n_sentences):
+        if not trie.alive[i] or trie.sources[i] is not None:
+            continue
+        needle = " ".join(trie.texts[i].lower().split())
+        if needle and f" {needle} " in hay:
+            idx.add(i)
+    if len(idx) >= trie.n_alive:
+        return set()
+    return idx
 
 
 def attachment_inventory(trie, full_attachments):
@@ -963,6 +996,11 @@ def handle_command(line, state):
                      else "")
                   + (f", {keys} theme keys tracked" if keys is not None
                      else ""))
+        if state.tail_exclude:
+            n = s.get("excluded_sent")
+            print("tail exclusion: on"
+                  + (f" - {n} tail-resident sentences left out last turn"
+                     if n is not None else ""))
         if state.shift_damping:
             print(f"shift damping: x{state.shift_damping:g} stale-seed "
                   f"scale on shift turns, query boost "
@@ -1091,8 +1129,12 @@ def chat_turn(state, line):
     ts_start = datetime.now().isoformat(timespec="seconds")
     # trie holds turns 1..N-1 here (this message is added after generation):
     # the verbatim tail covers recent turns, the trie covers older ones
+    # (--tail-exclude makes selection honor that division while a
+    # sentence is still riding in the tail)
     memory_block, selected_idx, drift_extra, commit = "", [], None, None
     if state.trie.n_sentences > 0:
+        excl = (tail_resident_sent_idx(state.trie, state.tail)
+                if state.tail_exclude else None)
         comp = state.trie.compress(query=line, budget_pct=state.budget,
                                    tokenizer=state.bge_tok,
                                    model=state.bge_model,
@@ -1107,7 +1149,8 @@ def chat_turn(state, line):
                                    stable_keys=state.stable_coverage_keys,
                                    coverage_gc=state.coverage_gc,
                                    coverage_max_keys=state.coverage_max_keys,
-                                   defer_commit=True)
+                                   defer_commit=True,
+                                   exclude_sent_idx=excl)
         selected_idx = comp["selected_sent_idx"]
         commit = comp.get("commit")
         state.last_stats = comp["stats"]
@@ -1503,6 +1546,13 @@ def build_parser():
                         "sentences were selected. A long conversation "
                         "shows its recent turns and the header says so "
                         "(default: off; the map is always in /stats)")
+    p.add_argument("--tail-exclude", action="store_true",
+                   help="keep sentences still shown verbatim in the "
+                        "recent messages out of the compressed memory "
+                        "block, so the budget buys older context instead "
+                        "of repeating what is on screen (default: off; a "
+                        "sentence's themes start counting as shown once "
+                        "it leaves the tail)")
     p.add_argument("--sync-ingest", action="store_true",
                    help="run the per-turn keyword/embedding ingest on the "
                         "REPL thread as before, instead of in the "
