@@ -25,6 +25,8 @@ plain install stays green.
   (`--max-sentences`).
 - `chat_incremental_regression.py` covers the per-turn work the session
   trie carries forward instead of redoing.
+- `chat_tail_regression.py` covers tail-aware selection
+  (`--tail-exclude`).
 - `chat_vllm_regression.py` covers the in-process `--backend vllm`.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.
