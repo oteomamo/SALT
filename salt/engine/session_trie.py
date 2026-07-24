@@ -58,6 +58,7 @@ from salt.engine.trie_core import (
     run_dense_attention, get_bge_sentence_embeddings, embed_query,
     profile_themes, is_content_word, clean_text_words, expand_with_stems,
     extract_query_keywords, extract_proper_nouns_in_query,
+    build_trie_paths,
 )
 from salt.engine.celf import coverage_select
 
@@ -680,10 +681,12 @@ class SessionTrie:
 
     def _plan_commit(self, cov, seed, seed_passed, damped, drift_cos,
                      drift_baseline, stable_keys, coverage_gc,
-                     coverage_max_keys):
+                     coverage_max_keys, node_universe=None):
         """Compute the turn's coverage/EMA commit without touching any
         session state. Returns (new_coverage, new_coverage_turn,
-        new_drift_ema, diag); _apply_commit() makes it real."""
+        new_drift_ema, diag); _apply_commit() makes it real.
+        `node_universe` is the key universe the bookkeeping classifies
+        live-vs-orphan against; None reads this turn's trie keys."""
         if damped:
             # Increments-only merge — the one real trap of seed scaling:
             # CELF's returned coverage is seed-AS-PASSED + this turn's
@@ -707,7 +710,8 @@ class SessionTrie:
         # absent from this turn's node set can only be pre-flag history
         # or eviction residue - no node exists for it to discount this
         # turn or any later one, so carrying it forever is pure bloat.
-        universe_now = cov.get("node_keys") or set()
+        universe_now = (node_universe if node_universe is not None
+                        else cov.get("node_keys") or set())
         n_orphans_dropped = 0
         if stable_keys:
             before_n = len(new_coverage)
@@ -815,7 +819,8 @@ class SessionTrie:
                  shift_damping=None, shift_margin=0.12,
                  shift_query_boost=1.5, per_source_themes=False,
                  max_words=None, stable_keys=False, coverage_gc=False,
-                 coverage_max_keys=None, defer_commit=False):
+                 coverage_max_keys=None, defer_commit=False,
+                 exclude_sent_idx=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -879,6 +884,21 @@ class SessionTrie:
         call is a no-op. The empty-session early exit returns
         `commit: None`. Stats always describe the planned commit.
         Default False commits inside the call exactly as before.
+
+        `exclude_sent_idx` (opt-in): row indices removed from selection
+        CANDIDACY for this call, meant for sentences the model is already
+        reading verbatim in the chat tail. Exclusion narrows what can be
+        picked and nothing else: the theme profile, the trie ordering and
+        every piece of coverage bookkeeping (the stable-keys reconcile,
+        orphan GC, the hard cap and the orphan diagnostics) still see the
+        full living corpus, so an excluded row's accumulated discount is
+        carried, never collected, and its themes cannot be stamped by a
+        turn that could not select them. An exclusion that would empty
+        the candidate set is ignored outright — the caller asked to avoid
+        duplication, not to blank memory (and an empty selection under
+        `stable_keys` would reconcile the whole coverage dict away).
+        Stats report `excluded_sent`, the candidacy rows actually
+        removed. Default None reproduces today's selection exactly.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_alive == 0:
@@ -957,6 +977,42 @@ class SessionTrie:
             new_kw_order = self.kw_order + fresh_kws   # applied at commit
             kw_rank = {kw: r for r, kw in enumerate(new_kw_order)}
 
+        # Tail exclusion: drop the caller's rows from CANDIDACY only. The
+        # profile above and the bookkeeping below keep seeing the full
+        # living corpus, so the trie shape and the coverage keys stay
+        # exactly what the flag-off turn would build — an excluded row
+        # simply cannot be selected while the model already reads it.
+        n_excluded = 0
+        excluded_node_keys = None
+        if exclude_sent_idx:
+            # normalize first: the two scans below would consume a one-shot
+            # iterable, and set membership keeps them O(1) either way
+            exclude_sent_idx = set(exclude_sent_idx)
+            kept = [sd for sd in sent_data
+                    if sd["sent_idx"] not in exclude_sent_idx]
+            if kept and len(kept) < len(sent_data):
+                excluded = [sd for sd in sent_data
+                            if sd["sent_idx"] in exclude_sent_idx]
+                n_excluded = len(excluded)
+                sent_data = kept
+                # The excluded rows' own node keys, unioned into the
+                # commit universe below: a coverage key whose only
+                # carriers ride in the tail is temporarily unselectable,
+                # not orphaned, and must survive the stable-keys
+                # reconcile, the GC and the cap's victim ordering. Path
+                # prefixes are per-record under the shared keyword
+                # ordering, so this union equals the full corpus's keys.
+                epaths, _, _, enode_kw = build_trie_paths(
+                    [set(sd["keyword_weights"]) & set(theme_keywords)
+                     for sd in excluded],
+                    kw_df, theme_keywords, kw_rank=kw_rank)
+                excluded_node_keys = set()
+                for pid in epaths:
+                    acc = []
+                    for v in pid:
+                        acc.append(enode_kw[v])
+                        excluded_node_keys.add(frozenset(acc))
+
         orig_words = self.live_words
         word_budget = int(orig_words * budget_pct)
         word_budget_capped = False
@@ -1023,10 +1079,14 @@ class SessionTrie:
             seed_coverage=seed_passed, return_coverage=True,
             kw_rank=kw_rank)
 
+        universe = cov.get("node_keys") or set()
+        if excluded_node_keys:
+            universe = universe | excluded_node_keys
         (new_coverage, new_coverage_turn, new_drift_ema,
          commit_diag) = self._plan_commit(
              cov, seed, seed_passed, damped, drift_cos, drift_baseline,
-             stable_keys, coverage_gc, coverage_max_keys)
+             stable_keys, coverage_gc, coverage_max_keys,
+             node_universe=universe)
         commit_cb = None
         if defer_commit:
             committed = []
@@ -1058,7 +1118,7 @@ class SessionTrie:
         stats["theme_keywords_sticky"] = n_sticky
         stats["word_budget"] = word_budget
         stats["word_budget_capped"] = word_budget_capped
-        universe = cov.get("node_keys") or set()
+        stats["excluded_sent"] = n_excluded
         seed_matched = sum(1 for k in seed_passed if k in universe)
         stats["coverage_seed_keys"] = len(seed_passed)
         stats["coverage_seed_matched"] = seed_matched
