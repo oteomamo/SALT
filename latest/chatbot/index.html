@@ -1543,6 +1543,12 @@ page lists them all with when to reach for each. In concept:</p>
   it corrects ("no, use PostgreSQL" against "yes, use PostgreSQL") can
   read as a restatement and be skipped. Fused acknowledgements
   (<code>--short-turns fuse</code>) are exempt, and the gate stays off by default.</li>
+<li><strong>Recent messages.</strong> The last exchanges ride in the prompt verbatim,
+  and by default selection may still pick those same sentences into
+  the memory block. <code>--tail-exclude</code> keeps them out while they are
+  visible, so the budget buys older context instead of repeating what
+  is on screen. Their themes start counting as shown once they leave
+  the recent window.</li>
 <li><strong>Key stability.</strong> Remembered discounts are keyed to branches of a
   tree that is rebuilt every turn. <code>--stable-coverage-keys</code> freezes the
   session's keyword order so those keys keep matching as it grows.</li>
