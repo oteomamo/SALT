@@ -3,7 +3,7 @@
 # SALT
 
 <p align="center">
-  <img src="salt/assets/banner.png" width="100%">
+  <img src="salt/assets/flow.gif" width="100%">
 </p>
 
 ## Salience-Aware Lexical Trie for Long-Context Compression
