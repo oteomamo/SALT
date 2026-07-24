@@ -55,6 +55,7 @@ so it is the fastest way to find where a change belongs:
 │ │ + half-life decay  │  │                    │  │ GPU-pinned models  │   │
 │ │ + near-dup gate    │  │                    │  │                    │   │
 │ │ + background ingest│  │                    │  │                    │   │
+│ │ + tail-aware select│  │                    │  │                    │   │
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
@@ -282,6 +283,33 @@ sentences each time, because both move with the question asked and
 with what memory has already surfaced. Per-file theme profiling
 (`--per-source-themes`) also keeps its own full recount, since its
 buckets shift as sentences are masked.
+
+## Tail-aware memory selection
+
+The prompt already carries the last exchanges verbatim, and selection
+used to treat those same sentences as fair candidates. They match the
+current question better than anything older, so the memory block kept
+spending part of its budget re-showing text sitting a few messages
+below, and on a real stored session that duplication reached about a
+quarter of the budget. Each re-show also counted as coverage, so a
+sentence's themes were most discounted at exactly the moment the tail
+stopped carrying it and memory became its only home.
+
+Selection now skips sentences that are still visible word for word in
+the recent messages. The skip narrows candidacy and nothing else: the
+theme map, the keyword order and every remembered discount still
+describe the full living session, so the memory tree keeps the exact
+shape it would have without the skip, and a skipped sentence's themes
+start counting as shown only once it leaves the recent window. The
+freed budget goes to older material instead, and `/stats` reports how
+many sentences were left out each turn.
+
+Two guards keep the skip safe. Matching asks for the whole sentence
+between word boundaries, so a short reply never matches inside a
+longer word, and a sentence altered at ingest simply stays selectable.
+And when everything alive is still on screen, early in a session, the
+skip stands down rather than hand the model an empty memory block.
+`--no-tail-exclude` restores the old overlapping selection.
 
 Where each stage lives:
 

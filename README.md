@@ -106,6 +106,7 @@ so it is the fastest way to find where a change belongs:
 │ │ + half-life decay  │  │                    │  │ GPU-pinned models  │   │
 │ │ + near-dup gate    │  │                    │  │                    │   │
 │ │ + background ingest│  │                    │  │                    │   │
+│ │ + tail-aware select│  │                    │  │                    │   │
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
