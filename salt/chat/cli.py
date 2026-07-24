@@ -190,7 +190,7 @@ class ChatState:
         self.short_turns = args.short_turns
         self.turn_labels = not args.no_turn_labels
         self.conversation_map = args.conversation_map
-        self.tail_exclude = args.tail_exclude
+        self.tail_exclude = not args.no_tail_exclude
         self.sync_ingest = args.sync_ingest
         # tail policy: grow append-only to tail_max exchanges, then compact
         # to tail_min in ONE stroke. A rolling window (deque) would drop the
@@ -1001,6 +1001,8 @@ def handle_command(line, state):
             print("tail exclusion: on"
                   + (f" - {n} tail-resident sentences left out last turn"
                      if n is not None else ""))
+        else:
+            print("tail exclusion: off this launch (--no-tail-exclude)")
         if state.shift_damping:
             print(f"shift damping: x{state.shift_damping:g} stale-seed "
                   f"scale on shift turns, query boost "
@@ -1129,8 +1131,8 @@ def chat_turn(state, line):
     ts_start = datetime.now().isoformat(timespec="seconds")
     # trie holds turns 1..N-1 here (this message is added after generation):
     # the verbatim tail covers recent turns, the trie covers older ones
-    # (--tail-exclude makes selection honor that division while a
-    # sentence is still riding in the tail)
+    # (selection honors that division while a sentence still rides in
+    # the tail, unless --no-tail-exclude)
     memory_block, selected_idx, drift_extra, commit = "", [], None, None
     if state.trie.n_sentences > 0:
         excl = (tail_resident_sent_idx(state.trie, state.tail)
@@ -1547,12 +1549,15 @@ def build_parser():
                         "shows its recent turns and the header says so "
                         "(default: off; the map is always in /stats)")
     p.add_argument("--tail-exclude", action="store_true",
-                   help="keep sentences still shown verbatim in the "
-                        "recent messages out of the compressed memory "
-                        "block, so the budget buys older context instead "
-                        "of repeating what is on screen (default: off; a "
-                        "sentence's themes start counting as shown once "
-                        "it leaves the tail)")
+                   help="accepted for compatibility: tail exclusion is "
+                        "the default")
+    p.add_argument("--no-tail-exclude", action="store_true",
+                   help="let the memory block select sentences that are "
+                        "still shown verbatim in the recent messages "
+                        "(default: they are excluded, so the budget buys "
+                        "older context instead of repeating what is on "
+                        "screen; a sentence's themes start counting as "
+                        "shown once it leaves the tail)")
     p.add_argument("--sync-ingest", action="store_true",
                    help="run the per-turn keyword/embedding ingest on the "
                         "REPL thread as before, instead of in the "

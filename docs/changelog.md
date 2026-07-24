@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.109
+## 2.9.0 - 2.9.111
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
@@ -81,12 +81,13 @@ Patch releases, grouped where several versions shipped one thing:
   bare "no" is not dropped as a near-duplicate of the "yes" it corrects.
   A short reversal built from the same words on the default path stays a
   documented limit of the cosine gate.
-- **2.9.108 - 2.9.109** Tail-aware memory selection. `--tail-exclude`
-  keeps sentences the model is already reading verbatim in the recent
-  messages out of the compressed memory block, so the budget buys older
-  context instead of repeating what is on screen. A sentence's themes
-  start counting as shown once it leaves the recent messages. Off by
-  default, and `/stats` reports how many sentences were left out.
+- **2.9.108 - 2.9.111** Tail-aware memory selection. The memory block
+  no longer spends its budget on sentences the model is already reading
+  verbatim in the recent messages, so the budget buys older context
+  instead of repeating what is on screen. A sentence's themes start
+  counting as shown once it leaves the recent messages. On by default,
+  `--no-tail-exclude` restores the old overlapping selection, and
+  `/stats` reports how many sentences were left out.
 
 ## 2.8.0
 

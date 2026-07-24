@@ -30,9 +30,10 @@ How the context is organized:
      from an older build may carry no age. Higher turn numbers are later,
      so when two
      excerpts disagree prefer the later one, and do not attribute a
-     statement to the user that the label credits to the assistant. The
-     most recent ones may also still appear verbatim in the latest
-     messages.
+     statement to the user that the label credits to the assistant.
+     Selection normally skips sentences still visible in the latest
+     messages, so these excerpts complement the recent messages rather
+     than repeat them.
    The user's actual question is the text after that block.
 
 How to use it:
