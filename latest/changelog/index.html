@@ -992,10 +992,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#290-29109" class="md-nav__link">
+  <a href="#290-29111" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.9.0 - 2.9.109
+        2.9.0 - 2.9.111
       
     </span>
   </a>
@@ -1183,10 +1183,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#290-29109" class="md-nav__link">
+  <a href="#290-29111" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.9.0 - 2.9.109
+        2.9.0 - 2.9.111
       
     </span>
   </a>
@@ -1326,7 +1326,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="290-29109">2.9.0 - 2.9.109</h2>
+<h2 id="290-29111">2.9.0 - 2.9.111</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
 pasted messages never delay the next prompt. Failed ingests keep the message
@@ -1402,12 +1402,13 @@ of once per message. <code>--sync-ingest</code> restores the old inline behavior
   bare "no" is not dropped as a near-duplicate of the "yes" it corrects.
   A short reversal built from the same words on the default path stays a
   documented limit of the cosine gate.</li>
-<li><strong>2.9.108 - 2.9.109</strong> Tail-aware memory selection. <code>--tail-exclude</code>
-  keeps sentences the model is already reading verbatim in the recent
-  messages out of the compressed memory block, so the budget buys older
-  context instead of repeating what is on screen. A sentence's themes
-  start counting as shown once it leaves the recent messages. Off by
-  default, and <code>/stats</code> reports how many sentences were left out.</li>
+<li><strong>2.9.108 - 2.9.111</strong> Tail-aware memory selection. The memory block
+  no longer spends its budget on sentences the model is already reading
+  verbatim in the recent messages, so the budget buys older context
+  instead of repeating what is on screen. A sentence's themes start
+  counting as shown once it leaves the recent messages. On by default,
+  <code>--no-tail-exclude</code> restores the old overlapping selection, and
+  <code>/stats</code> reports how many sentences were left out.</li>
 </ul>
 <h2 id="280">2.8.0</h2>
 <p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation

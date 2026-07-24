@@ -1242,11 +1242,6 @@ real session before it is trusted.</p>
 <td>stores a bare "yes" together with the question it answers</td>
 <td>terse decisions should be findable by the question's own words</td>
 </tr>
-<tr>
-<td><code>--tail-exclude</code></td>
-<td>keeps sentences still shown verbatim in the recent messages out of the memory block</td>
-<td>the memory block repeats what is already on screen</td>
-</tr>
 </tbody>
 </table>
 <h2 id="saltchat-reference">saltChat reference</h2>
@@ -1370,6 +1365,11 @@ real session before it is trusted.</p>
 <td><code>--short-turns off\|keep\|fuse</code></td>
 <td><code>keep</code></td>
 <td>keep short user messages in memory, <code>off</code> restores dropping them</td>
+</tr>
+<tr>
+<td><code>--no-tail-exclude</code></td>
+<td>off</td>
+<td>let the memory block repeat sentences still shown in the recent messages (<code>--tail-exclude</code> is the default and accepted as a no-op)</td>
 </tr>
 <tr>
 <td><code>--no-turn-labels</code></td>
