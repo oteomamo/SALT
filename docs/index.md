@@ -7,7 +7,7 @@ hide:
 # SALT
 
 <div class="salt-hero" markdown>
-![SALT banner](assets/banner.png)
+![SALT flow animation](assets/flow.webp)
 </div>
 
 **SALT keeps long context small.** It compresses documents and whole
