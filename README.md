@@ -61,6 +61,25 @@ turns of a conversation without re-reading the document.
 
 ## 🧩 Architecture
 
+**Selection under a budget.**
+
+<p align="center">
+  <img src="salt/assets/coverage.webp" width="100%" alt="Theme collapse under score-and-rank selection, and how coverage selection avoids it">
+</p>
+
+**Memory across a conversation.**
+
+<p align="center">
+  <img src="salt/assets/memory.webp" width="100%" alt="How saltChat grows a session trie and re-selects memory on every turn">
+</p>
+
+**Serving with a warm cache.**
+<p align="center">
+  <img src="salt/assets/serving.webp" width="100%" alt="saltServe keeping the model loaded and the prefix cache warm across sessions">
+</p>
+
+
+
 Two phases. **Indexing** reads the document once and builds a keyword trie - a
 reusable map of its recurring themes. **Selection** then picks a sentence subset
 under a token budget, returned in original document order, query-biased or not.
@@ -79,6 +98,7 @@ under a token budget, returned in original document order, query-biased or not.
    onto the dominant one. A query re-weights the trie (lexical + BGE-semantic)
    without rebuilding it. → compressed prompt, original order, ≤ budget
 ```
+
 
 The whole system as a blueprint - this map is kept current as SALT grows,
 so it is the fastest way to find where a change belongs:
