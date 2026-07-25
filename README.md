@@ -228,7 +228,7 @@ pip install -e .
 ```
 
 This also installs the two console commands: `salt` (one-shot compression,
-see [Usage](https://oteomamo.github.io/SALT/usage/)) and `saltChat` (interactive chat, see
+see [Usage](https://oteomamo.github.io/SALT/latest/usage/)) and `saltChat` (interactive chat, see
 [Chatbot mode](#-chatbot-mode)).
 
 **4. Authenticate with Hugging Face** - the eval model
@@ -276,8 +276,8 @@ MAX_SAMPLES=5 RUN_EVAL=0 bash scripts/run_datasets.sh
 
 The script routes each dataset to the right mode automatically, then scores
 the results. Every command, flag, and knob is documented on the
-[Usage](https://oteomamo.github.io/SALT/usage/) and
-[Datasets](https://oteomamo.github.io/SALT/datasets/) pages.
+[Usage](https://oteomamo.github.io/SALT/latest/usage/) and
+[Datasets](https://oteomamo.github.io/SALT/latest/datasets/) pages.
 
 ## 🤖 Chatbot mode
 
@@ -293,10 +293,10 @@ saltChat --model qwen05 --conversation-id demo1 --doc report.txt
 A persistent server started with `saltServe` keeps the model loaded and
 its cache warm between chats, so a resumed conversation picks up without
 re-reading its documents. The
-[Chatbot mode guide](https://oteomamo.github.io/SALT/chatbot/) covers
-the concepts, the [Serving](https://oteomamo.github.io/SALT/serving/)
+[Chatbot mode guide](https://oteomamo.github.io/SALT/latest/chatbot/) covers
+the concepts, the [Serving](https://oteomamo.github.io/SALT/latest/serving/)
 page covers the server, and the
-[Options](https://oteomamo.github.io/SALT/options/) page lists every
+[Options](https://oteomamo.github.io/SALT/latest/options/) page lists every
 flag in one line each, including the off-by-default switches that make
 long sessions better.
 
@@ -304,7 +304,7 @@ long sessions better.
 
 SALT (coverage/CELF selector) reaches an overall **44.60** LongBench average
 with Llama-3.1-8B-Instruct at a 20% token budget. The full per-dataset table
-is on the [Results](https://oteomamo.github.io/SALT/results/) page.
+is on the [Results](https://oteomamo.github.io/SALT/latest/results/) page.
 
 ## 🔭 Roadmap
 
