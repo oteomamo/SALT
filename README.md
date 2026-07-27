@@ -302,9 +302,8 @@ long sessions better.
 
 ## 🔬 Results
 
-SALT (coverage/CELF selector) reaches an overall **44.60** LongBench average
-with Llama-3.1-8B-Instruct at a 20% token budget. The full per-dataset table
-is on the [Results](https://oteomamo.github.io/SALT/latest/results/) page.
+The full per-dataset table is on the
+[Results](https://oteomamo.github.io/SALT/latest/results/) page.
 
 ## 🔭 Roadmap
 
