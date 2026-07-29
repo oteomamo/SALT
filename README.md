@@ -18,7 +18,7 @@
 > [!NOTE]
 > **What is next**
 >
-> - **MCP server** - a `salt-mcp` entry point so AI clients can use SALT as
+> - **MCP server** - a `salt-mcp` entry point so AI clients / Agents can use SALT as
 >   their conversation memory without the REPL.
 > - **Scripted conversation runs** - richer tooling around `--turns` for
 >   driving and scoring long canned conversations.
