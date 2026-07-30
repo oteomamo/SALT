@@ -31,8 +31,8 @@ wait time that long inputs cost.
 **The problem.** When a prompt is too long, existing compressors give each
 sentence a single relevance score and keep the top-scoring ones until the budget
 runs out. Under a tight budget this lets the document's main topic swallow the
-whole budget, so smaller but still important points get dropped - a failure called
- *theme collapse* (in multi-hop questions, for example, it can keep
+whole budget, so smaller but still important points get dropped - a failure
+called *theme collapse* (in multi-hop questions, for example, it can keep
 passages about the main entity yet lose the one sentence that links it to a
 second).
 
