@@ -274,6 +274,9 @@ Smoke test (5 samples per task, compression only):
 MAX_SAMPLES=5 RUN_EVAL=0 bash scripts/run_datasets.sh
 ```
 
+The download step only needs to run once, because the data lands under
+`salt/datasets/longbench/data` and stays there.
+
 The script routes each dataset to the right mode automatically, then scores
 the results. Every command, flag, and knob is documented on the
 [Usage](https://oteomamo.github.io/SALT/latest/usage/) and
