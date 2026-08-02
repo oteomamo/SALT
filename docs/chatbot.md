@@ -47,6 +47,14 @@ model and its cache disappear on exit. `saltServe` keeps them alive as
 a separate long-lived server that chats connect to and resume warm. It
 has its own page: [Serving](serving.md).
 
+## Other models beside this one
+
+A chat talks to one model, and switching with `/model` unloads the one
+it has. A roster names other models a session can reach without giving
+up its own, each one a server of its own that stays loaded. `--roster`
+declares them and the `/roster` and `/worker` commands below inspect
+them. It has its own page: [Agents](agents.md).
+
 ## REPL commands
 
 | Command | Effect |

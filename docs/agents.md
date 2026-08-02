@@ -65,4 +65,6 @@ wrong model shows up as `DEAD` with the reason. `/worker` reports the
 live side of the same models, including how many calls each has taken
 and how slow it was, and `/worker probe <name>` reconnects one of them.
 
-Every flag is on the [Options](options.md) page.
+The commands sit alongside the rest on the
+[Chatbot mode](chatbot.md) page, and every flag is on the
+[Options](options.md) page.
