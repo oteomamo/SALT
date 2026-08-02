@@ -35,6 +35,7 @@ from pathlib import Path
 
 import torch
 
+from salt.agents.roster import RosterError, load_roster
 from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
@@ -116,6 +117,7 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /model             list registered models (* = active)
 /model <name>      switch chat model (unloads current, loads new; session kept)
 /add <hf_id> [alias]  download + register a model by HuggingFace id
+/roster            list the worker models --roster names (none without it)
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
 /stats             session, attachments, compression, and GPU memory stats
@@ -160,7 +162,7 @@ def backend_opts(args):
 class ChatState:
     """Everything a live session pins: models on GPU, trie in RAM."""
 
-    def __init__(self, args, bge_tok, bge_model, runner, trie):
+    def __init__(self, args, bge_tok, bge_model, runner, trie, roster=None):
         self.device = args.device
         self.bge_device = args.bge_device or args.device
         self.backend = args.backend
@@ -169,6 +171,8 @@ class ChatState:
         self.bge_model = bge_model
         self.runner = runner
         self.trie = trie
+        # None = the agent layer is absent for this session, everywhere
+        self.roster = roster
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.tokens_per_word = TOKENS_PER_WORD_SEED
@@ -574,6 +578,23 @@ def print_models(active=None):
               f"[{m['dtype']}, {state}]")
 
 
+def print_roster(roster):
+    if roster is None:
+        print("  (no roster loaded - start saltChat with --roster FILE, "
+              "e.g. salt/agents/roster_sample.json)")
+        return
+    head = ("NAME", "ROLE", "ALIAS", "MODE", "ENDPOINT", "STATE")
+    rows = [(e.name, e.role, e.alias, "attach" if e.attach else "spawn",
+             e.server_url if e.attach else f"port {e.spawn['port']}",
+             "UNPROBED") for e in roster.entries]
+    width = [max(len(r[i]) for r in (head,) + tuple(rows))
+             for i in range(len(head))]
+    for row in (head,) + tuple(rows):
+        line = "  ".join(f"{c:<{w}}" for c, w in zip(row, width))
+        print(f"  {line.rstrip()}")
+    print(f"  from {roster.path}")
+
+
 def _user_keep(t):
     # add_turn's default protects code/table/link units; user turns must
     # keep that protection alongside the short-turn one
@@ -935,6 +956,11 @@ def handle_command(line, state):
                 print(f"Registered {cfg['hf_id']} as {cfg['alias']!r}.")
             except RegistryError as exc:
                 print(exc)
+    elif cmd == "/roster":
+        if rest:
+            print("Usage: /roster")
+        else:
+            print_roster(state.roster)
     elif cmd == "/doc":
         if not rest:
             print("Usage: /doc <path>")
@@ -1565,6 +1591,15 @@ def build_parser():
                         "ingest error raises at the call site (default: "
                         "ingest runs on a background worker and long "
                         "pasted messages never delay the next prompt)")
+    p.add_argument("--roster", metavar="FILE",
+                   help="load a model roster: the JSON file naming the "
+                        "worker models this session may hand work to, and "
+                        "at most one orchestrator. An entry either attaches "
+                        "to a running saltServe endpoint or describes how "
+                        "to spawn one. Loading validates the file only, so "
+                        "nothing is contacted or started. See "
+                        "salt/agents/roster_sample.json, and /roster in the "
+                        "REPL for what was loaded.")
     p.add_argument("--turns", metavar="FILE",
                    help="run a scripted conversation from a JSON array or "
                         "JSONL file instead of the interactive REPL. Each "
@@ -1686,6 +1721,16 @@ def main(argv=None):
             print(f"--turns: {args.turns} has no turns", file=sys.stderr)
             return 1
 
+    # same reason for the roster: a bad entry, or a worker whose weights
+    # are missing, must fail before the chat model is loaded
+    roster = None
+    if args.roster:
+        try:
+            roster = load_roster(args.roster)
+        except RosterError as exc:
+            print(f"--roster: {exc}", file=sys.stderr)
+            return 1
+
     models = list_models()
     if args.model:
         try:
@@ -1731,7 +1776,7 @@ def main(argv=None):
 
     runner = make_runner(cfg, device=args.device, backend=args.backend,
                          **backend_opts(args))
-    state = ChatState(args, bge_tok, bge_model, runner, trie)
+    state = ChatState(args, bge_tok, bge_model, runner, trie, roster)
     if state.full_attachments:
         print(f"Restored {len(state.full_attachments)} full-context "
               f"attachment(s): {', '.join(state.full_attachments)}")

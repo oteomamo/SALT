@@ -49,6 +49,12 @@ Session:
 | `--turns-field KEY` | auto | which key holds the message in `--turns` items |
 | `--turns-out FILE` | none | append each `--turns` answer as JSONL |
 
+Agents:
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--roster FILE` | none | JSON file naming the worker models this session may reach, listed by `/roster` |
+
 Memory sizing:
 
 | Flag | Default | What it does |
