@@ -19,6 +19,8 @@ runs on CPU with no vLLM, no GPU and no second process.
   8. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
   9. Frozen core: the agent work has not touched the eval files.
+ 10. Command surfaces: HELP, TAB completion and the docs
+     command table agree on what the REPL accepts.
 
 Needs only the salt install and the BGE encoder (downloaded to the HF
 cache on first use). Assert-based: refuses to run under python -O.
@@ -560,6 +562,25 @@ def check_frozen_core():
           f"the agent layer began")
 
 
+def check_command_surfaces():
+    """A REPL command lives in three places at once. /roster shipped in
+    only one of them, so this pins all three against each other."""
+    doc = (REPO / "docs" / "chatbot.md").read_text(encoding="utf-8")
+    helped = {ln.split()[0] for ln in cli.HELP.splitlines()
+              if ln.startswith("/")}
+    assert helped, "HELP listed no commands - this check would be vacuous"
+    missing = sorted(helped - set(cli.COMMANDS))
+    assert not missing, f"{missing} are in HELP but TAB cannot complete them"
+    stray = sorted(set(cli.COMMANDS) - helped)
+    assert not stray, f"TAB completes {stray}, which HELP never mentions"
+    for cmd in ("/roster", "/worker"):
+        assert cmd in helped, f"{cmd} left HELP"
+        assert f"| `{cmd}" in doc, (
+            f"{cmd} is not in the docs/chatbot.md command table")
+    print(f"10. command surfaces: all {len(helped)} REPL commands are in "
+          f"HELP and TAB completion, agent commands documented too")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -581,6 +602,7 @@ def main():
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()
+        check_command_surfaces()
         print("PASS")
     finally:
         if not args.keep:

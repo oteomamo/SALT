@@ -129,6 +129,10 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /clear             wipe and restart the current conversation
 /exit              leave (also Ctrl-D)"""
 
+# what TAB offers: every command HELP lists, so the two cannot drift
+COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/doc",
+            "/budget", "/stats", "/new", "/clear", "/exit"]
+
 
 def resolve_gpu_devices(gpus, device, bge_device, gpu_mem_util):
     """Turn a parsed --gpu list into concrete placements. The chat model
@@ -1441,9 +1445,6 @@ def _setup_completion():
         import readline
     except ImportError:
         return
-    commands = ["/help", "/model", "/add", "/doc", "/budget", "/stats",
-                "/worker", "/new", "/clear", "/exit"]
-
     def complete(text, i):
         if text.startswith("salt@") or text.startswith("attach@"):
             at = text.index("@") + 1
@@ -1451,7 +1452,7 @@ def _setup_completion():
             opts = [text[:at] + f.name for f in staged_files()
                     if f.name.startswith(prefix)]
         elif text.startswith("/"):
-            opts = [c for c in commands if c.startswith(text)]
+            opts = [c for c in COMMANDS if c.startswith(text)]
         else:
             opts = []
         return opts[i] if i < len(opts) else None
