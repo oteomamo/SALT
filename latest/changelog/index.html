@@ -992,10 +992,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#290-29111" class="md-nav__link">
+  <a href="#2100-2100" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.9.0 - 2.9.111
+        2.10.0 - 2.10.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#290-29123" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.9.0 - 2.9.123
       
     </span>
   </a>
@@ -1183,10 +1194,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#290-29111" class="md-nav__link">
+  <a href="#2100-2100" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.9.0 - 2.9.111
+        2.10.0 - 2.10.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#290-29123" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.9.0 - 2.9.123
       
     </span>
   </a>
@@ -1326,7 +1348,18 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="290-29111">2.9.0 - 2.9.111</h2>
+<h2 id="2100-2100">2.10.0 - 2.10.0</h2>
+<p>The agent line. saltChat is growing an agent layer: a session can name
+smaller helper models beside the chat model and, over the 2.10.z
+releases, hand parts of its work to them with SALT memory in the loop.</p>
+<p>Patch releases, grouped where several versions shipped one thing:</p>
+<ul>
+<li><strong>2.10.0</strong> Model roster. A <code>salt.agents</code> package that reads a
+  validated roster file naming helper models and how to reach them,
+  with a sample at <code>salt/agents/roster_sample.json</code>. Groundwork only,
+  nothing in the chat changes yet.</li>
+</ul>
+<h2 id="290-29123">2.9.0 - 2.9.123</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long
 pasted messages never delay the next prompt. Failed ingests keep the message
