@@ -16,6 +16,9 @@ runs on CPU with no vLLM, no GPU and no second process.
   6. Abandoning a call: the response is severed so the worker aborts.
   7. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
+  8. Import purity: importing the agent layer costs nothing, and no
+     entry point reaches the serve client or an MCP server on import.
+  9. Frozen core: the agent work has not touched the eval files.
 
 Needs only the salt install and the BGE encoder (downloaded to the HF
 cache on first use). Assert-based: refuses to run under python -O.
@@ -27,8 +30,10 @@ Usage:
 import argparse
 import io
 import json
+import os
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -56,6 +61,15 @@ from salt.engine.session_trie import SessionTrie                 # noqa: E402
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 SAMPLE = REPO / "salt" / "agents" / "roster_sample.json"
 SAMPLE_ALIAS = "qwen05"
+
+# the eval core, frozen by CONTRIBUTING: the agent work is designed to
+# need no edit here, and group 9 is what proves it kept to that
+FROZEN = ("salt/compress.py", "salt/engine/celf.py",
+          "salt/engine/trie_core.py", "salt/engine/embedder.py",
+          "salt/engine/dataset_modes.py", "salt/engine/sentence_filter.py",
+          "salt/engine/retrieval.py")
+# the commit before the agent ladder's first, so the guard spans it whole
+LADDER_BASE = "v2.10.0^"
 
 TRANSCRIPT = [
     "We are sizing a home battery for a house with 9 kW of panels.",
@@ -481,6 +495,71 @@ def check_identity(tmp, tok, mdl):
           f"({len(off_trace)} prompts compared in full)")
 
 
+def imports_pulled(module, watch):
+    """Which of `watch` end up in sys.modules from importing `module`,
+    measured in a fresh interpreter so this harness's own imports do not
+    count. `watch` entries match a module or its dotted children."""
+    code = ("import sys, importlib; importlib.import_module(%r);"
+            "w = %r;"
+            "print(' '.join(sorted({m for m in w for k in sys.modules"
+            " if k == m or k.startswith(m + '.')})))" % (module, list(watch)))
+    # importing torch here pins MKL_THREADING_LAYER for the whole process,
+    # and a child that inherits it dies against libgomp before it can
+    # import anything
+    env = dict(os.environ)
+    env.pop("MKL_THREADING_LAYER", None)
+    out = subprocess.run([sys.executable, "-c", code], cwd=str(REPO),
+                         capture_output=True, text=True, env=env)
+    assert out.returncode == 0, (
+        f"importing {module} in a fresh interpreter failed: {out.stderr}")
+    return out.stdout.split()
+
+
+def check_import_purity():
+    heavy = ("torch", "transformers", "requests", "vllm", "salt.mcp",
+             "salt.chat.runner_serve")
+    for module in ("salt.agents", "salt.agents.roster", "salt.agents.worker"):
+        pulled = imports_pulled(module, heavy)
+        assert not pulled, (
+            f"importing {module} pulled {pulled}: the agent layer must cost "
+            f"nothing to import, so a roster can name workers a session "
+            f"never uses")
+    # the chat entry point carries the encoder stack either way, so only
+    # the pieces this ladder could newly drag in are pinned here
+    cli_pulled = imports_pulled("salt.chat.cli",
+                                ("vllm", "salt.mcp",
+                                 "salt.chat.runner_serve"))
+    assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
+    print("8. import purity: the agent layer pulls none of "
+          f"{len(heavy)} heavy imports, and saltChat still reaches neither "
+          f"the serve client nor an MCP server")
+
+
+def check_frozen_core():
+    for rel in FROZEN:
+        assert (REPO / rel).is_file(), (
+            f"the frozen list names {rel}, which does not exist - this "
+            f"guard would pass vacuously")
+    base = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify",
+                           "-q", LADDER_BASE + "^{commit}"],
+                          capture_output=True, text=True)
+    if base.returncode != 0:
+        print(f"9. frozen core: {LADDER_BASE} is not resolvable here, so the "
+              f"{len(FROZEN)} eval files were checked for existence only")
+        return
+    # against the working tree, not just HEAD, so an uncommitted edit to a
+    # frozen file is caught before it can be staged
+    out = subprocess.run(["git", "-C", str(REPO), "diff", "--name-only",
+                          base.stdout.strip(), "--", *FROZEN],
+                         capture_output=True, text=True)
+    touched = [ln for ln in out.stdout.splitlines() if ln.strip()]
+    assert not touched, (
+        f"the agent work changed frozen eval files {touched} - the eval "
+        f"path must stay byte-identical across this ladder")
+    print(f"9. frozen core: all {len(FROZEN)} eval files untouched since "
+          f"the agent layer began")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -500,6 +579,8 @@ def main():
         check_worker_calls(tok_path)
         check_abort(tok_path)
         check_identity(tmp, tok, mdl)
+        check_import_purity()
+        check_frozen_core()
         print("PASS")
     finally:
         if not args.keep:
