@@ -50,6 +50,15 @@ survive. Any model, plain text out, less compute in.
 
     [Serving](serving.md)
 
+- 🤝 **Agents**
+
+    ---
+
+    Name smaller models beside the chat model, so a session can reach
+    one without giving up its own model or warm cache.
+
+    [Agents](agents.md)
+
 - 🎛 **Options**
 
     ---

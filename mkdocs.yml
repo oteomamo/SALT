@@ -58,6 +58,7 @@ nav:
   - Guides:
       - Chatbot mode: chatbot.md
       - Serving: serving.md
+      - Agents: agents.md
       - Options: options.md
   - Concepts:
       - Architecture: architecture.md
