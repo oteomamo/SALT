@@ -1,0 +1,231 @@
+# -*- coding: utf-8 -*-
+"""Model roster for the saltChat agent layer.
+
+A roster file names the models a session may reach beside the chat model:
+worker models that tasks can be handed to, and at most one orchestrator.
+An entry either attaches to an already-running ``saltServe`` endpoint
+(``server_url``) or describes how to spawn one (``spawn``). Loading only
+parses and validates - nothing here opens a connection, spawns a process,
+or touches a GPU.
+
+File shape (``salt/agents/roster_sample.json`` is a working example)::
+
+    {"version": "salt-roster/1",
+     "models": [{"name": "qwen05", "alias": "qwen05", "role": "worker",
+                 "server_url": "http://127.0.0.1:8081"}]}
+
+Every alias must be a registered, downloaded model: the serve client
+tokenizes locally, so even a remote worker needs its weights on disk.
+"""
+
+import json
+import re
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+ROSTER_SCHEMA = "salt-roster/1"
+ROLES = ("worker", "orchestrator")
+
+_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_TOP_KEYS = {"version", "models"}
+_ENTRY_KEYS = {"name", "alias", "role", "server_url", "spawn", "max_tokens",
+               "temperature", "capabilities", "notes", "timeout_s"}
+_SPAWN_KEYS = {"port", "gpu", "gpu_mem_util", "max_model_len"}
+
+
+class RosterError(Exception):
+    """User-facing roster failure (bad file, bad entry, unknown name)."""
+
+
+@dataclass(frozen=True)
+class RosterEntry:
+    name: str
+    alias: str
+    role: str
+    server_url: str = None
+    spawn: dict = None
+    max_tokens: int = None
+    temperature: float = None
+    capabilities: tuple = ()
+    notes: str = ""
+    timeout_s: float = None
+    model: dict = None
+
+    @property
+    def attach(self):
+        return self.server_url is not None
+
+
+@dataclass(frozen=True)
+class Roster:
+    path: str
+    entries: tuple
+
+    @property
+    def workers(self):
+        return tuple(e for e in self.entries if e.role == "worker")
+
+    @property
+    def orchestrator(self):
+        for e in self.entries:
+            if e.role == "orchestrator":
+                return e
+        return None
+
+    def get(self, name):
+        for e in self.entries:
+            if e.name == name:
+                return e
+        known = ", ".join(e.name for e in self.entries) or "none"
+        raise RosterError(f"No roster entry named {name!r} (known: {known}).")
+
+
+def _fail(path, name, msg):
+    who = f"entry {name!r}" if name else "roster"
+    raise RosterError(f"{path}: {who}: {msg}")
+
+
+def _check_number(path, name, key, value, kind, low=None, high=None):
+    if not isinstance(value, kind) or isinstance(value, bool):
+        _fail(path, name, f"{key} must be a number, got {value!r}")
+    if low is not None and value < low:
+        _fail(path, name, f"{key} must be >= {low}, got {value!r}")
+    if high is not None and value > high:
+        _fail(path, name, f"{key} must be <= {high}, got {value!r}")
+    return value
+
+
+def _parse_spawn(path, name, raw):
+    if not isinstance(raw, dict):
+        _fail(path, name, f"spawn must be an object, got {raw!r}")
+    unknown = set(raw) - _SPAWN_KEYS
+    if unknown:
+        _fail(path, name, f"unknown spawn keys {sorted(unknown)} "
+                          f"(allowed: {sorted(_SPAWN_KEYS)})")
+    spawn = dict(raw)
+    port = spawn.get("port", "auto")
+    if port != "auto":
+        _check_number(path, name, "spawn.port", port, int, 1, 65535)
+    spawn["port"] = port
+    gpu = spawn.get("gpu")
+    if gpu is not None:
+        if not isinstance(gpu, str):
+            _fail(path, name, f"spawn.gpu must be a string like '0' or "
+                              f"'0,1', got {gpu!r}")
+        from salt.chat.serve import parse_gpu_list
+        try:
+            parse_gpu_list(gpu)
+        except ValueError as exc:
+            _fail(path, name, f"spawn.gpu: {exc}")
+    if "gpu_mem_util" in spawn:
+        _check_number(path, name, "spawn.gpu_mem_util",
+                      spawn["gpu_mem_util"], (int, float), 0.05, 1.0)
+    if "max_model_len" in spawn:
+        _check_number(path, name, "spawn.max_model_len",
+                      spawn["max_model_len"], int, 0)
+    return spawn
+
+
+def _parse_entry(path, index, raw, seen_names):
+    if not isinstance(raw, dict):
+        _fail(path, None, f"models[{index}] must be an object, got {raw!r}")
+    unknown = set(raw) - _ENTRY_KEYS
+    if unknown:
+        _fail(path, raw.get("name"),
+              f"unknown keys {sorted(unknown)} (allowed: "
+              f"{sorted(_ENTRY_KEYS)})")
+    name = raw.get("name")
+    if not isinstance(name, str) or not _NAME_RE.fullmatch(name):
+        _fail(path, None, f"models[{index}] needs a name of letters, "
+                          f"digits, '.', '_', '-', got {name!r}")
+    if name in seen_names:
+        _fail(path, name, "duplicate name")
+    seen_names.add(name)
+    alias = raw.get("alias", name)
+    if not isinstance(alias, str) or not alias:
+        _fail(path, name, f"alias must be a non-empty string, got {alias!r}")
+    role = raw.get("role", "worker")
+    if role not in ROLES:
+        _fail(path, name, f"role must be one of {ROLES}, got {role!r}")
+    server_url = raw.get("server_url")
+    spawn = raw.get("spawn")
+    if (server_url is None) == (spawn is None):
+        _fail(path, name, "exactly one of server_url (attach to a running "
+                          "saltServe) or spawn (launch one) is required")
+    if server_url is not None:
+        if not isinstance(server_url, str) or not (
+                server_url.startswith("http://")
+                or server_url.startswith("https://")):
+            _fail(path, name, f"server_url must start with http:// or "
+                              f"https://, got {server_url!r}")
+    else:
+        spawn = _parse_spawn(path, name, spawn)
+    max_tokens = raw.get("max_tokens")
+    if max_tokens is not None:
+        _check_number(path, name, "max_tokens", max_tokens, int, 1)
+    temperature = raw.get("temperature")
+    if temperature is not None:
+        _check_number(path, name, "temperature", temperature, (int, float), 0)
+    capabilities = raw.get("capabilities", [])
+    if not isinstance(capabilities, list) or not all(
+            isinstance(c, str) for c in capabilities):
+        _fail(path, name, f"capabilities must be a list of strings, "
+                          f"got {capabilities!r}")
+    notes = raw.get("notes", "")
+    if not isinstance(notes, str):
+        _fail(path, name, f"notes must be a string, got {notes!r}")
+    timeout_s = raw.get("timeout_s")
+    if timeout_s is not None:
+        _check_number(path, name, "timeout_s", timeout_s, (int, float), 1)
+    return RosterEntry(
+        name=name, alias=alias, role=role, server_url=server_url,
+        spawn=spawn, max_tokens=max_tokens, temperature=temperature,
+        capabilities=tuple(capabilities), notes=notes, timeout_s=timeout_s)
+
+
+def _resolve(path, entry):
+    from salt.chat.registry import RegistryError, resolve_model
+    try:
+        cfg = resolve_model(entry.alias)
+    except RegistryError as exc:
+        _fail(path, entry.name, str(exc))
+    if not cfg.get("downloaded"):
+        _fail(path, entry.name,
+              f"model {entry.alias!r} is registered but its weights are "
+              f"not downloaded. Fetch them with: saltChat --add "
+              f"{cfg.get('hf_id', entry.alias)}")
+    return replace(entry, model=cfg)
+
+
+def load_roster(path):
+    """Parse and validate a roster file. Returns a Roster or raises
+    RosterError with the file, the entry, and the fix."""
+    p = Path(path)
+    try:
+        data = json.loads(p.read_text())
+    except OSError as exc:
+        raise RosterError(f"Cannot read roster {p}: {exc}") from exc
+    except ValueError as exc:
+        raise RosterError(f"Roster {p} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RosterError(
+            f"Roster {p} must be a JSON object with a 'models' list.")
+    version = data.get("version", ROSTER_SCHEMA)
+    if version != ROSTER_SCHEMA:
+        raise RosterError(
+            f"Roster {p} carries schema {version!r} but this salt reads "
+            f"{ROSTER_SCHEMA!r}. Update salt, or rewrite the file.")
+    unknown = set(data) - _TOP_KEYS
+    if unknown:
+        raise RosterError(
+            f"Roster {p} has unknown top-level keys {sorted(unknown)} "
+            f"(allowed: {sorted(_TOP_KEYS)})")
+    models = data.get("models")
+    if not isinstance(models, list) or not models:
+        raise RosterError(f"Roster {p} needs a non-empty 'models' list.")
+    seen = set()
+    entries = [_parse_entry(p, i, raw, seen) for i, raw in enumerate(models)]
+    if sum(1 for e in entries if e.role == "orchestrator") > 1:
+        raise RosterError(f"Roster {p} names more than one orchestrator.")
+    entries = tuple(_resolve(p, e) for e in entries)
+    return Roster(path=str(p), entries=entries)

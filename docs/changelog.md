@@ -3,7 +3,20 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.9.0 - 2.9.111
+## 2.10.0 - 2.10.0
+
+The agent line. saltChat is growing an agent layer: a session can name
+smaller helper models beside the chat model and, over the 2.10.z
+releases, hand parts of its work to them with SALT memory in the loop.
+
+Patch releases, grouped where several versions shipped one thing:
+
+- **2.10.0** Model roster. A `salt.agents` package that reads a
+  validated roster file naming helper models and how to reach them,
+  with a sample at `salt/agents/roster_sample.json`. Groundwork only,
+  nothing in the chat changes yet.
+
+## 2.9.0 - 2.9.123
 
 Background ingestion for `saltChat`. The per-turn keyword and embedding
 passes moved off the REPL's critical path onto a worker thread, so long

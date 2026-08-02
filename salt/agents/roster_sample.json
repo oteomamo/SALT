@@ -1,0 +1,13 @@
+{
+  "version": "salt-roster/1",
+  "models": [
+    {
+      "name": "qwen05",
+      "alias": "qwen05",
+      "role": "worker",
+      "server_url": "http://127.0.0.1:8081",
+      "max_tokens": 512,
+      "notes": "start the server first: saltServe qwen05 --port 8081"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "salt"
-version = "2.9.123"
+version = "2.10.0"
 description = "SALT: Salience-Aware Lexical Trie for Long-Context Compression"
 readme = "README.md"
 license = "MIT"
@@ -35,8 +35,9 @@ saltChat = "salt.chat.cli:main"
 saltServe = "salt.chat.serve:main"
 
 [tool.setuptools.packages.find]
-include = ["salt", "salt.engine", "salt.datasets", "salt.results", "salt.chat"]
+include = ["salt", "salt.engine", "salt.datasets", "salt.results", "salt.chat", "salt.agents"]
 namespaces = false
 
 [tool.setuptools.package-data]
 "salt.chat" = ["instructions.md"]
+"salt.agents" = ["roster_sample.json"]
