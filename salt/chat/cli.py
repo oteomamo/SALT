@@ -35,8 +35,8 @@ from pathlib import Path
 
 import torch
 
-from salt.agents.roster import (UNPROBED, RosterError, load_roster,
-                                probe_roster)
+from salt.agents.roster import UNPROBED, RosterError, load_roster
+from salt.agents.worker import WorkerHandle
 from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
@@ -120,6 +120,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /add <hf_id> [alias]  download + register a model by HuggingFace id
 /roster [probe]    list the worker models --roster names (probe contacts
                    each one and reports what it is serving)
+/worker            show each worker's connection, calls and mean latency
+/worker probe <name>  reconnect one worker and report what it is serving
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
 /stats             session, attachments, compression, and GPU memory stats
@@ -175,7 +177,10 @@ class ChatState:
         self.trie = trie
         # None = the agent layer is absent for this session, everywhere
         self.roster = roster
-        self.roster_probes = {}
+        # name -> WorkerHandle, built on first use and the session's only
+        # record of what each worker is doing. A handle costs nothing until
+        # it opens a client, so an unused roster entry stays unopened
+        self.workers = {}
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.tokens_per_word = TOKENS_PER_WORD_SEED
@@ -218,6 +223,21 @@ class ChatState:
         self.ingest = IngestWorker(
             journal_path=self.trie.cache_dir / "ingest_failures.jsonl",
             synchronous=args.sync_ingest)
+
+    def worker(self, name):
+        """The handle for one roster entry, built on first use."""
+        if self.roster is None:
+            raise RosterError("No roster loaded - start saltChat with "
+                              "--roster FILE.")
+        if name not in self.workers:
+            self.workers[name] = WorkerHandle(self.roster.get(name))
+        return self.workers[name]
+
+    def worker_handles(self):
+        """Every roster entry's handle, in file order."""
+        if self.roster is None:
+            return []
+        return [self.worker(e.name) for e in self.roster.entries]
 
     def compact_tail(self):
         """Cut the tail back to tail_min exchanges once it exceeds tail_max.
@@ -606,6 +626,28 @@ def print_roster(roster, probes=None):
     print(f"  from {roster.path}")
 
 
+def print_workers(handles):
+    if not handles:
+        print("  (no roster loaded - start saltChat with --roster FILE, "
+              "e.g. salt/agents/roster_sample.json)")
+        return
+    head = ("NAME", "ROLE", "STATE", "CALLS", "MEAN", "ENDPOINT")
+    rows = [(h.name, h.role, h.state, str(h.calls),
+             f"{h.mean_latency:.1f}s" if h.calls else "-", h.endpoint)
+            for h in handles]
+    width = [max(len(r[i]) for r in (head,) + tuple(rows))
+             for i in range(len(head))]
+
+    def render(row):
+        return "  ".join(f"{c:<{w}}" for c, w in zip(row, width)).rstrip()
+
+    print(f"  {render(head)}")
+    for handle, row in zip(handles, rows):
+        print(f"  {render(row)}")
+        if handle.note:
+            print(f"      {handle.note}")
+
+
 def _user_keep(t):
     # add_turn's default protects code/table/link units; user turns must
     # keep that protection alongside the short-turn one
@@ -973,12 +1015,30 @@ def handle_command(line, state):
         elif rest and state.roster is None:
             print_roster(None)
         else:
+            handles = state.worker_handles()
             if rest:
-                print(f"Probing {len(state.roster.entries)} roster "
-                      f"entr{'y' if len(state.roster.entries) == 1 else 'ies'}"
-                      f" ...")
-                state.roster_probes = probe_roster(state.roster)
-            print_roster(state.roster, state.roster_probes)
+                print(f"Probing {len(handles)} roster "
+                      f"entr{'y' if len(handles) == 1 else 'ies'} ...")
+                for handle in handles:
+                    handle.probe()
+            print_roster(state.roster,
+                         {h.name: h.probe_result for h in handles})
+    elif cmd == "/worker":
+        if rest and (rest[0].lower() != "probe" or len(rest) != 2):
+            print("Usage: /worker [probe <name>]")
+        elif rest and state.roster is None:
+            print_workers([])
+        else:
+            if rest:
+                try:
+                    handle = state.worker(rest[1])
+                except RosterError as exc:
+                    print(exc)
+                    return True
+                print(f"Probing worker {handle.name!r} at "
+                      f"{handle.endpoint} ...")
+                handle.probe()
+            print_workers(state.worker_handles())
     elif cmd == "/doc":
         if not rest:
             print("Usage: /doc <path>")
@@ -1136,6 +1196,14 @@ def handle_command(line, state):
             print("APC: the server reported no cache stats this turn - if "
                   "this persists, start it with "
                   "--enable-prompt-tokens-details (saltServe passes it)")
+        if state.roster is not None:
+            # reports what is already known: /roster probe and /worker probe
+            # are what contact an endpoint, never /stats
+            told = [f"{h.name} {h.state}"
+                    + (f" ({h.calls} calls, {h.mean_latency:.1f}s mean)"
+                       if h.calls else "")
+                    for h in state.worker_handles()]
+            print(f"workers: {len(told)} in the roster - {', '.join(told)}")
         if torch.cuda.is_available():
             dev = state.device if str(state.device).startswith("cuda") else None
             print(f"GPU memory allocated ({state.device}): "
@@ -1374,7 +1442,7 @@ def _setup_completion():
     except ImportError:
         return
     commands = ["/help", "/model", "/add", "/doc", "/budget", "/stats",
-                "/new", "/clear", "/exit"]
+                "/worker", "/new", "/clear", "/exit"]
 
     def complete(text, i):
         if text.startswith("salt@") or text.startswith("attach@"):

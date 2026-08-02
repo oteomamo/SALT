@@ -59,6 +59,8 @@ has its own page: [Serving](serving.md).
 | `/doc <path>` | ingest a text or PDF file into the trie |
 | `/budget <pct>` | set the memory budget (`0.3` or `30`) |
 | `/stats` | session, attachments, compression, and GPU-memory stats |
+| `/worker` | show each worker's connection, calls and mean latency |
+| `/worker probe <name>` | reconnect one worker and report what it serves |
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
 | `/exit` | leave (the session is saved and resumable by id) |
 
