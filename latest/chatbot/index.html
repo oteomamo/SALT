@@ -675,6 +675,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#other-models-beside-this-one" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other models beside this one
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repl-commands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1255,6 +1266,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#other-models-beside-this-one" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other models beside this one
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repl-commands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1429,6 +1451,12 @@ page.</p>
 model and its cache disappear on exit. <code>saltServe</code> keeps them alive as
 a separate long-lived server that chats connect to and resume warm. It
 has its own page: <a href="../serving/">Serving</a>.</p>
+<h2 id="other-models-beside-this-one">Other models beside this one</h2>
+<p>A chat talks to one model, and switching with <code>/model</code> unloads the one
+it has. A roster names other models a session can reach without giving
+up its own, each one a server of its own that stays loaded. <code>--roster</code>
+declares them and the <code>/roster</code> and <code>/worker</code> commands below inspect
+them. It has its own page: <a href="../agents/">Agents</a>.</p>
 <h2 id="repl-commands">REPL commands</h2>
 <table>
 <thead>
