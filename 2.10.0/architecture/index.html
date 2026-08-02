@@ -1,0 +1,1684 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Salience-Aware Lexical Trie for Long-Context Compression">
+      
+      
+      
+        <link rel="canonical" href="https://oteomamo.github.io/SALT/2.10.0/architecture/">
+      
+      
+        <link rel="prev" href="../options/">
+      
+      
+        <link rel="next" href="../datasets/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture - SALT</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="SALT" class="md-header__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            SALT
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../chatbot/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../datasets/" class="md-tabs__link">
+          
+  
+  
+  Evaluation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../changelog/" class="md-tabs__link">
+          
+  
+  
+  Project
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="SALT" class="md-nav__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    SALT
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chatbot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chatbot mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#persistent-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent serving
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-GPU
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provenance-aware-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance-aware memory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stable-coverage-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable coverage keys
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bounded-long-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bounded long sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#incremental-compression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Incremental compression
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tail-aware-memory-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tail-aware memory selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Evaluation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#persistent-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent serving
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-GPU
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provenance-aware-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance-aware memory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stable-coverage-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable coverage keys
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bounded-long-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bounded long sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#incremental-compression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Incremental compression
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tail-aware-memory-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tail-aware memory selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture">🧩 Architecture</h1>
+<p><strong>Why SALT exists.</strong> When a prompt is too long, most compressors give
+each sentence one relevance score and keep the top scorers until the
+budget runs out. Under a tight budget the document's main topic
+swallows everything, a failure called <em>theme collapse</em>: in a multi-hop
+question, the passages about the main entity survive while the one
+sentence linking it to the second entity is dropped. SALT's answer is
+to map the document's themes first and make every pick cheaper for a
+theme the selection has already served, so minor themes keep their
+share.</p>
+<p>Two phases. <strong>Indexing</strong> reads the document once and builds a keyword trie - a
+reusable map of its recurring themes. <strong>Selection</strong> then picks a sentence subset
+under a token budget, returned in original document order, query-biased or not.</p>
+<div class="highlight"><pre><span></span><code> INDEXING  ── once per document, reused across turns and budgets
+   document → split + junk filter
+           → per-sentence keywords   (BGE-small [CLS] attention + knee cutoff)
+           → theme salience          (SF = #sentences keeping a word, top quantile)
+           → keyword trie            (each sentence&#39;s themes, SF-ordered, form a
+                                      root-to-leaf path, leaves hold sentence ids)
+
+ SELECTION ── per budget, with or without a query
+   maximize theme coverage with CELF lazy-greedy: a pick&#39;s value shrinks as its
+   theme branches fill, so budget spreads across themes instead of collapsing
+   onto the dominant one. A query re-weights the trie (lexical + BGE-semantic)
+   without rebuilding it. → compressed prompt, original order, ≤ budget
+</code></pre></div>
+<p>The whole system as a blueprint - this map is kept current as SALT grows,
+so it is the fastest way to find where a change belongs:</p>
+<div class="highlight"><pre><span></span><code>┌──────────────────────────────────────────────────────────────────────────┐
+│                                   SALT                                   │
+│                                                                          │
+│ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
+│ │      Indexing      │  │    Keyword Trie    │  │     Selection      │   │
+│ │                    │  │                    │  │                    │   │
+│ │ BGE-small encoder  │  │ SF-ordered paths   │  │ coverage (CELF)    │   │
+│ │ attention keywords │  │ theme branches     │  │ branch discounting │   │
+│ │ knee cutoff        │  │ §file: doc branches│  │ multi-anchor query │   │
+│ │ junk filter        │  │ rebuilt cheaply    │  │ ≤ word budget      │   │
+│ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
+│ │    Session Trie    │  │  Prompt Assembly   │  │    Chat Runner     │   │
+│ │                    │  │                    │  │                    │   │
+│ │ per-conversation   │  │ stable prefix first│  │ HF streaming       │   │
+│ │ lives in DRAM      │  │ append-only tail   │  │ vLLM + APC (opt-in)│   │
+│ │ grows every turn   │  │ memory + question  │  │ vllm-serve client  │   │
+│ │ cross-turn coverage│  │ instructions.md    │  │ model registry     │   │
+│ │ + half-life decay  │  │                    │  │ GPU-pinned models  │   │
+│ │ + near-dup gate    │  │                    │  │                    │   │
+│ │ + background ingest│  │                    │  │                    │   │
+│ │ + tail-aware select│  │                    │  │                    │   │
+│ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │              Document ingest (salt@ files, salt --doc)             │   │
+│ │ pypdf extract · furniture scrub · paragraphs rejoined across floats│   │
+│ │ tables + pseudocode grouped under captions · footnotes isolated    │   │
+│ │ headings, panel labels and equations kept · reference list dropped │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │            Trie shape - the root binds the conversation            │   │
+│ │                               ● root - the conversation bind       │   │
+│ │         ┌─────────────────────┼─────────────────────┐              │   │
+│ │  §file:paper.pdf       §file:notes.txt        conversation         │   │
+│ │         │                     │              ┌──────┴──────┐       │   │
+│ │   keyword paths         keyword paths     theme A       theme B    │   │
+│ │         │                     │              │             │       │   │
+│ │     sentences             sentences      sentences     sentences   │   │
+│ │                                                                    │   │
+│ │ each turn: ≤ budget spread across branches (CELF discounting)      │   │
+│ │ the untrie - the verbatim tail - sits OUTSIDE the trie, as the     │   │
+│ │ prompt&#39;s stable recent-history window                              │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │                  Prompt layout (KV-cache shaped)                   │   │
+│ │ [system: instructions · file inventory · attach@ full documents]   │   │
+│ │ → [tail: recent exchanges - append-only, block-wise compaction]    │   │
+│ │ → [newest user message: SALT memory (≈20% selection) + question]   │   │
+│ │ stable prefix = reusable KV ──── fresh suffix = per-turn prefill   │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │                    kvtrace - per-turn KV ledger                    │   │
+│ │ read (reused) / write (fresh) / output · events.jsonl + tokens.npy │   │
+│ │ usage keys: input (write) · input_cached_tokens (read) · output    │   │
+│ │ apc fields: engine-measured prefix-cache reuse (vllm + vllm-serve) │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │                            Entry points                            │   │
+│ │ salt (one-shot: --data / --doc) · saltChat · saltServe · eval.py   │   │
+│ │ salt@ trie attach · attach@ full text · /doc /model /budget /stats │   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<h2 id="persistent-serving">Persistent serving</h2>
+<p>How to run it is on the <a href="../serving/">Serving</a> page. The design: the
+chat model can run as its own long-lived server instead of inside
+saltChat. <code>saltServe</code> resolves a registered model and starts a
+<code>vllm serve</code> process that owns the GPU, and <code>saltChat --backend
+vllm-serve</code> connects to it as a thin client. The client renders and
+tokenizes every prompt itself with the same shared helpers as the
+in-process backends and sends token ids over the wire, so the text the
+server caches is byte-identical to the text the kv ledger counts.</p>
+<p>The design leans on the KV-cache-shaped prompt layout above. The stable
+head (instructions, file inventory, <code>attach@</code> full texts) and the
+verbatim tail are cached by the server's automatic prefix caching, and
+both persist with the session: attachments reload in attach order and
+the tail reloads verbatim, so a resumed conversation renders the same
+prompt bytes the server already holds. Exiting saltChat costs neither
+the cache nor the model load. The server reports its measured reuse per
+turn through the additive apc fields in the ledger, and the client needs
+no vLLM install of its own, so the server can run whichever vLLM release
+fits the GPU, even from a separate environment.</p>
+<h2 id="multi-gpu">Multi-GPU</h2>
+<p>A model too big for one card, or a box whose first card also drives the
+display, can spread across several cards with a <code>--gpu</code> list. <code>--gpu 0,1</code>
+splits the chat model's weights over GPUs 0 and 1: the vllm backends
+(in-process and <code>saltServe</code>) tensor-parallel it, and the hf backend loads
+it with a balanced <code>device_map</code>. The BGE encoder that scores salience
+rides the last card in the list, inside the memory the per-card cap leaves
+free.</p>
+<p>Each card in the group is capped at a fraction of its memory (<code>0.80</code> by
+default across several cards, <code>0.90</code> for a lone server card), which leaves
+headroom for activations, the KV cache, and the encoder. The list also
+pins PCI bus order, so a <code>--gpu</code> index names the card <code>nvidia-smi</code> shows,
+and the model and the encoder always agree on which physical card an index
+means. One card, or no <code>--gpu</code>, keeps the original single-card path
+unchanged.</p>
+<h2 id="provenance-aware-memory">Provenance-aware memory</h2>
+<p>Compressed conversation memory used to arrive anonymous. Every excerpt sat
+under one shared header, so the model could not tell the user's words from
+its own, could not tell an early statement from the later one that revised
+it, and had no idea whether something was said a minute ago or last week.
+The excerpts were accurate and unattributable at the same time.</p>
+<p>Each excerpt now carries its origin. The conversation part of the memory
+block is cut into one section per turn, headed with that turn's number, who
+was speaking, and how long ago it was said, and the reading guide the model
+receives tells it that higher turn numbers are later. The turn and the
+speaker were already in the session store and simply went unused. The time
+is new: every ingest records when it happened, one stamp per message, saved
+alongside the sentences. Sessions written before that carry no stamp, and
+their labels leave the age out rather than inventing one. <code>--no-turn-labels</code>
+returns to the single anonymous header.</p>
+<p>Sections cost a header of roughly a dozen tokens per turn that wins budget,
+which is why they are grouped by turn rather than attached per sentence.
+Because selection returns sentences in the order they were spoken, and a
+message's sentences enter the store together, a section is always exactly
+one speaker's turn and the sections read in chronological order.</p>
+<p>Alongside the excerpts sits a map of the conversation: one line per earlier
+turn giving that turn's strongest keywords. It is built from the keywords
+SALT already extracted at ingest, so it adds no model work at all. <code>/stats</code>
+always prints it, and <code>--conversation-map</code> places it at the top of the
+memory block. There it answers a question the excerpts cannot: whether a
+topic came up at all. A subject discussed on turn 5 is invisible on any
+turn where none of turn 5's sentences win budget, and the map makes it
+visible as a pointer the model can ask about.</p>
+<p>The map is a signal and never a gate. It changes nothing about which
+sentences are selected, and the reading guide tells the model to treat it
+as an index rather than as something anyone said. A long conversation
+shows only its recent turns, and the header states that coverage, because
+a map that quietly dropped older turns would read as proof a topic never
+came up.</p>
+<h2 id="stable-coverage-keys">Stable coverage keys</h2>
+<p>The cross-turn memory remembers what it has already shown as counts on
+branches of the keyword tree, keyed by each branch's keywords. That
+tree is rebuilt from document frequencies every turn, so as a
+conversation grows a branch can come back under a different keyword
+order, and the remembered counts stop matching anything. The
+suppression quietly stops applying, and the same material can be
+selected again as if it were never shown.</p>
+<p><code>--stable-coverage-keys</code> freezes the keyword order per session. A new
+keyword joins at the tail of a persisted order rather than at its
+current frequency rank, so every existing branch keeps its identity and
+the remembered counts keep applying. Append-only ordering is the whole
+mechanism: a keyword added at the tail of the order lands at the tail
+of every branch that contains it, so every existing branch prefix, and
+with it every remembered count, survives untouched.</p>
+<p>Two companions complete it. Theme membership is sticky under the flag,
+because a keyword falling below the theme cutoff would otherwise remove
+its branches wholesale no matter how the order is frozen. A keyword
+keeps its place while its remembered counts are alive and lets go once
+forgetting clears them. And keys with no matching branch left, from
+before the flag was on, are dropped once and counted, instead of being
+carried forever.</p>
+<p>The cost is ordering quality: a topic that becomes dominant late sits
+deeper in the tree than frequency ordering would place it. The flag is
+off by default, and <code>/stats</code> reports how many remembered keys matched
+or orphaned each turn so the trade can be judged on real sessions.</p>
+<h2 id="bounded-long-sessions">Bounded long sessions</h2>
+<p>A conversation that never ends used to grow in the one place that
+costs something every turn. Selection read the whole session store,
+and the memory block's size is a share of the words stored, so the
+per-turn work and the memory block both swelled with the full history.
+<code>--max-sentences</code> caps that: past the cap, the oldest conversation
+sentences are masked out of selection, oldest first, and <code>/stats</code>
+reports how many are still live.</p>
+<p>Masked is not deleted. A masked sentence keeps its text, its embedding
+and its row number, so the saved session stays complete, the kv
+ledger's earlier references still resolve, and a resumed session sees
+the store it saved. Attached files are never masked and never count
+against the cap. An attachment is a bounded cost the user chose, while
+conversation is the part that grows without asking. Masking a sentence
+also forgets its verbatim-dedupe hash, so re-sending it word for word
+stores it again rather than dropping it against a row no longer in
+memory. The near-duplicate gate likewise compares against living
+sentences only, so restating what the cap masked away stores the
+restatement instead of suppressing the only living copy, and the
+conversation map draws from living turns only, because a line pointing
+at a masked turn would point at nothing.</p>
+<p>The cap bounds each turn, not the record. Selection reads at most a
+cap's worth of conversation plus the attachments, and the memory
+block's base stops climbing with age. The stored session itself still
+grows with everything ever said, about 1.7 KB per sentence kept,
+because keeping everything is what makes the record and its references
+permanent. Bookkeeping follows the content: remembered coverage counts
+whose sentences are all masked stop matching any branch, so a capped
+session usually wants a coverage bound as well, and <code>/stats</code> says so
+when nothing is set to collect them. Under <code>--stable-coverage-keys</code>
+the frozen keyword order also keeps absorbing new theme keywords,
+measured in kilobytes even at a hundred thousand sentences, and left
+append-only on purpose: reordering it is the one thing the stable keys
+above cannot survive.</p>
+<h2 id="incremental-compression">Incremental compression</h2>
+<p>Selection reads the whole living session every turn, and much of what
+it read it had already worked out before. Every stored sentence was
+cleaned and stemmed again to score the question's words against it,
+and the keyword counts that decide which themes exist were tallied
+again across every sentence. Neither answer can change once a sentence
+is stored, so a long conversation kept paying for the same derivation.</p>
+<p>Both are now worked out once and carried forward. A sentence's lexical
+tokens are derived as it is ingested, where the keyword and embedding
+passes already run, so the cost lands in the turn that added the text
+rather than in every turn after it. The keyword counts are kept
+current as sentences arrive and as the session cap masks old ones out,
+which is the same arithmetic a full recount performs.</p>
+<p>What is carried is derived state, never the record. None of it is
+saved to disk, and anything the session cannot account for is worked
+out again rather than trusted. A session reopened from disk, one
+repaired after an interrupted save, or a corpus assembled some other
+way all fall back to the full derivation and reach the identical
+answer. That is what makes it safe to carry anything at all: a miss
+costs time and nothing else, so what memory returns is exactly what it
+returned before.</p>
+<p>What still runs every turn is the part that depends on the question.
+The trie is rebuilt and the selection pass runs across the living
+sentences each time, because both move with the question asked and
+with what memory has already surfaced. Per-file theme profiling
+(<code>--per-source-themes</code>) also keeps its own full recount, since its
+buckets shift as sentences are masked.</p>
+<h2 id="tail-aware-memory-selection">Tail-aware memory selection</h2>
+<p>The prompt already carries the last exchanges verbatim, and selection
+used to treat those same sentences as fair candidates. They match the
+current question better than anything older, so the memory block kept
+spending part of its budget re-showing text sitting a few messages
+below, and on a real stored session that duplication reached about a
+quarter of the budget. Each re-show also counted as coverage, so a
+sentence's themes were most discounted at exactly the moment the tail
+stopped carrying it and memory became its only home.</p>
+<p>Selection now skips sentences that are still visible word for word in
+the recent messages. The skip narrows candidacy and nothing else: the
+theme map, the keyword order and every remembered discount still
+describe the full living session, so the memory tree keeps the exact
+shape it would have without the skip, and a skipped sentence's themes
+start counting as shown only once it leaves the recent window. The
+freed budget goes to older material instead, and <code>/stats</code> reports how
+many sentences were left out each turn.</p>
+<p>Two guards keep the skip safe. Matching asks for the whole sentence
+between word boundaries, so a short reply never matches inside a
+longer word, and a sentence altered at ingest simply stays selectable.
+And when everything alive is still on screen, early in a session, the
+skip stands down rather than hand the model an empty memory block.
+<code>--no-tail-exclude</code> restores the old overlapping selection.</p>
+<p>Where each stage lives:</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Code</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Split + junk filter</td>
+<td><code>salt/engine/embedder.py</code>, <code>salt/engine/sentence_filter.py</code></td>
+</tr>
+<tr>
+<td>Keywords, BGE embedding, theme profiling</td>
+<td><code>salt/engine/trie_core.py</code></td>
+</tr>
+<tr>
+<td>Coverage selection (default)</td>
+<td><code>salt/engine/celf.py</code></td>
+</tr>
+<tr>
+<td>Prose pipeline runner</td>
+<td><code>salt/engine/compressor.py</code></td>
+</tr>
+<tr>
+<td>Few-shot bypass (<code>trec</code>, <code>triviaqa</code>, <code>samsum</code>)</td>
+<td><code>salt/engine/fewshot.py</code></td>
+</tr>
+<tr>
+<td>Dataset adapters (<code>--synthetic</code>, <code>--code</code>)</td>
+<td><code>salt/engine/dataset_modes.py</code></td>
+</tr>
+<tr>
+<td>Multi-turn session store</td>
+<td><code>salt/engine/session_trie.py</code></td>
+</tr>
+<tr>
+<td>Chat text handling (verbatim storage, short turns)</td>
+<td><code>salt/engine/chat_text.py</code>, <code>salt/chat/shortturn.py</code></td>
+</tr>
+<tr>
+<td>Background ingest worker (chat)</td>
+<td><code>salt/chat/ingest.py</code></td>
+</tr>
+<tr>
+<td>Document ingest (PDF/text cleanup, <code>salt@</code>, <code>--doc</code>)</td>
+<td><code>salt/chat/pdfio.py</code></td>
+</tr>
+<tr>
+<td>Chat REPL + model registry</td>
+<td><code>salt/chat/</code>, <code>salt/models/</code></td>
+</tr>
+<tr>
+<td>Persistent serving (<code>saltServe</code>, serve client)</td>
+<td><code>salt/chat/serve.py</code>, <code>salt/chat/runner_serve.py</code></td>
+</tr>
+<tr>
+<td>Multi-GPU placement (<code>--gpu</code> list)</td>
+<td><code>salt/chat/runner.py</code>, <code>salt/chat/serve.py</code></td>
+</tr>
+<tr>
+<td>CLI entry points</td>
+<td><code>salt</code> (<code>salt/compress.py</code>), <code>eval.py</code>, <code>saltChat</code></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../options/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Options">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Options
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../datasets/" class="md-footer__link md-footer__link--next" aria-label="Next: Datasets">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Datasets
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../assets/versions.js"></script>
+      
+    
+  </body>
+</html>
