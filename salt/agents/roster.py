@@ -57,6 +57,25 @@ class RosterEntry:
 
 
 @dataclass(frozen=True)
+class ProbeResult:
+    state: str
+    served_model: str = None
+    max_model_len: int = None
+    detail: str = ""
+
+    @property
+    def note(self):
+        if self.state != "PROBED":
+            return self.detail
+        window = (f", window {self.max_model_len} tokens"
+                  if self.max_model_len else "")
+        return f"serving {self.served_model}{window}"
+
+
+UNPROBED = ProbeResult("UNPROBED")
+
+
+@dataclass(frozen=True)
 class Roster:
     path: str
     entries: tuple
@@ -229,3 +248,48 @@ def load_roster(path):
         raise RosterError(f"Roster {p} names more than one orchestrator.")
     entries = tuple(_resolve(p, e) for e in entries)
     return Roster(path=str(p), entries=entries)
+
+
+def _card_window(card):
+    v = card.get("max_model_len")
+    if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+        return v
+    return None
+
+
+def probe(entry, url=None, timeout=5):
+    """Ask an endpoint what it is serving, over the same GET /v1/models
+    handshake the serve client uses. Never raises: a refused port, a hung
+    server and a server holding the wrong model are all answers, returned
+    as DEAD with the reason. ``url`` overrides the entry's own endpoint,
+    which is how a freshly spawned worker gets probed later."""
+    import requests
+
+    url = url or entry.server_url
+    if url is None:
+        return ProbeResult("UNPROBED",
+                           detail="spawn entry, nothing started yet")
+    url = url.rstrip("/")
+    try:
+        resp = requests.get(f"{url}/v1/models", timeout=timeout)
+        resp.raise_for_status()
+        cards = resp.json().get("data", [])
+    except (requests.RequestException, ValueError) as exc:
+        return ProbeResult("DEAD", detail=f"no server answering at {url} "
+                                          f"({type(exc).__name__}: {exc})")
+    cards = [c for c in cards if isinstance(c, dict)] if isinstance(
+        cards, list) else []
+    cfg = entry.model or {}
+    accepted = {cfg.get(k) for k in ("alias", "hf_id", "path")} | {entry.alias}
+    card = next((c for c in cards if c.get("id") in accepted), None)
+    if card is None:
+        served = ", ".join(str(c.get("id")) for c in cards) or "nothing"
+        return ProbeResult("DEAD", detail=f"{url} serves {served}, not "
+                                          f"{entry.alias!r}")
+    return ProbeResult("PROBED", served_model=card["id"],
+                       max_model_len=_card_window(card))
+
+
+def probe_roster(roster, timeout=5):
+    """Probe every entry in file order. Returns {name: ProbeResult}."""
+    return {e.name: probe(e, timeout=timeout) for e in roster.entries}

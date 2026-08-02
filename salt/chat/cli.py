@@ -35,7 +35,8 @@ from pathlib import Path
 
 import torch
 
-from salt.agents.roster import RosterError, load_roster
+from salt.agents.roster import (UNPROBED, RosterError, load_roster,
+                                probe_roster)
 from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
@@ -117,7 +118,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /model             list registered models (* = active)
 /model <name>      switch chat model (unloads current, loads new; session kept)
 /add <hf_id> [alias]  download + register a model by HuggingFace id
-/roster            list the worker models --roster names (none without it)
+/roster [probe]    list the worker models --roster names (probe contacts
+                   each one and reports what it is serving)
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
 /stats             session, attachments, compression, and GPU memory stats
@@ -173,6 +175,7 @@ class ChatState:
         self.trie = trie
         # None = the agent layer is absent for this session, everywhere
         self.roster = roster
+        self.roster_probes = {}
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.tokens_per_word = TOKENS_PER_WORD_SEED
@@ -578,20 +581,28 @@ def print_models(active=None):
               f"[{m['dtype']}, {state}]")
 
 
-def print_roster(roster):
+def print_roster(roster, probes=None):
     if roster is None:
         print("  (no roster loaded - start saltChat with --roster FILE, "
               "e.g. salt/agents/roster_sample.json)")
         return
+    probes = probes or {}
     head = ("NAME", "ROLE", "ALIAS", "MODE", "ENDPOINT", "STATE")
     rows = [(e.name, e.role, e.alias, "attach" if e.attach else "spawn",
              e.server_url if e.attach else f"port {e.spawn['port']}",
-             "UNPROBED") for e in roster.entries]
+             probes.get(e.name, UNPROBED).state) for e in roster.entries]
     width = [max(len(r[i]) for r in (head,) + tuple(rows))
              for i in range(len(head))]
-    for row in (head,) + tuple(rows):
-        line = "  ".join(f"{c:<{w}}" for c, w in zip(row, width))
-        print(f"  {line.rstrip()}")
+
+    def render(row):
+        return "  ".join(f"{c:<{w}}" for c, w in zip(row, width)).rstrip()
+
+    print(f"  {render(head)}")
+    for entry, row in zip(roster.entries, rows):
+        print(f"  {render(row)}")
+        note = probes.get(entry.name, UNPROBED).note
+        if note:
+            print(f"      {note}")
     print(f"  from {roster.path}")
 
 
@@ -957,10 +968,17 @@ def handle_command(line, state):
             except RegistryError as exc:
                 print(exc)
     elif cmd == "/roster":
-        if rest:
-            print("Usage: /roster")
+        if rest and rest[0].lower() != "probe":
+            print("Usage: /roster [probe]")
+        elif rest and state.roster is None:
+            print_roster(None)
         else:
-            print_roster(state.roster)
+            if rest:
+                print(f"Probing {len(state.roster.entries)} roster "
+                      f"entr{'y' if len(state.roster.entries) == 1 else 'ies'}"
+                      f" ...")
+                state.roster_probes = probe_roster(state.roster)
+            print_roster(state.roster, state.roster_probes)
     elif cmd == "/doc":
         if not rest:
             print("Usage: /doc <path>")
