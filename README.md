@@ -22,6 +22,8 @@
 >   their conversation memory without the REPL.
 > - **Scripted conversation runs** - richer tooling around `--turns` for
 >   driving and scoring long canned conversations.
+> - **Dataset evaluation** - run `salt` and `saltChat` across the public
+>   memory benchmarks and record how much each option matters.
 
 SALT shrinks a long document down to a fixed size before it is sent to a language
 model, keeping the sentences that carry the most information. It works with any
