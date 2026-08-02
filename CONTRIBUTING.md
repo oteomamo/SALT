@@ -63,6 +63,7 @@ deterministic. The table it wraps, for reference:
 | The near-duplicate gate (`--dedup-cos` paths) | `python scripts/chat_dedup_regression.py` |
 | The session cap (`--max-sentences` paths) | `python scripts/chat_evict_regression.py` |
 | Tail exclusion (`--tail-exclude` paths) | `python scripts/chat_tail_regression.py` |
+| The agent layer (`salt/agents/`, `--roster`, `/worker`) | `python scripts/chat_agents_regression.py` |
 | The per-turn work the session trie carries forward | `python scripts/chat_incremental_regression.py` |
 | `salt/chat/pdfio.py` (PDF or text ingestion) | `python scripts/chat_pdf_regression.py` |
 | The vLLM backend (`--backend vllm`) | `python scripts/chat_vllm_regression.py` |
