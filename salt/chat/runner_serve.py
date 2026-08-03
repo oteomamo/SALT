@@ -21,11 +21,17 @@ from salt.chat.runner import (_model_input_limit, input_budget_for,
 class VLLMServeChatRunner:
     kind = "vllm-serve"
 
-    def __init__(self, cfg, device="cuda", server_url="http://127.0.0.1:8000"):
+    def __init__(self, cfg, device="cuda", server_url="http://127.0.0.1:8000",
+                 read_timeout=None):
         self.cfg = cfg
         self.device = device
         self.alias = cfg["alias"]
         self.server_url = server_url.rstrip("/")
+        # None = wait as long as the server takes, which is what the chat
+        # model's own client has always done: a slow reply is still a reply
+        # and there is nobody else to fall back to. A caller that has
+        # somewhere else to go (an agent worker) passes a number.
+        self.read_timeout = read_timeout
         self.http = requests.Session()
         try:
             resp = self.http.get(f"{self.server_url}/v1/models", timeout=5)
@@ -103,7 +109,8 @@ class VLLMServeChatRunner:
         self.last_engine_stats = None
         usage = {}
         resp = self.http.post(f"{self.server_url}/v1/completions",
-                              json=payload, stream=True, timeout=(5, None))
+                              json=payload, stream=True,
+                              timeout=(5, self.read_timeout))
         try:
             if resp.status_code != 200:
                 detail = resp.text[:300]

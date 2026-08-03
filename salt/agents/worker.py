@@ -50,6 +50,8 @@ READY_POLL = 0.5
 # what SIGTERM gets before SIGKILL, and how much log a failure shows
 STOP_GRACE = 10
 LOG_TAIL_LINES = 20
+# how long a worker may go silent mid-reply before the call is given up on
+CALL_TIMEOUT = 300
 
 
 class WorkerError(Exception):
@@ -88,6 +90,21 @@ def serve_executable():
     if found:
         return [found]
     return [sys.executable, "-m", "salt.chat.serve"]
+
+
+def is_read_timeout(exc):
+    """Whether this is the server going quiet mid-reply rather than the
+    connection failing. requests reports it as ReadTimeout, or wraps
+    urllib3's ReadTimeoutError in a ConnectionError once the stream is
+    already open, so both shapes count."""
+    import requests
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return False
+    if isinstance(exc, requests.exceptions.ReadTimeout):
+        return True
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return "ReadTimeoutError" in repr(exc.args)
+    return False
 
 
 def spawn_argv(entry, port):
@@ -198,6 +215,14 @@ class WorkerHandle:
     def ready_timeout(self):
         spawn = self.entry.spawn or {}
         return spawn.get("ready_timeout", READY_TIMEOUT)
+
+    @property
+    def timeout_s(self):
+        """How long this worker may go silent mid-reply. Unlike the chat
+        model, a worker that stalls is worth giving up on: the session
+        has its own model to fall back to."""
+        return (CALL_TIMEOUT if self.entry.timeout_s is None
+                else self.entry.timeout_s)
 
     def log_tail(self, lines=LOG_TAIL_LINES):
         """The end of this worker's log, which is where a server that
@@ -380,6 +405,14 @@ class WorkerHandle:
                 for piece in stream:
                     yield piece
             except Exception as exc:
+                if is_read_timeout(exc):
+                    # the server is alive, this reply is not coming. The
+                    # finally below severs it, which frees the worker to
+                    # take the next call, so this is not a DEAD worker.
+                    self.last_error = (
+                        f"worker {self.name!r} sent nothing for "
+                        f"{self.timeout_s:g}s, so the call was given up on")
+                    raise WorkerError(self.last_error) from exc
                 self.state = DEAD
                 self.last_error = f"{type(exc).__name__}: {exc}"
                 raise
@@ -409,7 +442,8 @@ class WorkerHandle:
         # stay free for a session that never calls one
         from salt.chat.runner_serve import VLLMServeChatRunner
         try:
-            self.runner = VLLMServeChatRunner(self.cfg, server_url=self.url)
+            self.runner = VLLMServeChatRunner(self.cfg, server_url=self.url,
+                                              read_timeout=self.timeout_s)
         except Exception as exc:
             self.state = DEAD
             self.last_error = f"{type(exc).__name__}: {exc}"
