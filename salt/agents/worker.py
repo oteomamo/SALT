@@ -4,36 +4,96 @@
 A ``WorkerHandle`` is one roster entry's live connection to a model
 serving beside the chat model. An attach entry points at a ``saltServe``
 that is already running: the handle opens and closes its own client and
-never starts or stops that server. Building a handle costs nothing, so a
-roster may name workers a session never uses - the HTTP session and the
-tokenizer load on the first call.
+never starts or stops that server. A spawn entry describes a server this
+session launches itself, as a child process on a port of its own.
+Building a handle costs nothing, so a roster may name workers a session
+never uses - the HTTP session and the tokenizer load on the first call.
 
-States: DECLARED (nothing contacted yet), PROBED (the endpoint answered
-and serves the right model), READY (a client exists), BUSY (a call is in
-flight), DEAD (the endpoint failed). PROBED and DEAD are spelled the same
-as the roster's probe states on purpose, so one word describes a worker
-whether it was reached by a probe or by a call.
+States: DECLARED (nothing contacted yet), STARTING (a spawned server is
+coming up), PROBED (the endpoint answered and serves the right model),
+READY (a client exists), BUSY (a call is in flight), DEAD (the endpoint
+failed). PROBED and DEAD are spelled the same as the roster's probe
+states on purpose, so one word describes a worker whether it was reached
+by a probe or by a call.
 
 One call at a time per handle. The serve client keeps this turn's token
 counts on itself and shares a single HTTP session between calls, so two
 concurrent streams would read each other's numbers.
 """
 
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 from salt.agents.roster import UNPROBED, probe as probe_endpoint
 
 DECLARED = "DECLARED"
+STARTING = "STARTING"
 PROBED = "PROBED"
 READY = "READY"
 BUSY = "BUSY"
 DEAD = "DEAD"
-STATES = (DECLARED, PROBED, READY, BUSY, DEAD)
+STATES = (DECLARED, STARTING, PROBED, READY, BUSY, DEAD)
+
+HOST = "127.0.0.1"
 
 
 class WorkerError(Exception):
     """A worker could not be reached, opened, or used."""
+
+
+def free_port(host=HOST):
+    """A port nothing is listening on right now, taken and released."""
+    with socket.socket() as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((host, 0))
+        return s.getsockname()[1]
+
+
+def port_available(port, host=HOST):
+    """Whether a server could bind this port. REUSEADDR matches what the
+    server itself binds with, so a just-stopped worker's socket waiting
+    out TIME_WAIT does not read as occupied."""
+    try:
+        with socket.socket() as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, port))
+        return True
+    except OSError:
+        return False
+
+
+def serve_executable():
+    """How to run saltServe from here. The one next to this interpreter
+    comes first: an unactivated env still finds its own, the way
+    saltServe itself picks its vllm."""
+    sibling = os.path.join(os.path.dirname(sys.executable), "saltServe")
+    if os.path.isfile(sibling) and os.access(sibling, os.X_OK):
+        return [sibling]
+    found = shutil.which("saltServe")
+    if found:
+        return [found]
+    return [sys.executable, "-m", "salt.chat.serve"]
+
+
+def spawn_argv(entry, port):
+    """The command line that serves this entry on this port."""
+    spawn = entry.spawn or {}
+    argv = list(spawn.get("command") or serve_executable() + [entry.alias])
+    argv += ["--port", str(port)]
+    if spawn.get("gpu") is not None:
+        argv += ["--gpu", str(spawn["gpu"])]
+    if spawn.get("gpu_mem_util") is not None:
+        argv += ["--gpu-mem-util", str(spawn["gpu_mem_util"])]
+    if spawn.get("max_model_len"):
+        argv += ["--max-model-len", str(spawn["max_model_len"])]
+    return argv
 
 
 class WorkerHandle:
@@ -48,6 +108,11 @@ class WorkerHandle:
         self.calls = 0
         self.busy_s = 0.0
         self.last_error = ""
+        self.process = None
+        self.port = None
+        self.url = entry.server_url
+        self.log_path = None
+        self.record_path = None
         self._lock = threading.Lock()
 
     @property
@@ -60,8 +125,8 @@ class WorkerHandle:
 
     @property
     def endpoint(self):
-        if self.entry.attach:
-            return self.entry.server_url
+        if self.url:
+            return self.url
         return f"port {self.entry.spawn['port']}"
 
     @property
@@ -72,10 +137,70 @@ class WorkerHandle:
     def note(self):
         return self.last_error if self.state == DEAD else self.probe_result.note
 
+    def start(self, workers_dir):
+        """Launch this entry's own saltServe as a child process and
+        return it. The server is not up yet when this returns: it holds
+        the port and writes its startup to the log, and S012's readiness
+        poll is what turns that into a usable worker. Calling it again
+        while the child lives is a no-op."""
+        if self.entry.attach:
+            raise WorkerError(
+                f"worker {self.name!r} attaches to {self.entry.server_url}, "
+                f"so there is nothing for this session to start")
+        with self._lock:
+            if self.process is not None and self.process.poll() is None:
+                return self.process
+            port = self.entry.spawn.get("port", "auto")
+            if port == "auto":
+                port = free_port()
+            elif not port_available(port):
+                raise WorkerError(
+                    f"worker {self.name!r}: port {port} is already taken. "
+                    f"Point the entry at it with server_url to attach "
+                    f"instead, or give spawn a free port.")
+            argv = spawn_argv(self.entry, port)
+            d = Path(workers_dir)
+            d.mkdir(parents=True, exist_ok=True)
+            log_path = d / f"{self.name}.log"
+            try:
+                # appended, never truncated: a restart's log has to keep
+                # the previous crash that explains why it was restarted
+                with open(log_path, "ab") as log:
+                    self.process = subprocess.Popen(
+                        argv, stdout=log, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL, cwd=str(d))
+            except OSError as exc:
+                self.state = DEAD
+                self.last_error = f"{type(exc).__name__}: {exc}"
+                raise WorkerError(
+                    f"worker {self.name!r}: cannot run {argv[0]!r}: "
+                    f"{exc}") from exc
+            self.port = port
+            self.url = f"http://{HOST}:{port}"
+            self.log_path = log_path
+            self.record_path = self._write_record(d, argv)
+            self.state = STARTING
+            self.last_error = ""
+            return self.process
+
+    def _write_record(self, d, argv):
+        """Leave the pid and the port on disk, so a later session can
+        tell a live worker from one this machine has forgotten."""
+        path = d / f"{self.name}.json"
+        record = {"name": self.name, "alias": self.entry.alias,
+                  "pid": self.process.pid, "port": self.port, "url": self.url,
+                  "started_at": time.time(), "argv": list(argv),
+                  "log": str(self.log_path)}
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(record, indent=2))
+        os.replace(tmp, path)
+        return path
+
     def probe(self, timeout=5, url=None):
         """Contact the endpoint and record what it answered. Never
         raises: the ProbeResult carries the reason."""
-        result = probe_endpoint(self.entry, url=url, timeout=timeout)
+        result = probe_endpoint(self.entry, url=url or self.url,
+                                timeout=timeout)
         self.probe_result = result
         if result.state == PROBED:
             # an answering endpoint clears an earlier failure, and an open
@@ -138,7 +263,7 @@ class WorkerHandle:
     def _open(self):
         if self.runner is not None:
             return self.runner
-        if not self.entry.attach:
+        if self.url is None:
             raise WorkerError(
                 f"worker {self.name!r} is a spawn entry and nothing is "
                 f"running for it yet")
@@ -151,8 +276,7 @@ class WorkerHandle:
         # stay free for a session that never calls one
         from salt.chat.runner_serve import VLLMServeChatRunner
         try:
-            self.runner = VLLMServeChatRunner(
-                self.cfg, server_url=self.entry.server_url)
+            self.runner = VLLMServeChatRunner(self.cfg, server_url=self.url)
         except Exception as exc:
             self.state = DEAD
             self.last_error = f"{type(exc).__name__}: {exc}"
