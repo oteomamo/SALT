@@ -35,7 +35,8 @@ from pathlib import Path
 
 import torch
 
-from salt.agents.roster import UNPROBED, RosterError, load_roster
+from salt.agents.roster import (UNPROBED, RosterError, check_placement,
+                                entry_cards, load_roster)
 from salt.agents.worker import BUSY, WorkerError, WorkerHandle
 from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
@@ -137,6 +138,19 @@ COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/doc",
             "/budget", "/stats", "/new", "/clear", "/exit"]
 
 
+def cuda_index(device):
+    """The card a torch device string names, or None when it names no
+    card. Bare 'cuda' is card 0, the one torch picks."""
+    if not isinstance(device, str) or not device.startswith("cuda"):
+        return None
+    if device == "cuda":
+        return 0
+    try:
+        return int(device.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return None
+
+
 def resolve_gpu_devices(gpus, device, bge_device, gpu_mem_util):
     """Turn a parsed --gpu list into concrete placements. The chat model
     anchors on the first card and the BGE encoder on the last, and PCI bus
@@ -178,6 +192,17 @@ class ChatState:
         self.bge_device = args.bge_device or args.device
         self.backend = args.backend
         self.backend_opts = backend_opts(args)
+        # which physical cards this session already occupies, so a worker
+        # can be placed around them. Under vllm-serve the chat model lives
+        # in a server of its own and this process holds only the encoder,
+        # so it claims no card here.
+        chat_cards = [int(c) for c in (parse_gpu_list(args.gpu) or ())]
+        if not chat_cards:
+            chat_cards = [i for i in (cuda_index(self.device),)
+                          if i is not None]
+        self.chat_gpus = [] if args.backend == "vllm-serve" else chat_cards
+        self.chat_mem_util = args.gpu_mem_util
+        self.bge_gpu = cuda_index(self.bge_device)
         self.bge_tok = bge_tok
         self.bge_model = bge_model
         self.runner = runner
@@ -250,6 +275,17 @@ class ChatState:
         """Where a spawned worker's log and pid record live. Per session,
         beside the trie, so two sessions never overwrite each other's."""
         return self.trie.cache_dir / "workers"
+
+    def running_workers(self, skip=None):
+        """(name, cards, gpu_mem_util) for every worker this session has
+        up, which is what a new one has to be placed around."""
+        out = []
+        for h in self.worker_handles():
+            if h is skip or h.process is None or h.process.poll() is not None:
+                continue
+            out.append((h.name, entry_cards(h.entry),
+                        (h.entry.spawn or {}).get("gpu_mem_util")))
+        return out
 
     def compact_tail(self):
         """Cut the tail back to tail_min exchanges once it exceeds tail_max.
@@ -671,6 +707,15 @@ def start_worker(state, handle):
     if handle.process is not None and handle.process.poll() is None:
         print(f"  {handle.name}: already running at {handle.endpoint}")
         return True
+    refusal, notes = check_placement(
+        handle.entry, chat_gpus=state.chat_gpus,
+        chat_mem_util=state.chat_mem_util, bge_gpu=state.bge_gpu,
+        running=state.running_workers(skip=handle))
+    for note in notes:
+        print(f"  {handle.name}: note: {note}")
+    if refusal:
+        print(f"  {handle.name}: {refusal}")
+        return False
     try:
         handle.start(state.workers_dir())
     except WorkerError as exc:

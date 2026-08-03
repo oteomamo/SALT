@@ -301,6 +301,73 @@ def probe(entry, url=None, timeout=5):
                        max_model_len=_card_window(card))
 
 
+PLACEMENT_CEILING = 0.95
+BGE_CARD_MB = 130
+
+
+def entry_cards(entry):
+    """The GPU indices a spawn entry asks for, empty when it names none."""
+    spawn = entry.spawn or {}
+    if not spawn.get("gpu"):
+        return ()
+    from salt.chat.serve import parse_gpu_list
+    return tuple(int(c) for c in parse_gpu_list(spawn["gpu"]) or ())
+
+
+def check_placement(entry, chat_gpus=(), chat_mem_util=None, bge_gpu=None,
+                    running=()):
+    """Whether this worker may take the cards it asks for. Returns
+    (refusal, notes): a refusal string when starting it would fight
+    another server for the same memory, else None, plus notes worth
+    printing either way.
+
+    ``running`` is (name, cards, gpu_mem_util) per worker already up.
+    The rule is narrow on purpose. Two servers CAN share a card, and
+    that is a normal way to run a small worker beside a big model. What
+    cannot work is two servers each claiming their default share of the
+    same card, because vLLM reserves that fraction up front and the
+    second one dies at load. So sharing is allowed exactly when both
+    sides say in writing how much they take."""
+    cards = entry_cards(entry)
+    notes = []
+    if not cards:
+        return None, ["it names no gpu, so its server lands wherever vLLM "
+                      "defaults to. Give the entry a spawn.gpu to place it."]
+    mine = (entry.spawn or {}).get("gpu_mem_util")
+    occupants = {}
+    for c in chat_gpus:
+        occupants.setdefault(int(c), []).append(("the chat model",
+                                                 chat_mem_util))
+    for name, cards_, util in running:
+        for c in cards_:
+            occupants.setdefault(int(c), []).append((f"worker {name!r}", util))
+    for c in cards:
+        for who, util in occupants.get(c, []):
+            if util is None or mine is None:
+                undeclared = ("this entry" if mine is None
+                              else f"{who} does not")
+                return (f"GPU {c} already carries {who}, and {undeclared} "
+                        f"declares a gpu_mem_util. Two servers claiming "
+                        f"their default share of one card run it out of "
+                        f"memory at load. Give both an explicit "
+                        f"gpu_mem_util, or place this worker on another "
+                        f"card.", notes)
+    for c in cards:
+        # only a declared share can be added up. An undeclared one that got
+        # this far is alone on its card, so there is nothing to overrun.
+        if mine is None:
+            break
+        claimed = mine + sum(u for _, u in occupants.get(c, []) if u)
+        if claimed > PLACEMENT_CEILING:
+            notes.append(f"GPU {c} would be claimed {claimed:.2f} in total, "
+                         f"over the {PLACEMENT_CEILING:g} that leaves the "
+                         f"card room to work")
+    if bge_gpu is not None and int(bge_gpu) in cards:
+        notes.append(f"GPU {bge_gpu} also holds this session's BGE encoder "
+                     f"(about {BGE_CARD_MB} MB)")
+    return None, notes
+
+
 def probe_roster(roster, timeout=5):
     """Probe every entry in file order. Returns {name: ProbeResult}."""
     return {e.name: probe(e, timeout=timeout) for e in roster.entries}
