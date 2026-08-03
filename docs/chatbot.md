@@ -70,6 +70,8 @@ them. It has its own page: [Agents](agents.md).
 | `/roster` | list the models `--roster` names, `/roster probe` contacts them |
 | `/worker` | show each worker's connection, calls and mean latency |
 | `/worker probe <name>` | reconnect one worker and report what it serves |
+| `/worker start <name>` | launch a spawn entry's server, `start --all` does them all |
+| `/worker stop <name>` | stop a server this session started |
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
 | `/exit` | leave (the session is saved and resumable by id) |
 

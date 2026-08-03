@@ -36,7 +36,7 @@ from pathlib import Path
 import torch
 
 from salt.agents.roster import UNPROBED, RosterError, load_roster
-from salt.agents.worker import WorkerHandle
+from salt.agents.worker import BUSY, WorkerError, WorkerHandle
 from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
@@ -122,6 +122,9 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
                    each one and reports what it is serving)
 /worker            show each worker's connection, calls and mean latency
 /worker probe <name>  reconnect one worker and report what it is serving
+/worker start <name>  launch a spawn entry's server and wait for it
+                   (start --all does every spawn entry in the roster)
+/worker stop <name>  stop a server this session started
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
 /stats             session, attachments, compression, and GPU memory stats
@@ -242,6 +245,11 @@ class ChatState:
         if self.roster is None:
             return []
         return [self.worker(e.name) for e in self.roster.entries]
+
+    def workers_dir(self):
+        """Where a spawned worker's log and pid record live. Per session,
+        beside the trie, so two sessions never overwrite each other's."""
+        return self.trie.cache_dir / "workers"
 
     def compact_tail(self):
         """Cut the tail back to tail_min exchanges once it exceeds tail_max.
@@ -652,6 +660,107 @@ def print_workers(handles):
             print(f"      {handle.note}")
 
 
+def start_worker(state, handle):
+    """Spawn one worker and wait for its server to answer. Returns True
+    when it is up. Every failure is printed, never raised: one worker
+    refusing to start must not end the session."""
+    if handle.entry.attach:
+        print(f"  {handle.name}: attached to {handle.entry.server_url}, "
+              f"so there is nothing for this session to start")
+        return False
+    if handle.process is not None and handle.process.poll() is None:
+        print(f"  {handle.name}: already running at {handle.endpoint}")
+        return True
+    try:
+        handle.start(state.workers_dir())
+    except WorkerError as exc:
+        print(f"  {handle.name}: {exc}")
+        return False
+    print(f"  {handle.name}: starting {handle.entry.alias} at "
+          f"{handle.endpoint}, up to {handle.ready_timeout:g}s ", end="",
+          flush=True)
+    marked = [0.0]
+
+    def tick(elapsed):
+        # a cold vLLM start is minutes of silence otherwise
+        if elapsed - marked[0] >= 2:
+            marked[0] = elapsed
+            print(".", end="", flush=True)
+
+    try:
+        result = handle.wait_ready(on_wait=tick)
+    except WorkerError as exc:
+        print(f"\n  {handle.name}: {exc}")
+        return False
+    print(f"\n  {handle.name}: ready, {result.note}")
+    return True
+
+
+def stop_worker(state, handle):
+    """Stop one spawned worker. Returns True when something was stopped."""
+    if handle.entry.attach:
+        print(f"  {handle.name}: attached to {handle.entry.server_url}, "
+              f"so this session must not stop it")
+        return False
+    if handle.state == BUSY:
+        print(f"  {handle.name}: is answering a call right now. Let it "
+              f"finish, or Ctrl-C the call first.")
+        return False
+    if handle.process is None:
+        print(f"  {handle.name}: nothing running for this session")
+        return False
+    code = handle.stop()
+    print(f"  {handle.name}: stopped, exit code {code}")
+    return True
+
+
+def start_all_workers(state):
+    """Every spawn entry, in file order. Returns how many came up."""
+    handles = [h for h in state.worker_handles() if not h.entry.attach]
+    if not handles:
+        print("  no spawn entries in the roster - every worker attaches to "
+              "a server that is already running")
+        return 0
+    print(f"Starting {len(handles)} of the roster's workers ...")
+    up = sum(1 for h in handles if start_worker(state, h))
+    print(f"  {up} of {len(handles)} ready")
+    return up
+
+
+def worker_command(state, rest):
+    if not rest:
+        print_workers(state.worker_handles())
+        return
+    if state.roster is None:
+        print_workers([])
+        return
+    verb, args = rest[0].lower(), rest[1:]
+    if verb == "start" and args == ["--all"]:
+        start_all_workers(state)
+        print_workers(state.worker_handles())
+        return
+    # a roster name never starts with '-', so an option here is a typo for
+    # a verb that takes one, not a name to look up
+    if (verb not in ("probe", "start", "stop") or len(args) != 1
+            or args[0].startswith("-")):
+        print("Usage: /worker [probe <name> | start <name> | start --all "
+              "| stop <name>]")
+        return
+    try:
+        handle = state.worker(args[0])
+    except RosterError as exc:
+        print(exc)
+        return
+    if verb == "probe":
+        print(f"Probing worker {handle.name!r} at {handle.endpoint} ...")
+        handle.probe()
+    elif verb == "start":
+        start_worker(state, handle)
+    else:
+        stop_worker(state, handle)
+    print_workers(state.worker_handles())
+
+
 def _user_keep(t):
     # add_turn's default protects code/table/link units; user turns must
     # keep that protection alongside the short-turn one
@@ -1028,21 +1137,7 @@ def handle_command(line, state):
             print_roster(state.roster,
                          {h.name: h.probe_result for h in handles})
     elif cmd == "/worker":
-        if rest and (rest[0].lower() != "probe" or len(rest) != 2):
-            print("Usage: /worker [probe <name>]")
-        elif rest and state.roster is None:
-            print_workers([])
-        else:
-            if rest:
-                try:
-                    handle = state.worker(rest[1])
-                except RosterError as exc:
-                    print(exc)
-                    return True
-                print(f"Probing worker {handle.name!r} at "
-                      f"{handle.endpoint} ...")
-                handle.probe()
-            print_workers(state.worker_handles())
+        worker_command(state, rest)
     elif cmd == "/doc":
         if not rest:
             print("Usage: /doc <path>")
@@ -1687,6 +1782,13 @@ def build_parser():
                         "nothing is contacted or started. See "
                         "salt/agents/roster_sample.json, and /roster in the "
                         "REPL for what was loaded.")
+    p.add_argument("--workers-autostart", action="store_true",
+                   help="start every spawn entry in --roster once the chat "
+                        "model is loaded, instead of waiting for /worker "
+                        "start. Each one is a saltServe of its own, so the "
+                        "roster's GPU placement has to leave room for them "
+                        "(default: nothing is started, and the session "
+                        "reaches only the workers already running)")
     p.add_argument("--turns", metavar="FILE",
                    help="run a scripted conversation from a JSON array or "
                         "JSONL file instead of the interactive REPL. Each "
@@ -1868,6 +1970,9 @@ def main(argv=None):
         print(f"Restored {len(state.full_attachments)} full-context "
               f"attachment(s): {', '.join(state.full_attachments)}")
         warn_prompt_budget(state)
+
+    if args.workers_autostart and state.roster is not None:
+        start_all_workers(state)
 
     for doc in args.doc:
         ingest_doc(state, doc)

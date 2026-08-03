@@ -216,18 +216,22 @@ class WorkerHandle:
             return msg
         return f"{msg}\nlast lines of {self.log_path}:\n{tail}"
 
-    def wait_ready(self, timeout=None, poll=READY_POLL):
+    def wait_ready(self, timeout=None, poll=READY_POLL, on_wait=None):
         """Wait for a started worker to answer, and return what it is
         serving. Raises WorkerError naming the reason: the server died
         during startup (its log tail comes with the error) or it never
         answered in time. A failing poll does NOT mark the handle DEAD -
-        not answering yet is what starting up looks like."""
+        not answering yet is what starting up looks like. ``on_wait`` is
+        called with the seconds waited after each poll that found
+        nothing, which is how a caller shows progress through a start
+        that takes minutes."""
         if not self.entry.attach and self.process is None:
             raise WorkerError(
                 f"worker {self.name!r} has not been started, so there is "
                 f"nothing to wait for")
         limit = self.ready_timeout if timeout is None else timeout
-        deadline = time.monotonic() + limit
+        started = time.monotonic()
+        deadline = started + limit
         probe_timeout = max(1.0, min(5.0, limit))
         while True:
             result = probe_endpoint(self.entry, url=self.url,
@@ -252,6 +256,8 @@ class WorkerHandle:
                     f"within {limit:g}s. Raise spawn.ready_timeout if this "
                     f"model is simply slow to load.")
                 raise WorkerError(self.last_error)
+            if on_wait is not None:
+                on_wait(time.monotonic() - started)
             time.sleep(poll)
 
     def healthy(self, timeout=5):
