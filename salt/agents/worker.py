@@ -52,6 +52,18 @@ STOP_GRACE = 10
 LOG_TAIL_LINES = 20
 # how long a worker may go silent mid-reply before the call is given up on
 CALL_TIMEOUT = 300
+# a refused connection is worth one more try, because a worker restarting
+# beside a live session is the ordinary case. Only before the first byte:
+# once text has streamed, a second attempt would duplicate a half-written
+# reply, and only for connection errors, never for a stall.
+CALL_RETRIES = 1
+# a moment before the retry, because the case worth retrying is a server
+# that is coming back up, and an instant second attempt would just be
+# refused again
+RETRY_DELAY = 0.5
+# one bad call can be anything; two in a row is a worker to stop using
+# until a probe says otherwise
+FAILURES_TO_DEAD = 2
 
 
 class WorkerError(Exception):
@@ -90,6 +102,16 @@ def serve_executable():
     if found:
         return [found]
     return [sys.executable, "-m", "salt.chat.serve"]
+
+
+def is_connection_error(exc):
+    """Whether the worker could not be reached at all, as opposed to
+    answering and then stalling. This is the only failure worth retrying:
+    nothing was said, so nothing can be duplicated by asking again."""
+    import requests
+    if is_read_timeout(exc):
+        return False
+    return isinstance(exc, requests.exceptions.ConnectionError)
 
 
 def is_read_timeout(exc):
@@ -133,6 +155,8 @@ class WorkerHandle:
         self.calls = 0
         self.busy_s = 0.0
         self.last_error = ""
+        self.failures = 0
+        self.retries = 0
         self.process = None
         self.port = None
         self.url = entry.server_url
@@ -366,6 +390,7 @@ class WorkerHandle:
             if self.state != BUSY:
                 self.state = READY if self.runner is not None else PROBED
             self.last_error = ""
+            self.failures = 0
         elif result.state == DEAD:
             self.state = DEAD
             self.last_error = result.detail
@@ -388,6 +413,36 @@ class WorkerHandle:
                 self.state = (PROBED if self.probe_result.state == PROBED
                               else DECLARED)
 
+    def _note_failure(self, reason):
+        """Record a failed call. Two in a row and the worker is DEAD:
+        one can be anything, a second says stop sending work there until
+        a probe proves otherwise."""
+        self.failures += 1
+        self.last_error = reason
+        if self.failures >= FAILURES_TO_DEAD:
+            self.state = DEAD
+        return reason
+
+    def _open_stream(self, runner, messages, overrides):
+        """Open the response and return (stream, first piece), retrying a
+        refused connection. Retries happen HERE and nowhere else, because
+        this is the only point at which nothing has been said yet."""
+        attempt = 0
+        while True:
+            stream = runner.stream_chat(messages, **overrides)
+            try:
+                return stream, next(stream)
+            except StopIteration:
+                return stream, None
+            except Exception as exc:
+                stream.close()
+                if is_connection_error(exc) and attempt < CALL_RETRIES:
+                    attempt += 1
+                    self.retries += 1
+                    time.sleep(RETRY_DELAY)
+                    continue
+                raise
+
     def call(self, messages, **overrides):
         """Stream one reply from the worker, yielding text pieces.
 
@@ -400,27 +455,33 @@ class WorkerHandle:
             runner = self._open()
             self.state = BUSY
             t0 = time.monotonic()
-            stream = runner.stream_chat(messages, **overrides)
+            stream = None
             try:
-                for piece in stream:
-                    yield piece
+                stream, first = self._open_stream(runner, messages, overrides)
+                if first is not None:
+                    yield first
+                    for piece in stream:
+                        yield piece
+                self.failures = 0
+                self.last_error = ""
             except Exception as exc:
                 if is_read_timeout(exc):
                     # the server is alive, this reply is not coming. The
                     # finally below severs it, which frees the worker to
-                    # take the next call, so this is not a DEAD worker.
+                    # take the next call, so this is not a DEAD worker and
+                    # a stall never counts toward one.
                     self.last_error = (
                         f"worker {self.name!r} sent nothing for "
                         f"{self.timeout_s:g}s, so the call was given up on")
                     raise WorkerError(self.last_error) from exc
-                self.state = DEAD
-                self.last_error = f"{type(exc).__name__}: {exc}"
+                self._note_failure(f"{type(exc).__name__}: {exc}")
                 raise
             finally:
                 # closed here rather than left to collection: severing the
                 # response is what aborts the request on the worker, and it
                 # has to happen the moment the caller walks away
-                stream.close()
+                if stream is not None:
+                    stream.close()
                 self.calls += 1
                 self.busy_s += time.monotonic() - t0
                 if self.state == BUSY:
@@ -445,8 +506,7 @@ class WorkerHandle:
             self.runner = VLLMServeChatRunner(self.cfg, server_url=self.url,
                                               read_timeout=self.timeout_s)
         except Exception as exc:
-            self.state = DEAD
-            self.last_error = f"{type(exc).__name__}: {exc}"
+            self._note_failure(f"{type(exc).__name__}: {exc}")
             raise WorkerError(f"worker {self.name!r}: {exc}") from exc
         self.state = READY
         self.last_error = ""
