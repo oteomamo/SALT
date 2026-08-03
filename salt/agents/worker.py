@@ -5,7 +5,8 @@ A ``WorkerHandle`` is one roster entry's live connection to a model
 serving beside the chat model. An attach entry points at a ``saltServe``
 that is already running: the handle opens and closes its own client and
 never starts or stops that server. A spawn entry describes a server this
-session launches itself, as a child process on a port of its own.
+session launches itself, as a child process on a port of its own, and
+that one it does stop, at the latest when the session exits.
 Building a handle costs nothing, so a roster may name workers a session
 never uses - the HTTP session and the tokenizer load on the first call.
 
@@ -21,6 +22,7 @@ counts on itself and shares a single HTTP session between calls, so two
 concurrent streams would read each other's numbers.
 """
 
+import atexit
 import json
 import os
 import shutil
@@ -42,6 +44,12 @@ DEAD = "DEAD"
 STATES = (DECLARED, STARTING, PROBED, READY, BUSY, DEAD)
 
 HOST = "127.0.0.1"
+# a cold vLLM start loads weights and builds a graph, so minutes is normal
+READY_TIMEOUT = 180
+READY_POLL = 0.5
+# what SIGTERM gets before SIGKILL, and how much log a failure shows
+STOP_GRACE = 10
+LOG_TAIL_LINES = 20
 
 
 class WorkerError(Exception):
@@ -181,7 +189,126 @@ class WorkerHandle:
             self.record_path = self._write_record(d, argv)
             self.state = STARTING
             self.last_error = ""
+            # a spawned server outlives the REPL unless something stops it,
+            # and an exit path that skips /worker stop is still an exit
+            atexit.register(self.stop)
             return self.process
+
+    @property
+    def ready_timeout(self):
+        spawn = self.entry.spawn or {}
+        return spawn.get("ready_timeout", READY_TIMEOUT)
+
+    def log_tail(self, lines=LOG_TAIL_LINES):
+        """The end of this worker's log, which is where a server that
+        refused to start says why."""
+        if self.log_path is None:
+            return ""
+        try:
+            text = Path(self.log_path).read_text(errors="replace")
+        except OSError:
+            return ""
+        return "\n".join(text.splitlines()[-lines:])
+
+    def _explain(self, msg):
+        tail = self.log_tail()
+        if not tail:
+            return msg
+        return f"{msg}\nlast lines of {self.log_path}:\n{tail}"
+
+    def wait_ready(self, timeout=None, poll=READY_POLL):
+        """Wait for a started worker to answer, and return what it is
+        serving. Raises WorkerError naming the reason: the server died
+        during startup (its log tail comes with the error) or it never
+        answered in time. A failing poll does NOT mark the handle DEAD -
+        not answering yet is what starting up looks like."""
+        if not self.entry.attach and self.process is None:
+            raise WorkerError(
+                f"worker {self.name!r} has not been started, so there is "
+                f"nothing to wait for")
+        limit = self.ready_timeout if timeout is None else timeout
+        deadline = time.monotonic() + limit
+        probe_timeout = max(1.0, min(5.0, limit))
+        while True:
+            result = probe_endpoint(self.entry, url=self.url,
+                                    timeout=probe_timeout)
+            if result.state == PROBED:
+                self.probe_result = result
+                self.last_error = ""
+                if self.state != BUSY:
+                    self.state = READY if self.runner is not None else PROBED
+                return result
+            code = None if self.process is None else self.process.poll()
+            if code is not None:
+                self.state = DEAD
+                self.last_error = self._explain(
+                    f"the server for worker {self.name!r} exited with code "
+                    f"{code} before it was ready")
+                raise WorkerError(self.last_error)
+            if time.monotonic() >= deadline:
+                self.state = DEAD
+                self.last_error = self._explain(
+                    f"worker {self.name!r} did not answer at {self.url} "
+                    f"within {limit:g}s. Raise spawn.ready_timeout if this "
+                    f"model is simply slow to load.")
+                raise WorkerError(self.last_error)
+            time.sleep(poll)
+
+    def healthy(self, timeout=5):
+        """Whether this worker can take a call right now. A spawned
+        server that has exited is DEAD without a network round trip:
+        checking the child costs nothing and is never wrong."""
+        code = None if self.process is None else self.process.poll()
+        if code is not None:
+            self.state = DEAD
+            self.last_error = self._explain(
+                f"the server for worker {self.name!r} exited with code "
+                f"{code}")
+            return False
+        return self.probe(timeout=timeout).state == PROBED
+
+    def stop(self, grace=STOP_GRACE):
+        """Stop a server this session spawned and return its exit code.
+        SIGTERM first so vLLM can shut its engine down, SIGKILL only if
+        it will not go. Idempotent, and never raises at exit."""
+        if self.entry.attach:
+            raise WorkerError(
+                f"worker {self.name!r} attaches to {self.entry.server_url}, "
+                f"so this session must not stop it")
+        atexit.unregister(self.stop)
+        proc, self.process = self.process, None
+        if proc is None:
+            return None
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(grace)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(grace)
+        # the client outlived its server, and a call in flight has already
+        # broken on the closed connection - a bounded wait, because this
+        # also runs at interpreter exit
+        if self._lock.acquire(timeout=grace):
+            try:
+                runner, self.runner = self.runner, None
+                if runner is not None:
+                    runner.unload()
+            finally:
+                self._lock.release()
+        if self.record_path is not None:
+            # a record left on disk means a worker still running, which is
+            # what tells a later session there is something to clean up
+            try:
+                os.remove(self.record_path)
+            except OSError:
+                pass
+            self.record_path = None
+        self.url, self.port = None, None
+        self.state = DECLARED
+        self.probe_result = UNPROBED
+        self.last_error = ""
+        return proc.returncode
 
     def _write_record(self, d, argv):
         """Leave the pid and the port on disk, so a later session can

@@ -30,7 +30,8 @@ _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _TOP_KEYS = {"version", "models"}
 _ENTRY_KEYS = {"name", "alias", "role", "server_url", "spawn", "max_tokens",
                "temperature", "capabilities", "notes", "timeout_s"}
-_SPAWN_KEYS = {"port", "gpu", "gpu_mem_util", "max_model_len", "command"}
+_SPAWN_KEYS = {"port", "gpu", "gpu_mem_util", "max_model_len",
+               "ready_timeout", "command"}
 
 
 class RosterError(Exception):
@@ -142,6 +143,9 @@ def _parse_spawn(path, name, raw):
     if "max_model_len" in spawn:
         _check_number(path, name, "spawn.max_model_len",
                       spawn["max_model_len"], int, 0)
+    if "ready_timeout" in spawn:
+        _check_number(path, name, "spawn.ready_timeout",
+                      spawn["ready_timeout"], (int, float), 1)
     command = spawn.get("command")
     if command is not None:
         if not isinstance(command, list) or not command or not all(
