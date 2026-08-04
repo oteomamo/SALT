@@ -153,6 +153,15 @@ goes quiet, refuses the request, or has stopped answering ends the same
 way: the status line says which of those happened, and the session
 carries on.
 
+Every delegation is written to `delegations.jsonl` in the session folder,
+one line each: which worker it went to, the task, how much context it was
+given, how it ended and what it cost. The answer itself is not kept there,
+because it was printed and the conversation did not remember it.
+Numbering carries on from the file, so a delegation in a resumed session
+never reuses an earlier number. A line left half written by a crash is
+reported and skipped the next time the session opens, and the rest of the
+history still loads.
+
 ## Seeing what is there
 
 ```

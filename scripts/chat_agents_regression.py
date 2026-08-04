@@ -37,12 +37,14 @@ runs on CPU with no vLLM, no GPU and no second process.
      and how each way of failing is named.
  17. The /offload command: who a task goes to, what is printed, and
      what interrupting one leaves behind.
- 18. Identity: a scripted conversation runs byte-identically with and
+ 18. The delegation ledger: what one delegation leaves on disk, where a
+     resumed session picks its ids up, and what a damaged line costs.
+ 19. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 19. Import purity: importing the agent layer costs nothing, and no
+ 20. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 20. Frozen core: the agent work has not touched the eval files.
- 21. Command surfaces: HELP, TAB completion and the docs
+ 21. Frozen core: the agent work has not touched the eval files.
+ 22. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -83,6 +85,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from salt.agents import delegate as D                            # noqa: E402
+from salt.agents import ledger as L                              # noqa: E402
 from salt.agents import roster as R                              # noqa: E402
 from salt.agents.roster import (BGE_CARD_MB, PLACEMENT_CEILING,   # noqa: E402
                                 check_placement)
@@ -1674,6 +1677,134 @@ def check_offload_command(tmp, tok, mdl):
           "Ctrl-C severs the call and leaves the worker ready")
 
 
+def _no_space(*a, **kw):
+    raise OSError("no space left on device")
+
+
+def ledger_lines(session_dir):
+    path = L.ledger_path(session_dir)
+    return [json.loads(ln) for ln
+            in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def check_delegation_ledger(tmp, tok, mdl):
+    with Stub(cards=CARDS, pieces=("a ", "battery")) as s:
+        roster = delegation_roster(s.url, tmp)
+        state = replayed_state(tmp, "ledger", tok, mdl, roster=roster)
+        home = state.trie.cache_dir
+        try:
+            assert not L.ledger_path(home).exists(), (
+                "a session that has delegated nothing already has a ledger")
+            offload_line(state, "what size battery")
+            offload_line(state, "@w and the inverter")
+            rows = ledger_lines(home)
+            assert len(rows) == 2, f"two delegations wrote {len(rows)} lines"
+            rec = rows[0]
+            assert tuple(rec) == L.FIELDS, (
+                f"the ledger schema changed: {tuple(rec)}")
+            assert rec["schema"] == "salt-delegation/1", rec
+            assert (rec["id"], rec["target"], rec["status"]) == (1, "w", "ok")
+            assert rec["task"] == "what size battery", rec
+            assert tuple(rec["context_stats"]) == L.CONTEXT_FIELDS, rec
+            assert rec["context_stats"]["n_selected"] > 0, rec
+            assert rec["context_stats"]["words_used"] > 0, rec
+            assert rec["usage"]["output_tokens"] > 0, rec
+            assert rec["ingest"] is False, "a result was filed as ingested"
+            assert rec["t_end"] >= rec["t_start"] > 0, rec
+            assert rows[1]["id"] == 2, rows[1]
+
+            # the ledger is history, so a lost line must not lose the answer
+            real_append, L.append = L.append, _no_space
+            try:
+                out = offload_line(state, "will not be filed")
+                assert "a battery" in out, (
+                    f"a failed record swallowed the worker's answer: {out}")
+                assert "recording #3" in out and "no space" in out, out
+            finally:
+                L.append = real_append
+            assert len(ledger_lines(home)) == 2, "the failed append wrote"
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        state = replayed_state(tmp, "ledger", tok, mdl, turns=(),
+                               roster=roster)
+        try:
+            assert state.delegation_seq == 2, (
+                f"resuming restarted the ids at {state.delegation_seq}")
+            offload_line(state, "one more question")
+            assert [r["id"] for r in ledger_lines(home)] == [1, 2, 3], (
+                "a resumed session reused an id")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    with Stub(cards=CARDS, post_status=503) as s:
+        state = replayed_state(tmp, "ledger_fail", tok, mdl, turns=(),
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            offload_line(state, "anything at all")
+            rec = ledger_lines(state.trie.cache_dir)[0]
+            assert rec["status"] == "error", (
+                f"a failed delegation was filed as {rec['status']!r}")
+            assert tuple(rec) == L.FIELDS, rec
+            assert rec["context_stats"]["n_selected"] == 0, (
+                "a session with no memory was given context")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    torn = Path(tmp) / "torn"
+    torn.mkdir()
+    empty = L.read(torn)
+    assert not empty.records and not empty.warnings and empty.last_id == 0, (
+        "a missing ledger is not read as an empty one")
+    older = {"schema": "salt-delegation/1", "id": 1, "target": "w",
+             "task": "an earlier task",
+             "context_stats": {"n_selected": 2, "words_used": 40},
+             "status": "ok", "usage": {}, "t_start": 1.0, "t_end": 2.0,
+             "ingest": False}
+    L.ledger_path(torn).write_text(
+        json.dumps(older) + "\n"
+        '{"schema": "salt-delegation/2", "id": 7, "wrote": "the future"}\n'
+        '{"schema": "salt-delegation/1", "id": 9, "target": "w", "ta',
+        encoding="utf-8")
+    found = L.read(torn)
+    assert [r["id"] for r in found.records] == [1], (
+        f"a line this salt cannot read was loaded anyway: {found.records}")
+    assert found.last_id == 7, (
+        f"the ledger hands id {found.last_id + 1} out twice after a newer "
+        f"salt wrote id 7")
+    assert len(found.warnings) == 2, found.warnings
+    assert any("did not finish writing" in w for w in found.warnings), found
+    assert any("salt-delegation/2" in w for w in found.warnings), found
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        state = replayed_state(tmp, "torn", tok, mdl, turns=())
+    out = buf.getvalue()
+    assert "line 3" in out and "line 2" in out, (
+        f"opening a damaged ledger said nothing about it: {out}")
+    assert state.delegation_seq == 7, state.delegation_seq
+    real, cli.SESSIONS_DIR = cli.SESSIONS_DIR, Path(tmp)
+    try:
+        with redirect_stdout(io.StringIO()):
+            state.new_trie("ledger_fresh")
+        assert state.delegation_seq == 0, (
+            "a new session inherited the previous one's delegation ids")
+        with redirect_stdout(io.StringIO()):
+            state.new_trie("ledger")
+        assert state.delegation_seq == 3, (
+            f"switching back to a session lost its ids ({state.delegation_seq})")
+    finally:
+        cli.SESSIONS_DIR = real
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+    print("18. the delegation ledger: one line per delegation in the pinned "
+          "schema, ids resume from the file, and a torn or newer line is "
+          "skipped with a warning")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -1699,7 +1830,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"18. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"19. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -1740,7 +1871,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("19. import purity: the agent layer pulls none of "
+    print("20. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -1754,7 +1885,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"20. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"21. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -1766,7 +1897,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"20. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"21. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -1785,7 +1916,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"21. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"22. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -1818,6 +1949,7 @@ def main():
         check_delegation_context(tmp, tok, mdl)
         check_delegation_call(tmp, tok, mdl)
         check_offload_command(tmp, tok, mdl)
+        check_delegation_ledger(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()

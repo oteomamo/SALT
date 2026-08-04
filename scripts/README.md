@@ -31,8 +31,9 @@ plain install stays green.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.
 - `chat_agents_regression.py` covers the agent layer (`--roster`,
-  `/roster`, `/worker`), from the whole worker lifecycle to the fact
-  that a loaded roster changes nothing.
+  `/roster`, `/worker`, `/offload`), from the whole worker lifecycle to
+  the delegation ledger and the fact that a loaded roster changes
+  nothing.
 
 ## 📦 Utilities
 

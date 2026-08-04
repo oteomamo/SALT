@@ -35,6 +35,7 @@ from pathlib import Path
 
 import torch
 
+from salt.agents import ledger
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   delegate)
 from salt.agents.roster import (UNPROBED, RosterError, check_placement,
@@ -188,6 +189,16 @@ def backend_opts(args):
             "gpu_memory_utilization": args.gpu_mem_util}
 
 
+def resume_delegations(session_dir):
+    """Where this session's delegation ids pick up. A session that has
+    never delegated starts at 0, and one that has continues past its
+    highest recorded id."""
+    found = ledger.read(session_dir)
+    for note in found.warnings:
+        print(note)
+    return found.last_id
+
+
 class ChatState:
     """Everything a live session pins: models on GPU, trie in RAM."""
 
@@ -219,7 +230,7 @@ class ChatState:
         self.workers = {}
         # delegation ids are per session and monotonic, so a result can be
         # named ("#3 came back") and the ledger can be resumed by its max
-        self.delegation_seq = 0
+        self.delegation_seq = resume_delegations(self.trie.cache_dir)
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.tokens_per_word = TOKENS_PER_WORD_SEED
@@ -350,6 +361,9 @@ class ChatState:
         self.trie = trie
         self.ingest = worker
         self.last_stats = None
+        # ids belong to the session, not to the process: a new one starts
+        # from its own ledger or from nothing
+        self.delegation_seq = resume_delegations(self.trie.cache_dir)
         self.load_full_attachments()
         self.load_tail()
         self.kvtrace = KVTrace(self.trie.cache_dir,
@@ -856,6 +870,17 @@ def offload_command(state, rest):
     if result.text:
         print(result.text if result.text.endswith("\n") else result.text)
     print(offload_status_line(result))
+    record_delegation(state, result, req.ingest)
+
+
+def record_delegation(state, result, ingest=False):
+    """File one delegation in the session's ledger. Best effort by
+    design: the answer is already on screen, and failing to write the
+    history of it must not take the answer down with it."""
+    try:
+        ledger.append(state.trie.cache_dir, result, ingest=ingest)
+    except OSError as exc:
+        print(f"[delegations] recording #{result.id} failed: {exc}")
 
 
 def offload_status_line(result):
