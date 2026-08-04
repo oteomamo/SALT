@@ -261,3 +261,8 @@ turn, `output` = generated tokens) plus a per-token `tokens.npy` matrix.
 records the engine's measured prefix-cache reuse (`apc_cached_tokens` /
 `apc_prompt_tokens`) - the positional ground truth next to the ledger's
 content-overlap split.
+
+A turn that follows one or more delegations also carries
+`agent_delegations`, `agent_delegated_tokens` and `agent_workers`. Those
+sit beside the usage keys and never inside them, so anything already
+reading the ledger's token accounting sees exactly what it saw before.

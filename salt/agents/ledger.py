@@ -55,14 +55,44 @@ def record(result, ingest=False):
             "ingest": bool(ingest)}
 
 
-def append(session_dir, result, ingest=False):
-    """File one delegation. The line is built whole and written once, so
-    a concurrent reader sees either all of it or none of it."""
-    rec = record(result, ingest)
+def append(session_dir, rec):
+    """File one delegation record. The line is built whole and written
+    once, so a concurrent reader sees either all of it or none of it."""
     with open(ledger_path(session_dir), "a", encoding="utf-8") as fh:
         fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         fh.flush()
     return rec
+
+
+def blank_summary():
+    return {"n": 0, "workers": {}}
+
+
+def tally(summary, rec):
+    """Fold one delegation into a running per-worker summary. Takes a
+    ledger record rather than a result, so a resumed session and a live
+    one are counted by the same arithmetic."""
+    summary["n"] += 1
+    w = summary["workers"].setdefault(rec.get("target") or "?", {
+        "calls": 0, "ok": 0, "prompt_tokens": 0, "output_tokens": 0,
+        "seconds": 0.0, "last_status": ""})
+    usage = rec.get("usage") or {}
+    w["calls"] += 1
+    w["ok"] += rec.get("status") == "ok"
+    w["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
+    w["output_tokens"] += int(usage.get("output_tokens") or 0)
+    w["seconds"] += max(0.0, float(rec.get("t_end") or 0.0)
+                        - float(rec.get("t_start") or 0.0))
+    w["last_status"] = rec.get("status") or ""
+    return summary
+
+
+def summarize(records):
+    """What a session has delegated so far, per worker."""
+    summary = blank_summary()
+    for rec in records:
+        tally(summary, rec)
+    return summary
 
 
 def _scan(path):

@@ -171,6 +171,12 @@ never reuses an earlier number. A line left half written by a crash is
 reported and skipped the next time the session opens, and the rest of the
 history still loads.
 
+`/stats` adds a delegation line once a session has handed something over:
+how many went out in all, and per worker the calls, how many came back,
+the tokens each way and the mean time one took. The totals are read back
+from the ledger when the session opens, so a resumed conversation carries
+on counting instead of starting again at zero.
+
 ## Seeing what is there
 
 ```

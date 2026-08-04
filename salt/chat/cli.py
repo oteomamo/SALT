@@ -195,13 +195,14 @@ def backend_opts(args):
 
 
 def resume_delegations(session_dir):
-    """Where this session's delegation ids pick up. A session that has
-    never delegated starts at 0, and one that has continues past its
-    highest recorded id."""
+    """What this session has already delegated: the id its next one takes
+    and the totals /stats reports. A session that has never delegated
+    starts at 0 with nothing to report, and one that has picks both up
+    where the ledger left them."""
     found = ledger.read(session_dir)
     for note in found.warnings:
         print(note)
-    return found.last_id
+    return found.last_id, ledger.summarize(found.records)
 
 
 class ChatState:
@@ -235,7 +236,12 @@ class ChatState:
         self.workers = {}
         # delegation ids are per session and monotonic, so a result can be
         # named ("#3 came back") and the ledger can be resumed by its max
-        self.delegation_seq = resume_delegations(self.trie.cache_dir)
+        self.delegation_seq, self.delegation_stats = resume_delegations(
+            self.trie.cache_dir)
+        # delegations that have run since the last recorded turn, emptied
+        # into that turn's kvtrace entry: /offload happens between turns,
+        # so the next turn is the first place they can be attributed
+        self.pending_delegations = []
         self.offload_ingest = args.offload_ingest
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
@@ -367,9 +373,11 @@ class ChatState:
         self.trie = trie
         self.ingest = worker
         self.last_stats = None
-        # ids belong to the session, not to the process: a new one starts
-        # from its own ledger or from nothing
-        self.delegation_seq = resume_delegations(self.trie.cache_dir)
+        # ids and totals belong to the session, not to the process: a new
+        # one starts from its own ledger or from nothing
+        self.delegation_seq, self.delegation_stats = resume_delegations(
+            self.trie.cache_dir)
+        self.pending_delegations = []
         self.load_full_attachments()
         self.load_tail()
         self.kvtrace = KVTrace(self.trie.cache_dir,
@@ -911,13 +919,60 @@ def ingest_result(state, req, result):
 
 
 def record_delegation(state, result, ingest=False):
-    """File one delegation in the session's ledger. Best effort by
-    design: the answer is already on screen, and failing to write the
-    history of it must not take the answer down with it."""
+    """File one delegation in the session's ledger and count it. Writing
+    is best effort by design: the answer is already on screen, and
+    failing to write the history of it must not take the answer down
+    with it. Counting is not conditional on the write, because the
+    delegation happened either way."""
+    rec = ledger.record(result, ingest)
+    ledger.tally(state.delegation_stats, rec)
+    state.pending_delegations.append(rec)
     try:
-        ledger.append(state.trie.cache_dir, result, ingest=ingest)
+        ledger.append(state.trie.cache_dir, rec)
     except OSError as exc:
         print(f"[delegations] recording #{result.id} failed: {exc}")
+
+
+def delegation_extra(state):
+    """The delegations that ran since the last turn, as kvtrace keys.
+
+    Empty on a turn that ran none, so the event keeps exactly the shape
+    it has always had and only a turn with agent work carries agent
+    fields. The pending list is emptied here: these delegations belong
+    to the turn being recorded now, and holding them back for a retry
+    would file them against a later one.
+    """
+    pending, state.pending_delegations = state.pending_delegations, []
+    if not pending:
+        return {}
+    names = list(dict.fromkeys(r["target"] for r in pending))
+    usage = [r.get("usage") or {} for r in pending]
+    return {"agent_delegations": len(pending),
+            "agent_delegated_tokens": {
+                "input": sum(int(u.get("prompt_tokens") or 0) for u in usage),
+                "output": sum(int(u.get("output_tokens") or 0)
+                              for u in usage)},
+            "agent_workers": names}
+
+
+def print_delegation_stats(state):
+    """What this session has handed out, per worker. Silent until it has
+    handed out something: a session with a roster it never used has
+    nothing to report that /roster does not already say."""
+    stats = state.delegation_stats
+    if not stats["n"]:
+        return
+    workers = stats["workers"]
+    print(f"delegations: {stats['n']} to {len(workers)} "
+          f"{'worker' if len(workers) == 1 else 'workers'} "
+          f"(delegations.jsonl has each one)")
+    for name in sorted(workers):
+        w = workers[name]
+        mean = w["seconds"] / w["calls"] if w["calls"] else 0.0
+        print(f"  {name}: {w['calls']} "
+              f"{'call' if w['calls'] == 1 else 'calls'}, {w['ok']} ok, "
+              f"{w['prompt_tokens']} in / {w['output_tokens']} out tokens, "
+              f"{mean:.1f}s mean, last {w['last_status']}")
 
 
 def offload_status_line(result):
@@ -1426,6 +1481,7 @@ def handle_command(line, state):
         elif t.n_masked:
             print(f"session cap: off this launch; {t.n_masked} sentences "
                   f"masked earlier in this session")
+        print_delegation_stats(state)
         ing = state.ingest.stats
         fail_note = (f", {ing['failures']} failed (ingest_failures.jsonl)"
                      if ing["failures"] else "")
@@ -1599,6 +1655,7 @@ def chat_turn(state, line):
     # appends never move them
     extra = dict(drift_extra or {})
     extra.update(getattr(state.runner, "last_engine_stats", None) or {})
+    extra.update(delegation_extra(state))
     try:
         state.kvtrace.record_turn(
             tokenizer=state.runner.tokenizer, trie=state.trie,

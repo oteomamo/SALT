@@ -43,12 +43,14 @@ runs on CPU with no vLLM, no GPU and no second process.
      the flag that decides whether one is remembered at all.
  20. Delegated-work labels: what a remembered answer is headed with,
      and the reading guide saying the same thing to the model.
- 21. Identity: a scripted conversation runs byte-identically with and
+ 21. Delegation stats: what /stats reports, and the additive agent
+     keys the next turn's kvtrace entry carries.
+ 22. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 22. Import purity: importing the agent layer costs nothing, and no
+ 23. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 23. Frozen core: the agent work has not touched the eval files.
- 24. Command surfaces: HELP, TAB completion and the docs
+ 24. Frozen core: the agent work has not touched the eval files.
+ 25. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -102,6 +104,7 @@ from salt.agents.worker import (BUSY, CALL_RETRIES, CALL_TIMEOUT,  # noqa: E402
                                 is_read_timeout, port_available,
                                 serve_executable, spawn_argv)
 from salt.chat import cli                                        # noqa: E402
+from salt.chat.kvtrace import KVTrace                            # noqa: E402
 from salt.chat.registry import RegistryError, resolve_model      # noqa: E402
 from salt.engine.compressor import load_bge                      # noqa: E402
 from salt.engine.session_trie import (CONVERSATION_ROLES,        # noqa: E402
@@ -2031,6 +2034,109 @@ def check_worker_labels(tmp, tok, mdl):
           "the model gets carries the same strings")
 
 
+def stats_output(state):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.handle_command("/stats", state)
+    return buf.getvalue()
+
+
+def events_of(state):
+    path = state.trie.cache_dir / "kvtrace" / "events.jsonl"
+    return [json.loads(ln) for ln
+            in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def check_delegation_stats(tmp, tok, mdl):
+    rows = [{"target": "w", "status": "ok", "t_start": 1.0, "t_end": 3.0,
+             "usage": {"prompt_tokens": 100, "output_tokens": 20}},
+            {"target": "w", "status": "error", "t_start": 5.0, "t_end": 6.0,
+             "usage": {}},
+            {"target": "other", "status": "ok", "t_start": 1.0, "t_end": 1.5,
+             "usage": {"prompt_tokens": 7, "output_tokens": None}}]
+    summary = L.summarize(rows)
+    assert summary["n"] == 3 and set(summary["workers"]) == {"w", "other"}
+    w = summary["workers"]["w"]
+    assert (w["calls"], w["ok"]) == (2, 1), w
+    assert (w["prompt_tokens"], w["output_tokens"]) == (100, 20), w
+    assert w["seconds"] == 3.0 and w["last_status"] == "error", w
+    assert summary["workers"]["other"]["output_tokens"] == 0, (
+        "a missing token count was not read as none")
+    assert L.summarize([])["n"] == 0, "an empty ledger counted something"
+
+    with Stub(cards=CARDS, pieces=("a ", "battery")) as s:
+        roster = delegation_roster(s.url, tmp)
+        state = replayed_state(tmp, "stats", tok, mdl, roster=roster)
+        try:
+            out = stats_output(state)
+            assert "delegations:" not in out, (
+                f"a session that delegated nothing reported delegations: "
+                f"{out}")
+            offload_line(state, "what size battery")
+            offload_line(state, "@w and the inverter")
+            out = stats_output(state)
+            assert "delegations: 2 to 1 worker " in out, out
+            line = [l for l in out.splitlines() if l.startswith("  w: ")]
+            assert len(line) == 1, f"expected one worker line, got {line}"
+            assert "2 calls, 2 ok, " in line[0], line[0]
+            assert " in / " in line[0] and " out tokens, " in line[0], line[0]
+            assert line[0].endswith("last ok"), line[0]
+
+            # the delegations ran between turns, so the NEXT turn is where
+            # they are attributed
+            assert state.pending_delegations, "nothing is waiting for a turn"
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "so what do you recommend?")
+            assert not state.pending_delegations, (
+                "the turn did not take the pending delegations")
+            event = events_of(state)[-1]
+            assert event["v"] == 1, f"the event format version moved: {event}"
+            assert event["agent_delegations"] == 2, event
+            assert event["agent_workers"] == ["w"], event
+            assert event["agent_delegated_tokens"]["output"] > 0, event
+            assert set(event["usage"]) == {"input", "input_cached_tokens",
+                                           "output", "total"}, (
+                f"the usage block changed shape: {event['usage']}")
+
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the heat pump?")
+            plain = events_of(state)[-1]
+            assert not [k for k in plain if k.startswith("agent_")], (
+                f"a turn with no delegation carried agent keys: {plain}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # a resumed session reports what the ledger holds, before it has
+        # delegated anything itself
+        again = replayed_state(tmp, "stats", tok, mdl, turns=(), roster=roster)
+        try:
+            assert again.delegation_stats["n"] == 2, again.delegation_stats
+            assert "delegations: 2 to 1 worker " in stats_output(again), (
+                "totals did not survive the resume")
+            assert not again.pending_delegations, (
+                "resuming queued old delegations onto the next turn")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(again)
+
+    # a session whose events.jsonl predates the agent keys opens clean
+    old = Path(tmp) / "pre_agent" / "kvtrace"
+    old.mkdir(parents=True)
+    (old / "events.jsonl").write_text(json.dumps({
+        "v": 1, "turn": 4, "conversation_id": "pre_agent", "model": "m",
+        "usage": {"input": 10, "input_cached_tokens": 2, "output": 5,
+                  "total": 17},
+        "selected_sent_idx": [0, 1], "token_rows": [0, 0]}) + "\n",
+        encoding="utf-8")
+    kv = KVTrace(Path(tmp) / "pre_agent", "pre_agent")
+    assert kv.turn == 5, f"an older ledger did not resume: {kv.turn}"
+    assert kv.totals["output"] == 5, kv.totals
+    print("21. delegation stats: /stats reports per-worker totals that "
+          "survive a resume, and the turn after a delegation carries "
+          "additive agent keys the format version does not move for")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -2056,7 +2162,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"21. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"22. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -2097,7 +2203,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("22. import purity: the agent layer pulls none of "
+    print("23. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -2111,7 +2217,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"23. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"24. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -2123,7 +2229,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"23. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"24. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -2142,7 +2248,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"24. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"25. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -2178,6 +2284,7 @@ def main():
         check_delegation_ledger(tmp, tok, mdl)
         check_worker_rows(tmp, tok, mdl)
         check_worker_labels(tmp, tok, mdl)
+        check_delegation_stats(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()
