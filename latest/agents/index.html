@@ -775,6 +775,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#handing-over-a-task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handing over a task
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#seeing-what-is-there" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1233,6 +1244,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#handing-over-a-task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handing over a task
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#seeing-what-is-there" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1366,6 +1388,28 @@ arrived, since asking again for a half written reply would duplicate it.
 Two failed calls in a row mark the worker <code>DEAD</code> and the session stops
 sending work there. <code>/worker probe &lt;name&gt;</code> reconnects it and clears the
 count.</p>
+<h2 id="handing-over-a-task">Handing over a task</h2>
+<div class="highlight"><pre><span></span><code>you&gt; /offload summarize the sizing argument for the installer
+  delegating to qwen05 (qwen05), 9 sentences of context [214 words] ...
+The house has 9 kW of panels against a 5 kW inverter, and the worst case
+is a winter evening drawing for about 4 hours ...
+  [qwen05] ok, 486 in, 92 out, 2.4s
+</code></pre></div>
+<p><code>/offload &lt;task&gt;</code> sends one task to a worker together with this
+conversation's memory, selected for that task the same way a chat turn
+selects it. The worker answers from what it was given and its reply is
+printed as it came back. With one worker in the roster it needs no
+naming, and with several <code>/offload @NAME &lt;task&gt;</code> picks the one.</p>
+<p>The session's own memory does not change. Delegating selects context but
+commits nothing, so the coverage state, the verbatim tail and the trie
+are the same after a delegation as before it, and the reply is not
+remembered as part of the conversation.</p>
+<p>Ctrl-C during a delegation cuts the connection, which aborts the request
+on the worker rather than leaving it generating into nothing, and returns
+you to the prompt with the worker ready for the next task. A worker that
+goes quiet, refuses the request, or has stopped answering ends the same
+way: the status line says which of those happened, and the session
+carries on.</p>
 <h2 id="seeing-what-is-there">Seeing what is there</h2>
 <div class="highlight"><pre><span></span><code>you&gt; /roster probe
   NAME    ROLE    ALIAS   MODE    ENDPOINT               STATE
