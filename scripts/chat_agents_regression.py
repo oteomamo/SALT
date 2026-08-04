@@ -1566,12 +1566,18 @@ def check_delegation_call(tmp, tok, mdl):
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(state)
 
+    assert D.STATUSES == ("ok", "timeout", "dead", "aborted", "error"), (
+        f"the failure taxonomy changed: {D.STATUSES}")
+
     dead = Stub(cards=CARDS, port=free_port())
+    # ingest on, so a failure has something to fail to leave behind
     state = replayed_state(tmp, "delegation_dead", tok, mdl,
-                           roster=delegation_roster(dead.url, tmp))
+                           roster=delegation_roster(dead.url, tmp),
+                           flags=("--offload-ingest",))
     try:
         run_delegation(state, task="warm the client", target="w")
         dead.stop()
+        before, tail_before = trie_snapshot(state.trie), list(state.tail)
         _, first = run_delegation(state, task="anyone there", target="w")
         _, again = run_delegation(state, task="anyone there", target="w")
         assert (first.status, again.status) == ("error", "dead"), (
@@ -1579,13 +1585,21 @@ def check_delegation_call(tmp, tok, mdl):
             f"expected one failure to be survivable and the second not")
         assert state.worker("w").state == DEAD, state.worker("w").state
         assert again.error, "a dead worker came back with no reason"
+        for res in (first, again):
+            assert res.status in D.STATUSES, res.status
+            assert not res.ok and res.text == "", res
+        assert trie_snapshot(state.trie) == before, (
+            "a delegation that failed still moved the session's memory")
+        assert state.tail == tail_before, (
+            "a delegation that failed reached the verbatim tail")
     finally:
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
         dead.stop()
     print("16. executing a delegation: text and usage captured, a directive "
-          "shaped reply returned verbatim, and a rejection, a stall and a "
-          "vanished server each named as what they are")
+          "shaped reply returned verbatim, a rejection, a stall and a "
+          "vanished server each named as what they are, and no failure "
+          "moves the session's memory")
 
 
 def offload_line(state, line):
@@ -1659,25 +1673,35 @@ def check_offload_command(tmp, tok, mdl):
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(state)
 
-    # Ctrl-C mid-delegation: the REPL catches KeyboardInterrupt itself, so
-    # what has to hold here is that the response was severed and the worker
-    # is free for the next task
+    # Ctrl-C mid-delegation: the interrupt has done its job once the
+    # response is severed, so it comes back as a status rather than an
+    # exception, and the worker is free for the next task
     slow = Stub(cards=CARDS, pieces=[f"t{i} " for i in range(400)], delay=0.05)
     state = replayed_state(tmp, "offload_ctrlc", tok, mdl,
-                           roster=delegation_roster(slow.url, tmp))
+                           roster=delegation_roster(slow.url, tmp),
+                           flags=("--offload-ingest",))
     try:
+        before, tail_before = trie_snapshot(state.trie), list(state.tail)
         timer = threading.Timer(1.0, _thread.interrupt_main)
         timer.start()
-        interrupted = False
         try:
-            offload_line(state, "talk for a long time")
-        except KeyboardInterrupt:
-            interrupted = True
+            out = offload_line(state, "talk for a long time")
         finally:
             timer.cancel()
-        assert interrupted, (
-            "the delegation ran to completion, so this proves nothing about "
-            "interrupting one")
+        assert "[w] aborted," in out, (
+            f"an interrupted delegation was not reported as one: {out}")
+        assert "t0 t1 " in out, (
+            f"what the worker had said before the interrupt was "
+            f"thrown away: {out!r}")
+        rec = ledger_lines(state.trie.cache_dir)[-1]
+        assert rec["status"] == "aborted", (
+            f"the ledger recorded an interrupted delegation as "
+            f"{rec['status']!r}")
+        assert rec["ingest"] is False, "an interrupted answer was remembered"
+        assert trie_snapshot(state.trie) == before, (
+            "an interrupted delegation moved the session's memory")
+        assert state.tail == tail_before, (
+            "an interrupted delegation reached the verbatim tail")
         handle = state.worker("w")
         assert slow.aborted.wait(20), (
             "the interrupt did not sever the response, so the worker would "
@@ -1694,7 +1718,8 @@ def check_offload_command(tmp, tok, mdl):
         slow.stop()
     print("17. /offload: one worker needs no naming and several refuse "
           "without @NAME, the reply and one status line are printed, and "
-          "Ctrl-C severs the call and leaves the worker ready")
+          "Ctrl-C comes back as an aborted delegation with the worker "
+          "still ready")
 
 
 def _no_space(*a, **kw):

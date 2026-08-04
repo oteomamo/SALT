@@ -33,9 +33,10 @@ TASK_HEADER = "TASK: "
 # loop that follows measures, so a wrong guess costs a pass, not accuracy
 TOKENS_PER_WORD = 1.6
 # ok: the worker answered. timeout: it went quiet mid-reply and is still
-# usable. dead: it is not answering at all. error: everything else,
-# including a server that rejected the request
-STATUSES = ("ok", "timeout", "dead", "error")
+# usable. dead: it is not answering at all. aborted: the person asking
+# changed their mind. error: everything else, including a server that
+# rejected the request
+STATUSES = ("ok", "timeout", "dead", "aborted", "error")
 
 
 class DelegationError(Exception):
@@ -289,9 +290,11 @@ def delegate(state, req, context=None):
     """Send `req` to its worker and wait for the whole reply.
 
     Blocking: the stream is consumed to completion before this returns,
-    so the caller gets an answer rather than a generator. Failures come
-    back as a DelegationResult with a status, never as an exception, so
-    one worker having a bad day cannot end the turn that asked it.
+    so the caller gets an answer rather than a generator. Every way this
+    can end short comes back as a DelegationResult with a status, never
+    as an exception, so one worker having a bad day cannot end the turn
+    that asked it, and an interrupted delegation is still recorded as
+    one that happened rather than one the session never knew about.
     """
     if not req.target:
         raise DelegationError(
@@ -322,6 +325,14 @@ def delegate(state, req, context=None):
             pieces.append(piece)
     except WorkerError as exc:
         status, error = failure_status(handle, exc), str(exc)
+    except KeyboardInterrupt:
+        # not re-raised: the interrupt has already done what it was for.
+        # Closing the stream below severs the response and aborts the
+        # request on the worker, so the caller is back at the prompt with
+        # the worker free, and the delegation is recorded as abandoned
+        # rather than vanishing from the session's history.
+        status = "aborted"
+        error = "the delegation was interrupted"
     except Exception as exc:
         status = failure_status(handle, exc)
         error = f"{type(exc).__name__}: {exc}"

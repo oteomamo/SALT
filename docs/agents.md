@@ -157,10 +157,17 @@ on deliberately rather than by accident.
 
 Ctrl-C during a delegation cuts the connection, which aborts the request
 on the worker rather than leaving it generating into nothing, and returns
-you to the prompt with the worker ready for the next task. A worker that
-goes quiet, refuses the request, or has stopped answering ends the same
-way: the status line says which of those happened, and the session
-carries on.
+you to the prompt with the worker ready for the next task. Whatever the
+worker had said by then is still shown.
+
+A delegation ends in one of five ways, and the status line says which:
+`ok` when the worker answered, `timeout` when it went quiet mid-reply and
+is still usable, `dead` when it has stopped answering at all, `aborted`
+when you interrupted it, and `error` for everything else, including a
+server that refused the request. Only `ok` leaves anything behind. A
+delegation that ended any other way never touches the conversation's
+memory, even with `--offload-ingest` on, because there is no answer to
+remember.
 
 Every delegation is written to `delegations.jsonl` in the session folder,
 one line each: which worker it went to, the task, how much context it was
