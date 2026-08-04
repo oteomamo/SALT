@@ -1404,6 +1404,14 @@ naming, and with several <code>/offload @NAME &lt;task&gt;</code> picks the one.
 commits nothing, so the coverage state, the verbatim tail and the trie
 are the same after a delegation as before it, and the reply is not
 remembered as part of the conversation.</p>
+<p>Start saltChat with <code>--offload-ingest</code> to remember the answers instead. A
+worker's reply then enters this session's memory as a turn of its own,
+kept apart from what you and the chat model said, so a later question can
+select it the way it selects anything else. It never joins the recent
+messages shown word for word, and a delegation that failed leaves nothing
+behind. This is off by default because a worker's prose competes with
+your own conversation for the same memory budget, which is worth turning
+on deliberately rather than by accident.</p>
 <p>Ctrl-C during a delegation cuts the connection, which aborts the request
 on the worker rather than leaving it generating into nothing, and returns
 you to the prompt with the worker ready for the next task. A worker that
