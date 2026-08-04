@@ -186,6 +186,21 @@ the tokens each way and the mean time one took. The totals are read back
 from the ledger when the session opens, so a resumed conversation carries
 on counting instead of starting again at zero.
 
+## Coming back to a session
+
+Reopening a session picks its delegation history up where it stopped.
+The numbering carries on, the `/stats` totals continue, and a remembered
+answer is still labeled with the worker that gave it.
+
+Workers are not restarted. A worker is a server holding a GPU, so
+bringing one back is a decision to make out loud with `/worker start`,
+or at launch with `--workers-autostart`. What reopening does tell you is
+which servers from the earlier run are still up, and which of them left
+a record behind after the process was gone. A record nobody can honour
+is archived rather than believed, because trusting it would point the
+session at a port nothing is serving. The worker's log is kept either
+way, so the reason it went is still on disk.
+
 ## Seeing what is there
 
 ```

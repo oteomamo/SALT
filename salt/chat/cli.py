@@ -40,7 +40,8 @@ from salt.agents.delegate import (DelegationRequest, build_context,
                                   delegate)
 from salt.agents.roster import (UNPROBED, RosterError, check_placement,
                                 entry_cards, load_roster)
-from salt.agents.worker import BUSY, WorkerError, WorkerHandle
+from salt.agents.worker import (BUSY, WorkerError, WorkerHandle,
+                                check_records)
 from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
@@ -205,6 +206,26 @@ def resume_delegations(session_dir):
     return found.last_id, ledger.summarize(found.records)
 
 
+def resume_workers(state):
+    """Take stock of what an earlier run of this session left behind.
+
+    Nothing is restarted here on purpose. A worker is a server holding a
+    GPU, and bringing one back is a decision worth making out loud with
+    /worker start, or at launch with --workers-autostart. What resuming
+    does owe you is the truth about the records on disk: which servers
+    are still up, and which claims outlived the process that made them.
+    """
+    if state.roster is None:
+        return
+    live, archived = check_records(state.workers_dir())
+    for rec in archived:
+        print(f"worker {rec['name']!r} from an earlier run is gone "
+              f"(pid {rec.get('pid')}), so its record was archived.")
+    for rec in live:
+        print(f"worker {rec['name']!r} from an earlier run is still up on "
+              f"{rec.get('url')} - /worker probe {rec['name']} to use it.")
+
+
 class ChatState:
     """Everything a live session pins: models on GPU, trie in RAM."""
 
@@ -288,6 +309,7 @@ class ChatState:
         self.ingest = IngestWorker(
             journal_path=self.trie.cache_dir / "ingest_failures.jsonl",
             synchronous=args.sync_ingest)
+        resume_workers(self)
 
     def worker(self, name):
         """The handle for one roster entry, built on first use."""
@@ -381,6 +403,7 @@ class ChatState:
         self.delegation_seq, self.delegation_stats = resume_delegations(
             self.trie.cache_dir)
         self.pending_delegations = []
+        resume_workers(self)
         self.load_full_attachments()
         self.load_tail()
         self.kvtrace = KVTrace(self.trie.cache_dir,

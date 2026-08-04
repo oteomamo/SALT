@@ -50,12 +50,14 @@ runs on CPU with no vLLM, no GPU and no second process.
  23. Delegation budgets: what bounds the context handed over, the
      reply asked for, a prompt too big for the worker, and how long a
      quiet one is waited for.
- 24. Identity: a scripted conversation runs byte-identically with and
+ 24. Resuming a session: what carries over, what is retired as a
+     claim nobody can honour, and what is deliberately not restarted.
+ 25. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 25. Import purity: importing the agent layer costs nothing, and no
+ 26. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 26. Frozen core: the agent work has not touched the eval files.
- 27. Command surfaces: HELP, TAB completion and the docs
+ 27. Frozen core: the agent work has not touched the eval files.
+ 28. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -99,6 +101,7 @@ sys.path.insert(0, str(REPO))
 from salt.agents import delegate as D                            # noqa: E402
 from salt.agents import ledger as L                              # noqa: E402
 from salt.agents import roster as R                              # noqa: E402
+from salt.agents import worker as W                              # noqa: E402
 from salt.agents.roster import (BGE_CARD_MB, PLACEMENT_CEILING,   # noqa: E402
                                 check_placement)
 from salt.agents.worker import (BUSY, CALL_RETRIES, CALL_TIMEOUT,  # noqa: E402
@@ -2401,6 +2404,114 @@ def check_delegation_budgets(tmp, tok, mdl):
           f"session's limit")
 
 
+def dead_pid():
+    """A pid that named a process and no longer does."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def write_record(d, name, pid, port=9999):
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{name}.json").write_text(json.dumps({
+        "name": name, "alias": "stub", "pid": pid, "port": port,
+        "url": f"http://127.0.0.1:{port}", "started_at": 1.0,
+        "argv": ["saltServe"], "log": str(d / f"{name}.log")}),
+        encoding="utf-8")
+
+
+def check_resume(tmp, tok, mdl):
+    with Stub(cards=CARDS, pieces=("A battery of about 9 kWh ",
+                                   "covers the evening draw.")) as s:
+        roster = delegation_roster(s.url, tmp)
+        state = replayed_state(tmp, "resume", tok, mdl, roster=roster,
+                               flags=("--offload-ingest",))
+        home = state.trie.cache_dir
+        try:
+            for n in range(3):
+                offload_line(state, f"summarize point {n}")
+            assert state.delegation_seq == 3, state.delegation_seq
+            origins = [o for o in state.trie.origins if o]
+            assert origins == ["w"] * len(origins) and origins, (
+                f"no delegated row carried its worker: {state.trie.origins}")
+            n_rows, before = state.trie.n_sentences, stats_output(state)
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # the session is reopened the way a new launch would open it
+        back = replayed_state(tmp, "resume", tok, mdl, turns=(), roster=roster,
+                              flags=("--offload-ingest",))
+        try:
+            assert back.delegation_seq == 3, (
+                f"ids restarted at {back.delegation_seq}")
+            assert back.delegation_stats["n"] == 3, back.delegation_stats
+            after = stats_output(back)
+            assert "delegations: 3 to 1 worker " in after, after
+            for line in before.splitlines():
+                if line.startswith("  w: "):
+                    assert line in after, (
+                        f"the per-worker line changed across a resume:\n"
+                        f"  before {line}\n  after  "
+                        f"{[l for l in after.splitlines() if l.startswith('  w: ')]}")
+            assert back.trie.n_sentences == n_rows, (
+                "the corpus changed size across a resume")
+            assert [o for o in back.trie.origins if o] == origins, (
+                f"origins did not survive the resume: {back.trie.origins}")
+            assert back.trie.roles.count("worker") == len(origins), (
+                "a worker row came back under a different role")
+            offload_line(back, "one more")
+            assert [r["id"] for r in ledger_lines(home)] == [1, 2, 3, 4], (
+                "a resumed session reused an id")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(back)
+
+    # pid records: the gone are retired, the living are left alone
+    workers = Path(tmp) / "resume_pids" / "workers"
+    gone, mine = dead_pid(), os.getpid()
+    write_record(workers, "ghost", gone)
+    write_record(workers, "alive", mine, port=9998)
+    live, archived = W.check_records(workers)
+    assert [r["name"] for r in archived] == ["ghost"], archived
+    assert [r["name"] for r in live] == ["alive"], live
+    assert archived[0]["pid"] == gone and archived[0]["argv"] == ["saltServe"], (
+        "the archive lost what the record said")
+    assert not (workers / "ghost.json").exists(), "the dead claim still stands"
+    assert (workers / "ghost.json.stale").exists(), "nothing was archived"
+    assert (workers / "alive.json").exists(), "a live worker was retired"
+    assert W.check_records(workers)[1] == [], (
+        "a second pass archived something twice")
+    assert W.check_records(Path(tmp) / "nowhere") == ([], []), (
+        "a session that never spawned anything reported records")
+    assert W.pid_alive(mine) and not W.pid_alive(gone)
+    assert not W.pid_alive(None) and not W.pid_alive("not a pid")
+
+    # and a session opening on that directory says so, and starts nothing.
+    # the checks above already retired the first ghost, so leave another
+    write_record(workers, "ghost", gone)
+    spawn = R.Roster(path=str(Path(tmp) / "r.json"), entries=(
+        spawn_entry(tmp, "ghost"), spawn_entry(tmp, "alive")))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        state = replayed_state(tmp, "resume_pids", tok, mdl, turns=(),
+                               roster=spawn)
+    out = buf.getvalue()
+    try:
+        assert "'ghost' from an earlier run is gone" in out, out
+        assert "'alive' from an earlier run is still up" in out, out
+        assert all(h.process is None for h in state.worker_handles()), (
+            "resuming restarted a worker instead of waiting to be asked")
+        assert all(h.state == DECLARED for h in state.worker_handles()), (
+            "a resumed handle claims a state nobody established")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+    print("24. resuming a session: ids, totals and origins all continue "
+          "where they stopped, a dead worker record is archived rather "
+          "than believed, and nothing is restarted unasked")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -2426,7 +2537,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"24. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"25. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -2467,7 +2578,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("25. import purity: the agent layer pulls none of "
+    print("26. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -2481,7 +2592,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"26. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"27. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -2493,7 +2604,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"26. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"27. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -2512,7 +2623,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"27. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"28. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -2551,6 +2662,7 @@ def main():
         check_delegation_stats(tmp, tok, mdl)
         check_tail_integrity(tmp, tok, mdl)
         check_delegation_budgets(tmp, tok, mdl)
+        check_resume(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()

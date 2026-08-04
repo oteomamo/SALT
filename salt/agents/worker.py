@@ -143,6 +143,55 @@ def spawn_argv(entry, port):
     return argv
 
 
+def pid_alive(pid):
+    """Whether a process id still names something running. Signal 0 asks
+    without sending anything, and a pid this user may not signal is still
+    a pid that exists."""
+    try:
+        os.kill(int(pid), 0)
+    except PermissionError:
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+    return True
+
+
+def check_records(workers_dir):
+    """Sort a previous run's worker records into the still-running and
+    the gone, archiving the gone as `<name>.json.stale`.
+
+    A record is a standing claim that a server holds a port. Believed
+    after the process died, it would point a later session at a port
+    nothing serves, or stop it spawning on a port that is in fact free,
+    so a dead claim is retired rather than deleted. The archive keeps
+    the pid, the argv and the path to the log, and the log itself is
+    append-only, so why the worker went is still on disk.
+
+    Returns (live, archived) as lists of records, oldest name first.
+    """
+    d = Path(workers_dir)
+    live, archived = [], []
+    if not d.is_dir():
+        return live, archived
+    for path in sorted(d.glob("*.json")):
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            rec = {}
+        if not isinstance(rec, dict):
+            rec = {}
+        rec.setdefault("name", path.stem)
+        if pid_alive(rec.get("pid")):
+            live.append(rec)
+            continue
+        try:
+            os.replace(path, path.parent / (path.name + ".stale"))
+        except OSError:
+            continue  # unreadable directory: leave the claim, say nothing
+        archived.append(rec)
+    return live, archived
+
+
 class WorkerHandle:
     """One roster entry, its connection state, and its call counters."""
 
