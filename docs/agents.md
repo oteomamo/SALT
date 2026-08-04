@@ -171,6 +171,15 @@ never reuses an earlier number. A line left half written by a crash is
 reported and skipped the next time the session opens, and the rest of the
 history still loads.
 
+How much a worker is handed is bounded twice. The memory budget sizes
+the selection the way it sizes a chat turn's, and `--offload-context-cap
+N` puts a word ceiling under that, which is how you keep a small
+worker's prompt short without shrinking what the chat model gets. If the
+result still will not fit the worker's window, the front of the context
+is dropped until it does and a note says how much was kept. The task
+itself is never trimmed, because a worker that lost its task would
+answer the wrong question with confidence.
+
 `/stats` adds a delegation line once a session has handed something over:
 how many went out in all, and per worker the calls, how many came back,
 the tokens each way and the mean time one took. The totals are read back

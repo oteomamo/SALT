@@ -47,12 +47,14 @@ runs on CPU with no vLLM, no GPU and no second process.
      keys the next turn's kvtrace entry carries.
  22. Tail and template integrity: what delegating leaves the verbatim
      tail, the prompt and the kv indices looking like.
- 23. Identity: a scripted conversation runs byte-identically with and
+ 23. Delegation budgets: what bounds the context handed over, the
+     reply asked for, and a prompt too big for the worker.
+ 24. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 24. Import purity: importing the agent layer costs nothing, and no
+ 25. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 25. Frozen core: the agent work has not touched the eval files.
- 26. Command surfaces: HELP, TAB completion and the docs
+ 26. Frozen core: the agent work has not touched the eval files.
+ 27. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -2259,6 +2261,103 @@ def check_tail_integrity(tmp, tok, mdl):
           "template accepts the prompt, and every kv index still resolves")
 
 
+class _WindowRunner:
+    """A worker client with a real tokenizer and a small window, which is
+    all the budget code reads off one."""
+
+    def __init__(self, tokenizer, max_input_len):
+        self.tokenizer = tokenizer
+        self.max_input_len = max_input_len
+        self.cfg = {"gen": {"max_new_tokens": 64}}
+
+    def input_budget(self, max_new_tokens=None):
+        return runner_mod.input_budget_for(self.max_input_len, self.cfg["gen"],
+                                           max_new_tokens)
+
+
+def check_delegation_budgets(tmp, tok, mdl):
+    entry = R.RosterEntry(name="w", alias="stub", role="worker",
+                          server_url="http://127.0.0.1:1", model=None)
+    capped = R.RosterEntry(name="w", alias="stub", role="worker",
+                           server_url="http://127.0.0.1:1", model=None,
+                           max_tokens=128)
+    small = _WindowRunner(tok, 400)
+    assert D.window_max_tokens(small) == 200, (
+        "the window backstop is not half the window")
+    assert D.window_max_tokens(_WindowRunner(tok, None)) is None, (
+        "an unknown window invented a cap")
+    req = D.DelegationRequest(task="t", target="w")
+    assert D.call_overrides(entry, req) == {}, (
+        "a call with nothing to say about length said something")
+    assert D.call_overrides(entry, req, small)["max_new_tokens"] == 200, (
+        "the worker's window did not act as the backstop")
+    assert D.call_overrides(capped, req, small)["max_new_tokens"] == 128, (
+        "the window overrode the roster entry")
+    asked = D.DelegationRequest(task="t", target="w", max_tokens=16)
+    assert D.call_overrides(capped, asked, small)["max_new_tokens"] == 16, (
+        "the request did not win over the roster entry")
+
+    # a context that does not fit is trimmed from its head, never its task
+    task = "name the single biggest risk in one sentence"
+    req = D.DelegationRequest(task=task, target="w")
+    ctx = D.DelegationContext(text="filler sentence about batteries. " * 200,
+                              selected_idx=(0,))
+    messages = D.build_messages(ctx, req)
+    over = D.count_tokens(small, messages[0]["content"]
+                          + messages[-1]["content"])
+    assert over > small.input_budget(), "the fixture already fits, so it "\
+        "would prove nothing"
+    fitted, note = D.fit_messages(small, messages, req)
+    assert note and "task in full" in note, note
+    body = fitted[-1]["content"]
+    assert body.endswith(f"{D.TASK_HEADER}{task}"), (
+        f"the task did not survive the trim: {body[-120:]!r}")
+    assert fitted[0] == messages[0], "the instructions were trimmed"
+    assert len(body) < len(messages[-1]["content"]), "nothing was trimmed"
+    assert (D.count_tokens(small, fitted[0]["content"] + body)
+            <= small.input_budget()), "the trimmed prompt still overflows"
+
+    roomy = _WindowRunner(tok, 8192)
+    same, note = D.fit_messages(roomy, messages, req)
+    assert same == messages and note == "", (
+        "a prompt that fits was trimmed anyway")
+    blind, note = D.fit_messages(object(), messages, req)
+    assert blind == messages and note == "", (
+        "a client with no window to read was trimmed against a guess")
+
+    # the word cap bounds the context the session hands over
+    with Stub(cards=CARDS, pieces=("ok",)) as s:
+        roster = delegation_roster(s.url, tmp)
+        wide = replayed_state(tmp, "budget_wide", tok, mdl, roster=roster)
+        try:
+            # the whole corpus, so the cap has something to bite on
+            full = D.build_context(wide, D.DelegationRequest(
+                task="what did we say about the battery", target="w",
+                budget_pct=1.0))
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(wide)
+        tight = replayed_state(tmp, "budget_tight", tok, mdl, roster=roster,
+                               flags=("--offload-context-cap", "12"))
+        try:
+            assert tight.offload_context_cap == 12, tight.offload_context_cap
+            cut = D.build_context(tight, D.DelegationRequest(
+                task="what did we say about the battery", target="w",
+                budget_pct=1.0))
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(tight)
+    assert full.words_used > cut.words_used, (
+        f"the cap changed nothing: {full.words_used} vs {cut.words_used}")
+    assert cut.words_used <= 12, (
+        f"the cap let {cut.words_used} words through against 12")
+    assert cut.n_selected >= 1, "the cap starved the context entirely"
+    print(f"23. delegation budgets: the word cap held a {full.words_used} "
+          f"word context to {cut.words_used}, the worker's window backstops "
+          f"the reply length, and an over-window prompt loses context head "
+          f"rather than its task")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -2284,7 +2383,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"23. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"24. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -2325,7 +2424,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("24. import purity: the agent layer pulls none of "
+    print("25. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -2339,7 +2438,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"25. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"26. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -2351,7 +2450,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"25. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"26. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -2370,7 +2469,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"26. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"27. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -2408,6 +2507,7 @@ def main():
         check_worker_labels(tmp, tok, mdl)
         check_delegation_stats(tmp, tok, mdl)
         check_tail_integrity(tmp, tok, mdl)
+        check_delegation_budgets(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()

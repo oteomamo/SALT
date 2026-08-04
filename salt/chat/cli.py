@@ -243,6 +243,7 @@ class ChatState:
         # so the next turn is the first place they can be attributed
         self.pending_delegations = []
         self.offload_ingest = args.offload_ingest
+        self.offload_context_cap = args.offload_context_cap
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.tokens_per_word = TOKENS_PER_WORD_SEED
@@ -2020,6 +2021,13 @@ def build_parser():
                         "roster's GPU placement has to leave room for them "
                         "(default: nothing is started, and the session "
                         "reaches only the workers already running)")
+    p.add_argument("--offload-context-cap", type=int, default=None,
+                   metavar="N",
+                   help="cap the memory handed to a worker at N words, on "
+                        "top of the memory budget that already sizes it. "
+                        "Use it to keep a small worker's prompt short "
+                        "without shrinking what the chat model gets "
+                        "(default: only the memory budget applies)")
     p.add_argument("--offload-ingest", action="store_true",
                    help="remember what a worker answered: an /offload "
                         "result is ingested into this session's memory as "

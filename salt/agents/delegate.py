@@ -29,6 +29,9 @@ FALLBACK_INSTRUCTIONS = (
     "the task, do not invent material, and return the answer itself with no "
     "preamble.")
 TASK_HEADER = "TASK: "
+# only used to size the FIRST cut when a context has to be trimmed; the
+# loop that follows measures, so a wrong guess costs a pass, not accuracy
+TOKENS_PER_WORD = 1.6
 # ok: the worker answered. timeout: it went quiet mid-reply and is still
 # usable. dead: it is not answering at all. error: everything else,
 # including a server that rejected the request
@@ -118,7 +121,9 @@ def build_context(state, req):
     """Select this session's memory for `req` without committing any of it.
 
     Returns a DelegationContext, empty when the session has no memory yet:
-    a task that needs none is still a legal delegation.
+    a task that needs none is still a legal delegation. Two ceilings can
+    bound it, the session's own memory cap and the offload cap, and
+    whichever bites first wins.
     """
     # imported here, not at module load: the chat layer carries the encoder
     # stack, and importing the agent layer has to stay free
@@ -132,6 +137,8 @@ def build_context(state, req):
         return DelegationContext()
     query = req.query
     budget = state.budget if req.budget_pct is None else req.budget_pct
+    caps = [c for c in (memory_word_cap(state, query),
+                        getattr(state, "offload_context_cap", None)) if c]
     comp = state.trie.compress(query=query, budget_pct=budget,
                                tokenizer=state.bge_tok,
                                model=state.bge_model,
@@ -142,7 +149,7 @@ def build_context(state, req):
                                shift_margin=state.shift_margin,
                                shift_query_boost=state.shift_query_boost,
                                per_source_themes=state.per_source_themes,
-                               max_words=memory_word_cap(state, query),
+                               max_words=min(caps) if caps else None,
                                stable_keys=state.stable_coverage_keys,
                                coverage_gc=state.coverage_gc,
                                coverage_max_keys=state.coverage_max_keys,
@@ -168,16 +175,82 @@ def build_messages(context, req):
             {"role": "user", "content": body}]
 
 
-def call_overrides(entry, req):
+def window_max_tokens(runner):
+    """A reply cap taken from the worker's own window, for a roster entry
+    that names none. input_budget_for never lets reply headroom exceed
+    half the window, so half is the most the window can be asked for
+    without squeezing the prompt out of it."""
+    limit = getattr(runner, "max_input_len", None)
+    return int(limit) // 2 if limit else None
+
+
+def call_overrides(entry, req, runner=None):
     """Generation settings for this call: the roster entry's, with the
-    request's max_tokens winning where it names one."""
+    request's max_tokens winning where it names one, and the worker's
+    window as the backstop when neither does."""
     over = {}
     max_new = entry.max_tokens if req.max_tokens is None else req.max_tokens
+    if max_new is None and runner is not None:
+        max_new = window_max_tokens(runner)
     if max_new is not None:
         over["max_new_tokens"] = int(max_new)
     if entry.temperature is not None:
         over["temperature"] = float(entry.temperature)
     return over
+
+
+def count_tokens(runner, text):
+    """`text` measured with the worker's own tokenizer, None when it
+    cannot be measured. A budget nobody can compute is not a budget, so
+    every caller treats None as 'no trimming'."""
+    tokenizer = getattr(runner, "tokenizer", None)
+    if tokenizer is None:
+        return None
+    try:
+        return len(tokenizer(text, add_special_tokens=False).input_ids)
+    except Exception:
+        return None
+
+
+def fit_messages(runner, messages, req, overrides=None):
+    """Trim the head of the context until the whole task fits the worker.
+
+    The serve client tail-truncates tokens when a prompt overflows, which
+    keeps the task but can cut the instructions off and leave the context
+    starting mid-word. Trimming here instead hands the worker something
+    coherent: whole words leave the front of the context, and the task
+    and the instructions are never touched. A delegation that lost its
+    task would come back answering the wrong question with confidence.
+
+    Returns the messages to send and a one-line note, empty when nothing
+    was trimmed.
+    """
+    budget = None
+    if hasattr(runner, "input_budget"):
+        budget = runner.input_budget((overrides or {}).get("max_new_tokens"))
+    if not budget:
+        return messages, ""
+    body = messages[-1]["content"]
+    tail = f"{TASK_HEADER}{req.task}"
+    total = count_tokens(runner, messages[0]["content"] + body)
+    if total is None or total <= budget or not body.endswith(tail):
+        return messages, ""
+    words = body[:-len(tail)].split()
+    # words are cheaper to count than to tokenize, so cut an estimated
+    # slice first and close the remaining gap by measurement
+    drop = min(len(words), int((total - budget) / TOKENS_PER_WORD) + 1)
+    while True:
+        head = " ".join(words[drop:])
+        candidate = f"{head}\n\n{tail}" if head else tail
+        size = count_tokens(runner, messages[0]["content"] + candidate)
+        if size is None or size <= budget or drop >= len(words):
+            break
+        drop = min(len(words), drop + max(1, (len(words) - drop) // 4))
+    messages = messages[:-1] + [{"role": "user", "content": candidate}]
+    note = (f"context trimmed to fit the worker's window: "
+            f"{len(words) - drop} of {len(words)} words kept, "
+            f"the task in full")
+    return messages, note
 
 
 def output_tokens(runner, text):
@@ -227,7 +300,15 @@ def delegate(state, req, context=None):
     handle = state.worker(req.target)
     ctx = build_context(state, req) if context is None else context
     messages = build_messages(ctx, req)
-    overrides = call_overrides(handle.entry, req)
+    # opened here rather than left to handle.call, because the window and
+    # the tokenizer that size this call live on the runner. A worker that
+    # will not open is left to call() below, which reports why
+    runner = handle.opened()
+    overrides = call_overrides(handle.entry, req, runner)
+    if runner is not None:
+        messages, note = fit_messages(runner, messages, req, overrides)
+        if note:
+            print(f"  {note}")
     state.delegation_seq += 1
     t_start = time.time()
     pieces, status, error = [], "ok", ""

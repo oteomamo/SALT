@@ -401,6 +401,18 @@ class WorkerHandle:
         with self._lock:
             return self._open()
 
+    def opened(self):
+        """The runner if this worker will open, None if it will not.
+
+        For callers that want what the runner knows - its window, its
+        tokenizer - rather than to send on it. Reporting a worker that
+        cannot be reached is the sending call's job, and it says why.
+        """
+        try:
+            return self.ready()
+        except WorkerError:
+            return None
+
     def close(self):
         """Drop this session's client. The server keeps running and keeps
         its prefix cache warm: attach mode never stops what it did not
