@@ -56,6 +56,7 @@ Agents:
 |---|---|---|
 | `--roster FILE` | none | JSON file naming the worker models this session may reach, listed by `/roster` |
 | `--workers-autostart` | off | start the roster's spawn entries once the chat model is loaded, instead of waiting for `/worker start` |
+| `--offload-ingest` | off | remember what a worker answered, as a turn of its own labeled with the worker it came from |
 
 Memory sizing:
 

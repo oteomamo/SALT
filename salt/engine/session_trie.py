@@ -62,7 +62,11 @@ from salt.engine.trie_core import (
 )
 from salt.engine.celf import coverage_select
 
-VALID_ROLES = ("user", "assistant", "doc")
+VALID_ROLES = ("user", "assistant", "doc", "worker")
+# Roles that are somebody speaking in this session rather than a file
+# attached to it. They share the near-dup gate, the eviction mask and the
+# conversation branch of the trie; 'doc' shares none of the three.
+CONVERSATION_ROLES = ("user", "assistant", "worker")
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 
 # Synthetic root keyword for per-file trie branches. Sentences ingested with a
@@ -170,6 +174,10 @@ class SessionTrie:
         self.turns = []                 # list[int] turn index the sentence entered on
         self.sources = []               # list[str|None]: None = conversation,
                                         #   else attachment id -> per-file branch
+        # who produced the text when it was not this session's own two
+        # speakers: the worker's roster name on a delegated answer, None
+        # everywhere else (and on every row saved before 2.10.22)
+        self.origins = []               # list[str|None]
         # wall-clock ingest time, one stamp per add_turn call shared by that
         # message's sentences: this is when the text was FILED, not when it
         # was authored, and a message is filed once
@@ -342,8 +350,8 @@ class SessionTrie:
         return hashlib.sha1(" ".join(text.lower().split()).encode("utf-8")).hexdigest()
 
     def add_turn(self, text, role="user", *, tokenizer, model, device="cpu",
-                 source=None, sentences=None, keep=None, dedup_cos=None,
-                 max_sentences=None, save=True):
+                 source=None, origin=None, sentences=None, keep=None,
+                 dedup_cos=None, max_sentences=None, save=True):
         """Split/filter/encode NEW text and append it to the growing corpus.
 
         Runs the dense-attention keyword pass and the BGE [CLS] embedding pass on
@@ -352,6 +360,12 @@ class SessionTrie:
         text is ingested identically). `source` (e.g. an attached file's name)
         groups the sentences into their own trie branch at compress time —
         see FILE_TOKEN_PREFIX; None means the main conversation trie.
+
+        `origin` records WHO produced the text when it was not one of this
+        session's own two speakers — the roster name of the worker that
+        answered a delegation, alongside role='worker'. It is provenance
+        only: like `role` it does not affect weighting, and a worker's
+        sentences are conversation sentences in every other respect.
 
         `sentences`, when given, is an already-segmented unit list (e.g. from
         `salt.chat.pdfio.split_document_sentences`) used INSTEAD of the
@@ -371,8 +385,8 @@ class SessionTrie:
         defaults and is unaffected.
 
         `dedup_cos` (opt-in, None = off) is a near-duplicate gate for
-        conversation ingest: a new user/assistant sentence whose BGE cosine
-        against an earlier conversation sentence of the SAME role reaches
+        conversation ingest: a new sentence in a CONVERSATION_ROLES role
+        whose BGE cosine against an earlier sentence of the SAME role reaches
         the threshold is not appended. Restatements and re-asked questions
         otherwise inflate keyword document frequency — the statistic that
         mints themes and orders the trie — so boilerplate phrasing can
@@ -463,7 +477,7 @@ class SessionTrie:
         # thin the very content attachments exist to preserve.
         n_near_dups = 0
         if (dedup_cos is not None and source is None
-                and role in ("user", "assistant")):
+                and role in CONVERSATION_ROLES):
             keep_rows, records = self._near_dup_gate(fresh, bge, role,
                                                      dedup_cos)
             n_near_dups = len(records)
@@ -510,6 +524,7 @@ class SessionTrie:
             self.roles.append(role)
             self.turns.append(turn)
             self.sources.append(source)
+            self.origins.append(origin)
             self.timestamps.append(filed_at)
             self.n_words.append(len(sent.split()))
             self.keyword_weights.append(kw)
@@ -1169,7 +1184,8 @@ class SessionTrie:
             self._atomic_write(self._p("embeddings.npy"), _save_npy)
         state = {
             "texts": self.texts, "roles": self.roles, "turns": self.turns,
-            "sources": self.sources, "timestamps": self.timestamps,
+            "sources": self.sources, "origins": self.origins,
+            "timestamps": self.timestamps,
             "n_words": self.n_words, "keyword_weights": self.keyword_weights,
             "alive": self.alive,
             "coverage": self.coverage, "seen_hashes": self._seen_hashes,
@@ -1205,6 +1221,9 @@ class SessionTrie:
         # and those saved before ingest time was recorded have no timestamps
         self.sources = state.get("sources", [None] * len(self.texts))
         self.timestamps = state.get("timestamps", [None] * len(self.texts))
+        # sessions saved before delegated answers could be remembered have
+        # no origins, and every row of them was this session's own doing
+        self.origins = state.get("origins", [None] * len(self.texts))
         # sessions saved before bounded eviction carry no mask: all alive
         self.alive = state.get("alive", [True] * len(self.texts))
         self.keyword_weights = state["keyword_weights"]
@@ -1265,6 +1284,7 @@ class SessionTrie:
             self.roles = self.roles[:n]
             self.turns = self.turns[:n]
             self.sources = self.sources[:n]
+            self.origins = self.origins[:n]
             self.timestamps = self.timestamps[:n]
             self.n_words = self.n_words[:n]
             self.keyword_weights = self.keyword_weights[:n]

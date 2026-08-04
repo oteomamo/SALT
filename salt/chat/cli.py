@@ -231,6 +231,7 @@ class ChatState:
         # delegation ids are per session and monotonic, so a result can be
         # named ("#3 came back") and the ledger can be resumed by its max
         self.delegation_seq = resume_delegations(self.trie.cache_dir)
+        self.offload_ingest = args.offload_ingest
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.tokens_per_word = TOKENS_PER_WORD_SEED
@@ -860,7 +861,8 @@ def offload_command(state, rest):
     except RosterError as exc:
         print(exc)
         return
-    req = DelegationRequest(task=task, target=handle.name)
+    req = DelegationRequest(task=task, target=handle.name,
+                            ingest=state.offload_ingest)
     context = build_context(state, req)
     n = context.n_selected
     print(f"  delegating to {handle.name} ({handle.entry.alias}), "
@@ -870,7 +872,20 @@ def offload_command(state, rest):
     if result.text:
         print(result.text if result.text.endswith("\n") else result.text)
     print(offload_status_line(result))
-    record_delegation(state, result, req.ingest)
+    record_delegation(state, result, ingest_result(state, req, result))
+
+
+def ingest_result(state, req, result):
+    """Remember a worker's answer as a turn of this session, when the
+    session was launched asking for that. Only an answer is remembered:
+    a failure has nothing to say, and the tail is never touched, so a
+    delegated answer is memory the next turn can select but never part
+    of the verbatim exchange the model is shown."""
+    if not (req.ingest and result.ok and result.text.strip()):
+        return False
+    submit_ingest(state, result.text, "worker", origin=result.target)
+    submit_session_save(state)
+    return True
 
 
 def record_delegation(state, result, ingest=False):
@@ -915,8 +930,8 @@ def warn_load_repair(trie):
           f"(details kept in load_repairs.jsonl).")
 
 
-def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
-                save=True, context=None):
+def add_to_trie(state, text, role, source=None, origin=None, sentences=None,
+                keep=None, save=True, context=None):
     dedup_cos = state.dedup_cos
     if keep is None and role == "user" and state.short_turns != "off":
         keep = _user_keep
@@ -930,16 +945,17 @@ def add_to_trie(state, text, role, source=None, sentences=None, keep=None,
             dedup_cos = None
     return state.trie.add_turn(text, role=role, tokenizer=state.bge_tok,
                                model=state.bge_model, device=state.bge_device,
-                               source=source, sentences=sentences, keep=keep,
+                               source=source, origin=origin,
+                               sentences=sentences, keep=keep,
                                dedup_cos=dedup_cos,
                                max_sentences=state.max_sentences, save=save)
 
 
-def submit_ingest(state, text, role, save=True, context=None):
+def submit_ingest(state, text, role, save=True, context=None, origin=None):
     """Queue one side of an exchange for background ingest (inline under
     --sync-ingest, where a failure raises here)."""
     state.ingest.submit(lambda: add_to_trie(state, text, role, save=save,
-                                            context=context),
+                                            context=context, origin=origin),
                         label=f"{role}-message ingest", payload=text)
 
 
@@ -1925,6 +1941,13 @@ def build_parser():
                         "roster's GPU placement has to leave room for them "
                         "(default: nothing is started, and the session "
                         "reaches only the workers already running)")
+    p.add_argument("--offload-ingest", action="store_true",
+                   help="remember what a worker answered: an /offload "
+                        "result is ingested into this session's memory as "
+                        "a turn of its own, labeled with the worker it came "
+                        "from (default: the answer is printed and recorded "
+                        "in delegations.jsonl, and the conversation's "
+                        "memory is left as it was)")
     p.add_argument("--turns", metavar="FILE",
                    help="run a scripted conversation from a JSON array or "
                         "JSONL file instead of the interactive REPL. Each "

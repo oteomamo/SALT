@@ -39,12 +39,14 @@ runs on CPU with no vLLM, no GPU and no second process.
      what interrupting one leaves behind.
  18. The delegation ledger: what one delegation leaves on disk, where a
      resumed session picks its ids up, and what a damaged line costs.
- 19. Identity: a scripted conversation runs byte-identically with and
+ 19. Worker rows: a remembered answer's role, origin and gating, and
+     the flag that decides whether one is remembered at all.
+ 20. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 20. Import purity: importing the agent layer costs nothing, and no
+ 21. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 21. Frozen core: the agent work has not touched the eval files.
- 22. Command surfaces: HELP, TAB completion and the docs
+ 22. Frozen core: the agent work has not touched the eval files.
+ 23. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -63,6 +65,7 @@ import argparse
 import io
 import json
 import os
+import pickle
 import shutil
 import signal
 import socket
@@ -99,7 +102,8 @@ from salt.agents.worker import (BUSY, CALL_RETRIES, CALL_TIMEOUT,  # noqa: E402
 from salt.chat import cli                                        # noqa: E402
 from salt.chat.registry import RegistryError, resolve_model      # noqa: E402
 from salt.engine.compressor import load_bge                      # noqa: E402
-from salt.engine.session_trie import SessionTrie                 # noqa: E402
+from salt.engine.session_trie import (CONVERSATION_ROLES,        # noqa: E402
+                                      VALID_ROLES, SessionTrie)
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 SAMPLE = REPO / "salt" / "agents" / "roster_sample.json"
@@ -1305,9 +1309,11 @@ def check_worker_commands(tmp):
           "reporting 1 of 2 up")
 
 
-def replayed_state(tmp, cid, tok, mdl, turns=TRANSCRIPT, roster=None):
+def replayed_state(tmp, cid, tok, mdl, turns=TRANSCRIPT, roster=None,
+                   flags=()):
     """A session with real memory in it, left open for inspection."""
-    args = cli.build_parser().parse_args(["--device", "cpu", "--sync-ingest"])
+    args = cli.build_parser().parse_args(["--device", "cpu", "--sync-ingest",
+                                          *flags])
     trie = SessionTrie(cid, cache_dir=tmp, model_name=BGE_MODEL,
                        budget_pct_default=args.budget_pct)
     state = cli.ChatState(args, tok, mdl, _FakeRunner(tok, REPLIES), trie,
@@ -1805,6 +1811,131 @@ def check_delegation_ledger(tmp, tok, mdl):
           "skipped with a warning")
 
 
+def bare_trie(tmp, cid, budget=0.2):
+    return SessionTrie(cid, cache_dir=tmp, model_name=BGE_MODEL,
+                       budget_pct_default=budget)
+
+
+def check_worker_rows(tmp, tok, mdl):
+    assert "worker" in VALID_ROLES, VALID_ROLES
+    assert tuple(CONVERSATION_ROLES) == ("user", "assistant", "worker"), (
+        f"a role changed sides between conversation and document: "
+        f"{CONVERSATION_ROLES}")
+    assert "doc" not in CONVERSATION_ROLES, (
+        "attachments are being treated as somebody speaking")
+
+    kw = dict(tokenizer=tok, model=mdl, device="cpu")
+    trie = bare_trie(tmp, "worker_rows")
+    trie.add_turn("The inverter is rated at 5 kW continuous.",
+                  role="assistant", **kw)
+    # a worker restating the ASSISTANT is not a duplicate of it: the gate
+    # is same-role, and the roles differ
+    info = trie.add_turn("the inverter is rated at 5 kW continuous",
+                         role="worker", origin="w", dedup_cos=0.9, **kw)
+    assert (info["added"], info["near_dups"]) == (1, 0), (
+        f"a worker row was gated against another role's sentence: {info}")
+    # a worker restating ITSELF is
+    info = trie.add_turn("The inverter is rated at 5 kW, continuous",
+                         role="worker", origin="w", dedup_cos=0.9, **kw)
+    assert (info["added"], info["near_dups"]) == (0, 1), (
+        f"the near-dup gate never ran for a worker row: {info}")
+    assert trie.roles == ["assistant", "worker"], trie.roles
+    assert trie.origins == [None, "w"], trie.origins
+    assert len(trie.origins) == len(trie.texts) == len(trie.timestamps), (
+        "origins is not parallel to the corpus")
+    try:
+        trie.add_turn("anything", role="orchestrator", **kw)
+        raise AssertionError("an unknown role was accepted")
+    except ValueError as exc:
+        assert "role must be one of" in str(exc), exc
+
+    trie.save()
+    reloaded = bare_trie(tmp, "worker_rows")
+    assert reloaded.load(), "the session did not reload"
+    assert reloaded.origins == trie.origins, (
+        f"origins did not survive a save: {reloaded.origins}")
+
+    # a session written before origins existed: the key is simply absent
+    sp = Path(tmp) / "worker_rows" / "state.pkl"
+    state = pickle.loads(sp.read_bytes())
+    del state["origins"]
+    sp.write_bytes(pickle.dumps(state))
+    old = bare_trie(tmp, "worker_rows")
+    assert old.load(), "an older session refused to load"
+    assert old.origins == [None] * len(old.texts), (
+        f"the backfill guessed instead of leaving it unknown: {old.origins}")
+    assert old.roles == trie.roles, "the backfill disturbed the roles"
+
+    # worker rows are conversation rows, so a session cap retires them
+    capped = bare_trie(tmp, "worker_cap")
+    capped.add_turn("The panels come to 9 kW on the roof.", role="user", **kw)
+    capped.add_turn("A worker said the inverter caps output at 5 kW.",
+                    role="worker", origin="w", **kw)
+    info = capped.add_turn("Winter evenings draw for about 4 hours.",
+                           role="user", max_sentences=2, **kw)
+    assert info["masked"] == 1, (
+        f"the cap did not count the worker row: {info}")
+    assert capped.alive == [False, True, True], capped.alive
+    assert capped.n_alive == 2, capped.n_alive
+
+    # end to end: the flag is what decides whether an answer is remembered
+    answer = ("A battery of about 9 kWh ", "covers the winter evening draw.")
+    with Stub(cards=CARDS, pieces=answer) as s:
+        roster = delegation_roster(s.url, tmp)
+        off = replayed_state(tmp, "ingest_off", tok, mdl, roster=roster)
+        try:
+            assert off.offload_ingest is False, "--offload-ingest is on by default"
+            before = trie_snapshot(off.trie)
+            offload_line(off, "what size battery")
+            assert trie_snapshot(off.trie) == before, (
+                "a result was remembered without --offload-ingest")
+            assert ledger_lines(off.trie.cache_dir)[0]["ingest"] is False
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(off)
+
+        on = replayed_state(tmp, "ingest_on", tok, mdl, roster=roster,
+                            flags=("--offload-ingest",))
+        try:
+            assert on.offload_ingest is True, on.offload_ingest
+            n_before, tail_before = on.trie.n_sentences, list(on.tail)
+            offload_line(on, "what size battery")
+            added = on.trie.n_sentences - n_before
+            assert added == 1, f"the answer was not remembered ({added} rows)"
+            assert on.trie.roles[-1] == "worker", on.trie.roles[-1]
+            assert on.trie.origins[-1] == "w", on.trie.origins[-1]
+            assert "9 kWh" in on.trie.texts[-1], on.trie.texts[-1]
+            assert on.trie.texts[-1] == "".join(answer), (
+                f"the answer was rewritten on the way in: "
+                f"{on.trie.texts[-1]!r}")
+            assert on.trie.sources[-1] is None, (
+                "a delegated answer was filed as an attachment")
+            assert on.tail == tail_before, (
+                "a delegated answer entered the verbatim tail")
+            assert ledger_lines(on.trie.cache_dir)[0]["ingest"] is True
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(on)
+
+    with Stub(cards=CARDS, post_status=503) as s:
+        bad = replayed_state(tmp, "ingest_fail", tok, mdl,
+                             roster=delegation_roster(s.url, tmp),
+                             flags=("--offload-ingest",))
+        try:
+            before = trie_snapshot(bad.trie)
+            offload_line(bad, "what size battery")
+            assert trie_snapshot(bad.trie) == before, (
+                "a failed delegation was remembered anyway")
+            assert ledger_lines(bad.trie.cache_dir)[0]["ingest"] is False, (
+                "the ledger claims a failure was ingested")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(bad)
+    print("19. worker rows: a delegated answer can be remembered as its own "
+          "role with the worker's name on it, gated and capped as "
+          "conversation, and only when --offload-ingest asks for it")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -1830,7 +1961,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"19. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"20. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -1871,7 +2002,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("20. import purity: the agent layer pulls none of "
+    print("21. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -1885,7 +2016,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"21. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"22. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -1897,7 +2028,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"21. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"22. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -1916,7 +2047,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"22. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"23. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -1950,6 +2081,7 @@ def main():
         check_delegation_call(tmp, tok, mdl)
         check_offload_command(tmp, tok, mdl)
         check_delegation_ledger(tmp, tok, mdl)
+        check_worker_rows(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()
