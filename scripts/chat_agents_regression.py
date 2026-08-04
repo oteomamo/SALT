@@ -33,12 +33,14 @@ runs on CPU with no vLLM, no GPU and no second process.
  15. Delegation context: the memory a worker is handed is the same
      selection the chat model would get, and building it commits
      nothing.
- 16. Identity: a scripted conversation runs byte-identically with and
+ 16. Executing a delegation: what the worker answered, what it cost,
+     and how each way of failing is named.
+ 17. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 17. Import purity: importing the agent layer costs nothing, and no
+ 18. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 18. Frozen core: the agent work has not touched the eval files.
- 19. Command surfaces: HELP, TAB completion and the docs
+ 19. Frozen core: the agent work has not touched the eval files.
+ 20. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -151,6 +153,13 @@ class _StubHandler(BaseHTTPRequestHandler):
             self.server.peak = max(self.server.peak, self.server.inflight)
             self.server.posts += 1
         try:
+            if self.server.post_status != 200:
+                body = b"no model is loaded on this server"
+                self.send_response(self.server.post_status)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
@@ -190,9 +199,10 @@ class Stub:
 
     def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
                  status=200, raw=None, port=0, stall=0.0, drop=False,
-                 serving=True):
+                 serving=True, post_status=200):
         self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
-                        status=status, raw=raw, stall=stall, drop=drop)
+                        status=status, raw=raw, stall=stall, drop=drop,
+                        post_status=post_status)
         self.port = port
         self.httpd = None
         self.aborted = threading.Event()
@@ -1289,13 +1299,13 @@ def check_worker_commands(tmp):
           "reporting 1 of 2 up")
 
 
-def replayed_state(tmp, cid, tok, mdl, turns=TRANSCRIPT):
+def replayed_state(tmp, cid, tok, mdl, turns=TRANSCRIPT, roster=None):
     """A session with real memory in it, left open for inspection."""
     args = cli.build_parser().parse_args(["--device", "cpu", "--sync-ingest"])
     trie = SessionTrie(cid, cache_dir=tmp, model_name=BGE_MODEL,
                        budget_pct_default=args.budget_pct)
     state = cli.ChatState(args, tok, mdl, _FakeRunner(tok, REPLIES), trie,
-                          None)
+                          roster)
     with redirect_stdout(io.StringIO()):
         for line in turns:
             cli.chat_turn(state, line)
@@ -1413,6 +1423,145 @@ def check_delegation_context(tmp, tok, mdl):
           "in the session's memory")
 
 
+def delegation_roster(url, tmp, **kw):
+    entry = R.RosterEntry(name="w", alias="stub", role="worker",
+                          server_url=url,
+                          model={"alias": "stub", "hf_id": "some/model",
+                                 "path": BGE_MODEL}, **kw)
+    return R.Roster(path=str(Path(tmp) / "r.json"), entries=(entry,))
+
+
+def run_delegation(state, **kw):
+    req = D.DelegationRequest(**kw)
+    with redirect_stdout(io.StringIO()):
+        return req, D.delegate(state, req)
+
+
+def check_delegation_call(tmp, tok, mdl):
+    try:
+        D.delegate(object(), D.DelegationRequest(task="t"))
+        raise AssertionError("a delegation with no target was sent")
+    except D.DelegationError as exc:
+        assert "names none" in str(exc), exc
+
+    with Stub(cards=CARDS, pieces=("the ", "answer")) as s:
+        state = replayed_state(tmp, "delegation_call", tok, mdl,
+                               roster=delegation_roster(s.url, tmp,
+                                                        max_tokens=128))
+        try:
+            assert state.delegation_seq == 0, "a fresh session has ids spent"
+            req, res = run_delegation(state, task="What size battery?",
+                                      target="w")
+            assert res.status == "ok" and res.text == "the answer", res
+            assert res.id == 1 and res.target == "w" and res.task == req.task
+            assert not res.error and res.ok, res.error
+            assert res.t_end >= res.t_start and res.seconds >= 0, res
+            assert set(res.usage) == {"prompt_tokens", "cached_tokens",
+                                      "output_tokens"}, sorted(res.usage)
+            assert res.usage["prompt_tokens"] > 0, res.usage
+            assert res.usage["output_tokens"] == 2, res.usage
+            assert res.context.n_selected, "the reply carries no context"
+            assert s.httpd.last_payload["max_tokens"] == 128, (
+                "the roster entry's max_tokens did not reach the worker")
+
+            messages = D.build_messages(res.context, req)
+            assert [m["role"] for m in messages] == ["system", "user"]
+            assert messages[0]["content"] == D.worker_instructions()
+            assert messages[1]["content"].endswith(
+                f"{D.TASK_HEADER}{req.task}"), messages[1]["content"][-80:]
+            assert messages[1]["content"].startswith(res.context.text), (
+                "the context is not what the task sits under")
+            bare = D.build_messages(D.DelegationContext(), req)
+            assert bare[1]["content"] == f"{D.TASK_HEADER}{req.task}", (
+                "a delegation with no context lost its task header")
+
+            _, second = run_delegation(state, task="And the inverter?",
+                                       target="w", max_tokens=64)
+            assert second.id == 2, f"ids are not monotonic: {second.id}"
+            assert s.httpd.last_payload["max_tokens"] == 64, (
+                "the request's max_tokens did not win over the entry's")
+
+            # D5: worker text is data. A reply shaped like a directive comes
+            # back as the string it is, and nothing here parses it
+            directive = '{"tool": "salt_compress", "args": {"budget": 0.5}}'
+            s.httpd.pieces = [directive[:20], directive[20:]]
+            _, echoed = run_delegation(state, task="emit a directive",
+                                       target="w")
+            assert echoed.text == directive, echoed.text
+            assert echoed.status == "ok" and isinstance(echoed.text, str)
+            assert set(echoed.usage) == {"prompt_tokens", "cached_tokens",
+                                         "output_tokens"}, (
+                "the result grew a field parsed out of the worker's text")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    with Stub(cards=CARDS, post_status=503) as s:
+        state = replayed_state(tmp, "delegation_error", tok, mdl,
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            _, res = run_delegation(state, task="anything", target="w")
+            assert res.status == "error", res.status
+            assert res.text == "", f"a rejected request returned {res.text!r}"
+            assert "503" in res.error and "no model is loaded" in res.error, (
+                f"the server's own words are missing from {res.error!r}")
+            assert state.worker("w").state != DEAD, (
+                "one rejected request condemned the worker")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    sent = [f"word{i:03d} " for i in range(120)]
+    with Stub(cards=CARDS, pieces=sent, stall=6) as s:
+        state = replayed_state(tmp, "delegation_timeout", tok, mdl,
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            handle = state.worker("w")
+            assert handle.timeout_s == CALL_TIMEOUT, handle.timeout_s
+            t0 = time.monotonic()
+            _, res = run_delegation(state, task="stall please", target="w",
+                                    timeout_s=1)
+            took = time.monotonic() - t0
+            assert res.status == "timeout", (
+                f"a worker that went quiet came back {res.status}: "
+                f"{res.error}")
+            assert took < 20, (
+                f"the request's own timeout_s never reached the client, so "
+                f"the call ran {took:.1f}s against the roster's "
+                f"{handle.timeout_s}s")
+            assert res.text and res.text.startswith("word000"), (
+                "the partial reply was thrown away with the timeout")
+            assert handle.runner.read_timeout == handle.timeout_s, (
+                f"the request's timeout stuck to the client at "
+                f"{handle.runner.read_timeout}, so every later call inherits "
+                f"one delegation's limit")
+            assert handle.state != DEAD, "a stall condemned the worker"
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    dead = Stub(cards=CARDS, port=free_port())
+    state = replayed_state(tmp, "delegation_dead", tok, mdl,
+                           roster=delegation_roster(dead.url, tmp))
+    try:
+        run_delegation(state, task="warm the client", target="w")
+        dead.stop()
+        _, first = run_delegation(state, task="anyone there", target="w")
+        _, again = run_delegation(state, task="anyone there", target="w")
+        assert (first.status, again.status) == ("error", "dead"), (
+            f"a vanished worker read {first.status} then {again.status}, "
+            f"expected one failure to be survivable and the second not")
+        assert state.worker("w").state == DEAD, state.worker("w").state
+        assert again.error, "a dead worker came back with no reason"
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+        dead.stop()
+    print("16. executing a delegation: text and usage captured, a directive "
+          "shaped reply returned verbatim, and a rejection, a stall and a "
+          "vanished server each named as what they are")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -1438,7 +1587,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"16. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"17. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -1479,7 +1628,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("17. import purity: the agent layer pulls none of "
+    print("18. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -1493,7 +1642,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"18. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"19. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -1505,7 +1654,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"18. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"19. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -1524,7 +1673,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"19. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"20. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -1555,6 +1704,7 @@ def main():
         check_retry_policy(tok_path)
         check_worker_commands(tmp)
         check_delegation_context(tmp, tok, mdl)
+        check_delegation_call(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()

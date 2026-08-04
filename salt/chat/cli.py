@@ -213,6 +213,9 @@ class ChatState:
         # record of what each worker is doing. A handle costs nothing until
         # it opens a client, so an unused roster entry stays unopened
         self.workers = {}
+        # delegation ids are per session and monotonic, so a result can be
+        # named ("#3 came back") and the ledger can be resumed by its max
+        self.delegation_seq = 0
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.tokens_per_word = TOKENS_PER_WORD_SEED
