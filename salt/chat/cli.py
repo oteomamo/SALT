@@ -35,6 +35,8 @@ from pathlib import Path
 
 import torch
 
+from salt.agents.delegate import (DelegationRequest, build_context,
+                                  delegate)
 from salt.agents.roster import (UNPROBED, RosterError, check_placement,
                                 entry_cards, load_roster)
 from salt.agents.worker import BUSY, WorkerError, WorkerHandle
@@ -126,6 +128,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /worker start <name>  launch a spawn entry's server and wait for it
                    (start --all does every spawn entry in the roster)
 /worker stop <name>  stop a server this session started
+/offload <task>    hand one task to a worker with this conversation's
+                   memory as its context (/offload @NAME <task> picks one)
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
 /stats             session, attachments, compression, and GPU memory stats
@@ -134,8 +138,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /exit              leave (also Ctrl-D)"""
 
 # what TAB offers: every command HELP lists, so the two cannot drift
-COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/doc",
-            "/budget", "/stats", "/new", "/clear", "/exit"]
+COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/offload",
+            "/doc", "/budget", "/stats", "/new", "/clear", "/exit"]
 
 
 def cuda_index(device):
@@ -809,6 +813,63 @@ def worker_command(state, rest):
     print_workers(state.worker_handles())
 
 
+def offload_handle(state, name=None):
+    """The worker a task goes to. With one worker in the roster it needs
+    no naming, and with several the caller has to say which."""
+    if state.roster is None:
+        raise RosterError("No roster loaded - start saltChat with "
+                          "--roster FILE.")
+    if name:
+        return state.worker(name)
+    workers = state.roster.workers
+    if len(workers) == 1:
+        return state.worker(workers[0].name)
+    if not workers:
+        raise RosterError(f"{state.roster.path} names no worker to "
+                          f"delegate to.")
+    known = ", ".join(e.name for e in workers)
+    raise RosterError(f"This roster has {len(workers)} workers, so name "
+                      f"one: /offload @NAME <task>. Known: {known}")
+
+
+def offload_command(state, rest):
+    """Hand one task to a worker and print what came back."""
+    target = None
+    if rest and rest[0].startswith("@"):
+        target, rest = rest[0][1:], rest[1:]
+    task = " ".join(rest).strip()
+    if not task:
+        print("Usage: /offload <task>   or   /offload @NAME <task>")
+        return
+    try:
+        handle = offload_handle(state, target)
+    except RosterError as exc:
+        print(exc)
+        return
+    req = DelegationRequest(task=task, target=handle.name)
+    context = build_context(state, req)
+    n = context.n_selected
+    print(f"  delegating to {handle.name} ({handle.entry.alias}), "
+          f"{n} sentence{'' if n == 1 else 's'} of context "
+          f"[{context.words_used} words] ...")
+    result = delegate(state, req, context=context)
+    if result.text:
+        print(result.text if result.text.endswith("\n") else result.text)
+    print(offload_status_line(result))
+
+
+def offload_status_line(result):
+    usage = result.usage or {}
+    counts = (f"{usage.get('prompt_tokens') or 0} in, "
+              f"{usage.get('output_tokens') or 0} out")
+    cached = usage.get("cached_tokens")
+    if cached:
+        counts += f" ({cached} cached)"
+    head = f"  [{result.target}] {result.status}, {counts}, " \
+           f"{result.seconds:.1f}s"
+    return head if result.ok else f"{head}\n  {result.error}"
+
+
 def _user_keep(t):
     # add_turn's default protects code/table/link units; user turns must
     # keep that protection alongside the short-turn one
@@ -1186,6 +1247,8 @@ def handle_command(line, state):
                          {h.name: h.probe_result for h in handles})
     elif cmd == "/worker":
         worker_command(state, rest)
+    elif cmd == "/offload":
+        offload_command(state, rest)
     elif cmd == "/doc":
         if not rest:
             print("Usage: /doc <path>")

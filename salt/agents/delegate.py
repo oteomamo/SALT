@@ -232,8 +232,12 @@ def delegate(state, req, context=None):
     t_start = time.time()
     pieces, status, error = [], "ok", ""
     prior = _apply_request_timeout(handle, req)
+    # held in a name rather than left to the for loop, so Ctrl-C closes it
+    # here and now: closing the generator is what severs the response and
+    # aborts the request on the worker
+    stream = handle.call(messages, **overrides)
     try:
-        for piece in handle.call(messages, **overrides):
+        for piece in stream:
             pieces.append(piece)
     except WorkerError as exc:
         status, error = failure_status(handle, exc), str(exc)
@@ -241,6 +245,7 @@ def delegate(state, req, context=None):
         status = failure_status(handle, exc)
         error = f"{type(exc).__name__}: {exc}"
     finally:
+        stream.close()
         _restore_timeout(handle, prior)
     text = "".join(pieces)
     return DelegationResult(id=state.delegation_seq, target=handle.name,

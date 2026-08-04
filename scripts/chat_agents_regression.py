@@ -35,12 +35,14 @@ runs on CPU with no vLLM, no GPU and no second process.
      nothing.
  16. Executing a delegation: what the worker answered, what it cost,
      and how each way of failing is named.
- 17. Identity: a scripted conversation runs byte-identically with and
+ 17. The /offload command: who a task goes to, what is printed, and
+     what interrupting one leaves behind.
+ 18. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 18. Import purity: importing the agent layer costs nothing, and no
+ 19. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 19. Frozen core: the agent work has not touched the eval files.
- 20. Command surfaces: HELP, TAB completion and the docs
+ 20. Frozen core: the agent work has not touched the eval files.
+ 21. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -54,6 +56,7 @@ Usage:
     python scripts/chat_agents_regression.py
 """
 
+import _thread
 import argparse
 import io
 import json
@@ -1562,6 +1565,115 @@ def check_delegation_call(tmp, tok, mdl):
           "vanished server each named as what they are")
 
 
+def offload_line(state, line):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.offload_command(state, line.split())
+    return buf.getvalue()
+
+
+def check_offload_command(tmp, tok, mdl):
+    with Stub(cards=CARDS, pieces=("a ", "battery")) as s:
+        roster = delegation_roster(s.url, tmp)
+        state = replayed_state(tmp, "offload_one", tok, mdl, roster=roster)
+        try:
+            for bad in ("", "@w", "   "):
+                out = offload_line(state, bad)
+                assert "Usage: /offload" in out, f"{bad!r} printed {out!r}"
+                assert "@NAME" in out, "the usage does not show naming one"
+            assert state.delegation_seq == 0, "a usage error spent an id"
+
+            out = offload_line(state, "what size battery")
+            assert "delegating to w (stub)" in out, out
+            assert "of context" in out and "words]" in out, out
+            assert "a battery" in out, f"the worker's reply is not shown: {out}"
+            status = [ln for ln in out.splitlines() if ln.startswith("  [w]")]
+            assert len(status) == 1, f"expected one status line, got {status}"
+            assert " ok, " in status[0] and " in, " in status[0], status[0]
+            assert status[0].rstrip().endswith("s"), status[0]
+            assert state.delegation_seq == 1, state.delegation_seq
+            assert s.httpd.posts == 1, s.httpd.posts
+
+            out = offload_line(state, "@w and the inverter")
+            assert "delegating to w" in out, out
+            assert state.delegation_seq == 2, state.delegation_seq
+            out = offload_line(state, "@nosuch anything")
+            assert "known:" in out and "nosuch" in out, out
+            assert state.delegation_seq == 2, "an unknown name spent an id"
+
+            before = trie_snapshot(state.trie)
+            offload_line(state, "one more question")
+            assert trie_snapshot(state.trie) == before, (
+                "delegating through /offload moved the session's memory")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    two = R.Roster(path=str(Path(tmp) / "two.json"), entries=(
+        R.RosterEntry(name="a", alias="stub", role="worker",
+                      server_url="http://127.0.0.1:1", model=None),
+        R.RosterEntry(name="b", alias="stub", role="worker",
+                      server_url="http://127.0.0.1:2", model=None)))
+    state = replayed_state(tmp, "offload_two", tok, mdl, turns=(), roster=two)
+    try:
+        out = offload_line(state, "who does this")
+        assert "2 workers" in out and "/offload @NAME" in out, out
+        assert "a, b" in out, f"the refusal lists no names: {out}"
+        state.roster = None
+        assert "No roster loaded" in offload_line(state, "anything")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    with Stub(cards=CARDS, post_status=503) as s:
+        state = replayed_state(tmp, "offload_fail", tok, mdl,
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            out = offload_line(state, "anything at all")
+            assert "[w] error," in out, out
+            assert "503" in out, f"the reason never reached the user: {out}"
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # Ctrl-C mid-delegation: the REPL catches KeyboardInterrupt itself, so
+    # what has to hold here is that the response was severed and the worker
+    # is free for the next task
+    slow = Stub(cards=CARDS, pieces=[f"t{i} " for i in range(400)], delay=0.05)
+    state = replayed_state(tmp, "offload_ctrlc", tok, mdl,
+                           roster=delegation_roster(slow.url, tmp))
+    try:
+        timer = threading.Timer(1.0, _thread.interrupt_main)
+        timer.start()
+        interrupted = False
+        try:
+            offload_line(state, "talk for a long time")
+        except KeyboardInterrupt:
+            interrupted = True
+        finally:
+            timer.cancel()
+        assert interrupted, (
+            "the delegation ran to completion, so this proves nothing about "
+            "interrupting one")
+        handle = state.worker("w")
+        assert slow.aborted.wait(20), (
+            "the interrupt did not sever the response, so the worker would "
+            "keep generating into nothing")
+        assert handle.state == READY, (
+            f"an interrupted delegation left the worker {handle.state}")
+        slow.httpd.pieces, slow.httpd.delay = ["fine"], 0.0
+        out = offload_line(state, "still there")
+        assert "fine" in out and "[w] ok," in out, (
+            f"the worker did not take the next task: {out}")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+        slow.stop()
+    print("17. /offload: one worker needs no naming and several refuse "
+          "without @NAME, the reply and one status line are printed, and "
+          "Ctrl-C severs the call and leaves the worker ready")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -1587,7 +1699,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"17. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"18. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -1628,7 +1740,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("18. import purity: the agent layer pulls none of "
+    print("19. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -1642,7 +1754,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"19. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"20. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -1654,7 +1766,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"19. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"20. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -1669,11 +1781,11 @@ def check_command_surfaces():
     assert not missing, f"{missing} are in HELP but TAB cannot complete them"
     stray = sorted(set(cli.COMMANDS) - helped)
     assert not stray, f"TAB completes {stray}, which HELP never mentions"
-    for cmd in ("/roster", "/worker"):
+    for cmd in ("/roster", "/worker", "/offload"):
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"20. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"21. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -1705,6 +1817,7 @@ def main():
         check_worker_commands(tmp)
         check_delegation_context(tmp, tok, mdl)
         check_delegation_call(tmp, tok, mdl)
+        check_offload_command(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()

@@ -125,6 +125,34 @@ Two failed calls in a row mark the worker `DEAD` and the session stops
 sending work there. `/worker probe <name>` reconnects it and clears the
 count.
 
+## Handing over a task
+
+```
+you> /offload summarize the sizing argument for the installer
+  delegating to qwen05 (qwen05), 9 sentences of context [214 words] ...
+The house has 9 kW of panels against a 5 kW inverter, and the worst case
+is a winter evening drawing for about 4 hours ...
+  [qwen05] ok, 486 in, 92 out, 2.4s
+```
+
+`/offload <task>` sends one task to a worker together with this
+conversation's memory, selected for that task the same way a chat turn
+selects it. The worker answers from what it was given and its reply is
+printed as it came back. With one worker in the roster it needs no
+naming, and with several `/offload @NAME <task>` picks the one.
+
+The session's own memory does not change. Delegating selects context but
+commits nothing, so the coverage state, the verbatim tail and the trie
+are the same after a delegation as before it, and the reply is not
+remembered as part of the conversation.
+
+Ctrl-C during a delegation cuts the connection, which aborts the request
+on the worker rather than leaving it generating into nothing, and returns
+you to the prompt with the worker ready for the next task. A worker that
+goes quiet, refuses the request, or has stopped answering ends the same
+way: the status line says which of those happened, and the session
+carries on.
+
 ## Seeing what is there
 
 ```
