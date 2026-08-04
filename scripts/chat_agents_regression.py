@@ -45,12 +45,14 @@ runs on CPU with no vLLM, no GPU and no second process.
      and the reading guide saying the same thing to the model.
  21. Delegation stats: what /stats reports, and the additive agent
      keys the next turn's kvtrace entry carries.
- 22. Identity: a scripted conversation runs byte-identically with and
+ 22. Tail and template integrity: what delegating leaves the verbatim
+     tail, the prompt and the kv indices looking like.
+ 23. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 23. Import purity: importing the agent layer costs nothing, and no
+ 24. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 24. Frozen core: the agent work has not touched the eval files.
- 25. Command surfaces: HELP, TAB completion and the docs
+ 25. Frozen core: the agent work has not touched the eval files.
+ 26. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -79,7 +81,7 @@ import tempfile
 import textwrap
 import threading
 import time
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -104,6 +106,7 @@ from salt.agents.worker import (BUSY, CALL_RETRIES, CALL_TIMEOUT,  # noqa: E402
                                 is_read_timeout, port_available,
                                 serve_executable, spawn_argv)
 from salt.chat import cli                                        # noqa: E402
+from salt.chat import runner as runner_mod                       # noqa: E402
 from salt.chat.kvtrace import KVTrace                            # noqa: E402
 from salt.chat.registry import RegistryError, resolve_model      # noqa: E402
 from salt.engine.compressor import load_bge                      # noqa: E402
@@ -2137,6 +2140,125 @@ def check_delegation_stats(tmp, tok, mdl):
           "additive agent keys the format version does not move for")
 
 
+# A deliberately strict chat template, the shape the Mistral and Llama
+# families ship: it refuses anything that is not user/assistant/user/...
+# after the system message. Applied to the encoder's tokenizer purely as
+# a judge, so the pin needs no chat model and no GPU.
+STRICT_TEMPLATE = (
+    "{%- if messages[0]['role'] == 'system' %}"
+    "{%- set body = messages[1:] %}{%- else %}{%- set body = messages %}"
+    "{%- endif %}"
+    "{%- for m in body %}"
+    "{%- if (m['role'] == 'user') != (loop.index0 % 2 == 0) %}"
+    "{{- raise_exception('roles must alternate user/assistant') }}"
+    "{%- endif %}"
+    "{{- '<' + m['role'] + '>' + m['content'] }}"
+    "{%- endfor %}")
+
+
+@contextmanager
+def strict_template(tok):
+    """Lend the encoder's tokenizer a strict chat template for the length
+    of a block, then give it back exactly as it was."""
+    prior = getattr(tok, "chat_template", None)
+    tok.chat_template = STRICT_TEMPLATE
+    try:
+        yield
+    finally:
+        tok.chat_template = prior
+
+
+def saved_tail(state):
+    return json.loads(
+        (state.trie.cache_dir / "tail.json").read_text(encoding="utf-8"))
+
+
+def resolved_indices(event, trie):
+    """Every sentence index one kv event names, and the text it points at.
+    Indices are permanent, so this mapping must never move."""
+    idx = sorted(set(event.get("selected_sent_idx", []))
+                 | set(event.get("read_sent_idx", []))
+                 | set(event.get("write_sent_idx", [])))
+    assert all(0 <= i < trie.n_sentences for i in idx), (
+        f"turn {event['turn']} names a sentence the session does not have: "
+        f"{idx} against {trie.n_sentences} rows")
+    return {i: trie.texts[i] for i in idx}
+
+
+def check_tail_integrity(tmp, tok, mdl):
+    # the judge has to be strict, or every assertion under it is vacuous
+    with strict_template(tok):
+        try:
+            tok.apply_chat_template([{"role": "user", "content": "a"},
+                                     {"role": "user", "content": "b"}],
+                                    tokenize=False)
+            raise AssertionError("the strict template accepted two users "
+                                 "in a row, so it proves nothing")
+        except AssertionError:
+            raise
+        except Exception as exc:
+            assert "alternate" in str(exc), exc
+
+    with Stub(cards=CARDS, pieces=("A battery of about 9 kWh ",
+                                   "covers the evening draw.")) as s:
+        state = replayed_state(tmp, "tail_pins", tok, mdl, turns=(),
+                               roster=delegation_roster(s.url, tmp),
+                               flags=("--offload-ingest",))
+        try:
+            before = {}
+            for n, line in enumerate(TRANSCRIPT[:3]):
+                with redirect_stdout(io.StringIO()):
+                    cli.chat_turn(state, line)
+                offload_line(state, f"summarize point {n}")
+                if n == 0:
+                    before = resolved_indices(events_of(state)[-1], state.trie)
+            assert state.delegation_seq == 3, state.delegation_seq
+            assert any(r == "worker" for r in state.trie.roles), (
+                "no worker row was ingested, so this proves nothing")
+
+            roles = [m["role"] for m in state.tail]
+            assert roles == ["user", "assistant"] * (len(roles) // 2), (
+                f"the tail stopped alternating after 3 delegations: {roles}")
+            assert saved_tail(state) == state.tail, (
+                "tail.json and the live tail disagree")
+            worker_rows = [state.trie.texts[i]
+                           for i, r in enumerate(state.trie.roles)
+                           if r == "worker"]
+            joined = json.dumps(state.tail, ensure_ascii=False)
+            for text in worker_rows:
+                assert text not in joined, (
+                    f"a delegated answer reached the verbatim tail: {text!r}")
+
+            block = cli.format_memory_block(
+                state.trie, list(range(state.trie.n_sentences)))
+            messages = cli.build_messages(block, state.tail, "and after that?")
+            with strict_template(tok):
+                rendered, used = runner_mod.render_prompt(tok, messages)
+            assert used is True, (
+                "the strict template refused the prompt, so a model whose "
+                "template alternates could not be asked this turn")
+            assert rendered.startswith("<user>"), rendered[:40]
+            assert rendered.count("<user>") == rendered.count("<assistant>") + 1
+            assert "delegated work" in rendered, (
+                "the memory block lost its delegated section on the way "
+                "into the prompt")
+
+            # indices are permanent: rows added since turn 0, worker rows
+            # among them, must not have moved what its event pointed at
+            after = resolved_indices(events_of(state)[0], state.trie)
+            assert after == before, (
+                "kv indices no longer resolve to the same sentences after "
+                "worker rows entered the session")
+            for event in events_of(state):
+                resolved_indices(event, state.trie)
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("22. tail and template integrity: 3 delegations later the tail "
+          "still alternates and holds no delegated text, a strict chat "
+          "template accepts the prompt, and every kv index still resolves")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -2162,7 +2284,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"22. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"23. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -2203,7 +2325,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("23. import purity: the agent layer pulls none of "
+    print("24. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -2217,7 +2339,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"24. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"25. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -2229,7 +2351,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"24. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"25. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -2248,7 +2370,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"25. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"26. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -2285,6 +2407,7 @@ def main():
         check_worker_rows(tmp, tok, mdl)
         check_worker_labels(tmp, tok, mdl)
         check_delegation_stats(tmp, tok, mdl)
+        check_tail_integrity(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()
