@@ -742,6 +742,39 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#starting-and-stopping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting and stopping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-card-a-worker-lands-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which card a worker lands on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-worker-is-given-up-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a worker is given up on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#seeing-what-is-there" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1167,6 +1200,39 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#starting-and-stopping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting and stopping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-card-a-worker-lands-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which card a worker lands on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-worker-is-given-up-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a worker is given up on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#seeing-what-is-there" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1202,8 +1268,8 @@
 lists them, <code>saltChat --roster</code> loads it, and the session keeps a handle
 on each one. Nothing is contacted until you ask, and a session that
 never asks behaves exactly as it did before. This page covers the
-roster itself. What a session does with a worker is being built over
-the 2.10 releases.</p>
+roster and the workers it starts. What a session does with a worker
+once it is up is being built over the 2.10 releases.</p>
 <h2 id="the-roster-file">The roster file</h2>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt-roster/1&quot;</span><span class="p">,</span>
@@ -1232,13 +1298,74 @@ at a <a href="../serving/">saltServe</a> you started yourself, which is the simp
 way to begin. A spawn entry carries <code>spawn</code> instead, with the port, card
 and window the session should launch it on. Exactly one of the two is
 required, so an entry is never ambiguous about who owns the process.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;helper&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;alias&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen05&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;role&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;worker&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;spawn&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;port&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;gpu&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;gpu_mem_util&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.3</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;max_model_len&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8192</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;ready_timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">180</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;timeout_s&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><code>port</code> may be <code>auto</code>, which picks a free one. The rest is optional and
+falls through to whatever <code>saltServe</code> would choose on its own.</p>
 <h2 id="one-server-one-model">One server, one model</h2>
 <p>A vLLM server holds a single model, so reaching a second model means a
 second server. That is the whole reason a roster exists: rather than
 unloading the chat model to borrow another one, the session talks to a
 model that is already loaded somewhere else, and its own model and warm
-cache are never disturbed. Two servers on one card need an explicit
-memory split, so give each worker its own card where you can.</p>
+cache are never disturbed.</p>
+<h2 id="starting-and-stopping">Starting and stopping</h2>
+<div class="highlight"><pre><span></span><code>you&gt; /worker start helper
+  helper: starting qwen05 at http://127.0.0.1:41225, up to 180s ....
+  helper: ready, serving qwen05, window 8192 tokens
+</code></pre></div>
+<p><code>/worker start &lt;name&gt;</code> launches the server for a spawn entry and waits
+for it to answer. A cold start loads weights and builds a graph, so
+minutes is normal and the dots mark the wait. <code>/worker start --all</code> does
+the same for every spawn entry in the file, and <code>--workers-autostart</code>
+runs that once the chat model is loaded. Attach entries are skipped
+everywhere, because this session did not start those servers and so
+never starts or stops them.</p>
+<p><code>/worker stop &lt;name&gt;</code> sends SIGTERM, waits, and only then SIGKILLs, so
+the engine gets its chance to shut down cleanly. A worker answering a
+call right now refuses to stop until that call finishes. Leaving the
+REPL stops every worker the session started, whether or not you stopped
+them by hand.</p>
+<p>Each spawned worker writes to <code>&lt;session&gt;/workers/&lt;name&gt;.log</code>, with a
+small <code>&lt;name&gt;.json</code> beside it holding its pid and port. A restart
+appends to the log, so the crash that explains it is still there to
+read, and the record is removed on a clean stop, so a record left on
+disk always means a worker still running. When a server dies during
+startup the last lines of its log come with the error, which is usually
+enough to see why.</p>
+<h2 id="which-card-a-worker-lands-on">Which card a worker lands on</h2>
+<p>A spawn onto a card that already carries the chat model or another
+worker is refused, unless both sides declare a <code>gpu_mem_util</code> share.
+Two servers each assuming they may take most of a card is the ordinary
+way to run out of memory at load, and the refusal comes before anything
+is launched. When the declared shares on one card add up past 0.95 the
+start still runs and prints the total as a warning. The card holding the
+BGE encoder is fine to share and says so, since the encoder needs about
+130 MB. An entry naming no card at all is allowed with a note, because
+then the child chooses for itself.</p>
+<h2 id="when-a-worker-is-given-up-on">When a worker is given up on</h2>
+<p>A worker that goes quiet mid-reply is given up on after <code>timeout_s</code>, 300
+seconds by default, and the response is severed so the worker stops
+generating too. It is not held against the worker: the next call goes to
+the same one. This is where a worker differs from the chat model, which
+is waited on for as long as it takes, because there the session has
+nothing else to fall back to.</p>
+<p>A refused connection is retried once, and only before any text has
+arrived, since asking again for a half written reply would duplicate it.
+Two failed calls in a row mark the worker <code>DEAD</code> and the session stops
+sending work there. <code>/worker probe &lt;name&gt;</code> reconnects it and clears the
+count.</p>
 <h2 id="seeing-what-is-there">Seeing what is there</h2>
 <div class="highlight"><pre><span></span><code>you&gt; /roster probe
   NAME    ROLE    ALIAS   MODE    ENDPOINT               STATE
