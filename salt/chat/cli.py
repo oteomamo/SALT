@@ -244,6 +244,8 @@ class ChatState:
         self.pending_delegations = []
         self.offload_ingest = args.offload_ingest
         self.offload_context_cap = args.offload_context_cap
+        self.offload_timeout = args.offload_timeout
+        self.offload_budget_pct = args.offload_budget_pct
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.tokens_per_word = TOKENS_PER_WORD_SEED
@@ -878,6 +880,16 @@ def offload_handle(state, name=None):
                       f"one: /offload @NAME <task>. Known: {known}")
 
 
+def session_timeout(state, handle):
+    """The session's delegation timeout, where the roster does not have
+    an opinion. A per-worker timeout is a fact about that model, so a
+    launch flag stands in for the ones nothing was said about rather
+    than overruling the ones something was."""
+    if handle.entry.timeout_s is not None:
+        return None
+    return state.offload_timeout
+
+
 def offload_command(state, rest):
     """Hand one task to a worker and print what came back."""
     target = None
@@ -893,7 +905,9 @@ def offload_command(state, rest):
         print(exc)
         return
     req = DelegationRequest(task=task, target=handle.name,
-                            ingest=state.offload_ingest)
+                            ingest=state.offload_ingest,
+                            budget_pct=state.offload_budget_pct,
+                            timeout_s=session_timeout(state, handle))
     context = build_context(state, req)
     n = context.n_selected
     print(f"  delegating to {handle.name} ({handle.entry.alias}), "
@@ -2021,6 +2035,16 @@ def build_parser():
                         "roster's GPU placement has to leave room for them "
                         "(default: nothing is started, and the session "
                         "reaches only the workers already running)")
+    p.add_argument("--offload-timeout", type=float, default=None,
+                   metavar="SECONDS",
+                   help="how long to wait on a quiet worker during a "
+                        "delegation. A roster entry that names its own "
+                        "timeout keeps it, since that is a fact about "
+                        "that model (default: the standard call timeout)")
+    p.add_argument("--offload-budget-pct", type=float, default=None,
+                   help="memory budget for a delegation's context, as a "
+                        "fraction like --budget-pct (default: whatever "
+                        "the session's own budget is)")
     p.add_argument("--offload-context-cap", type=int, default=None,
                    metavar="N",
                    help="cap the memory handed to a worker at N words, on "

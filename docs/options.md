@@ -56,6 +56,8 @@ Agents:
 |---|---|---|
 | `--roster FILE` | none | JSON file naming the worker models this session may reach, listed by `/roster` |
 | `--workers-autostart` | off | start the roster's spawn entries once the chat model is loaded, instead of waiting for `/worker start` |
+| `--offload-timeout SECONDS` | the standard call timeout | how long to wait on a quiet worker during a delegation, for workers whose roster entry names no timeout of its own |
+| `--offload-budget-pct` | the session budget | memory budget for a delegation's context, as a fraction like `--budget-pct` |
 | `--offload-context-cap N` | off | cap the memory handed to a worker at N words, on top of the memory budget that already sizes it |
 | `--offload-ingest` | off | remember what a worker answered, as a turn of its own labeled with the worker it came from |
 

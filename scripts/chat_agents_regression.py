@@ -48,7 +48,8 @@ runs on CPU with no vLLM, no GPU and no second process.
  22. Tail and template integrity: what delegating leaves the verbatim
      tail, the prompt and the kv indices looking like.
  23. Delegation budgets: what bounds the context handed over, the
-     reply asked for, and a prompt too big for the worker.
+     reply asked for, a prompt too big for the worker, and how long a
+     quiet one is waited for.
  24. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
  25. Import purity: importing the agent layer costs nothing, and no
@@ -2352,10 +2353,52 @@ def check_delegation_budgets(tmp, tok, mdl):
     assert cut.words_used <= 12, (
         f"the cap let {cut.words_used} words through against 12")
     assert cut.n_selected >= 1, "the cap starved the context entirely"
+
+    # the two session flags: neutral by default, and the roster keeps its
+    # own say on how long a given worker is waited for
+    plain = cli.build_parser().parse_args(["--device", "cpu"])
+    assert (plain.offload_timeout, plain.offload_budget_pct) == (None, None), (
+        "the offload flags are not neutral by default")
+    with Stub(cards=CARDS, pieces=("ok",)) as s:
+        state = replayed_state(tmp, "budget_flags", tok, mdl, turns=(),
+                               roster=delegation_roster(s.url, tmp),
+                               flags=("--offload-timeout", "1",
+                                      "--offload-budget-pct", "0.5"))
+        try:
+            handle = state.worker("w")
+            assert cli.session_timeout(state, handle) == 1, (
+                "the session timeout never reached a worker that has none")
+            spoken = WorkerHandle(worker_entry(s.url, BGE_MODEL, timeout_s=42))
+            assert cli.session_timeout(state, spoken) is None, (
+                "a launch flag overruled a roster entry's own timeout")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # end to end: a worker that goes quiet is given up on at the session's
+    # limit, not at the five minute default
+    quiet = [f"word{i:03d} " for i in range(120)]
+    with Stub(cards=CARDS, pieces=quiet, stall=6) as s:
+        state = replayed_state(tmp, "budget_stall", tok, mdl, turns=(),
+                               roster=delegation_roster(s.url, tmp),
+                               flags=("--offload-timeout", "1"))
+        try:
+            t0 = time.monotonic()
+            out = offload_line(state, "talk until you stop")
+            took = time.monotonic() - t0
+            assert "[w] timeout," in out, out
+            assert took < CALL_TIMEOUT, (
+                f"the session timeout was ignored, the call took {took:.0f}s")
+            assert "word000" in out, (
+                "what the worker did say before going quiet was thrown away")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
     print(f"23. delegation budgets: the word cap held a {full.words_used} "
           f"word context to {cut.words_used}, the worker's window backstops "
-          f"the reply length, and an over-window prompt loses context head "
-          f"rather than its task")
+          f"the reply length, an over-window prompt loses context head "
+          f"rather than its task, and a quiet worker is given up on at the "
+          f"session's limit")
 
 
 def check_identity(tmp, tok, mdl):
