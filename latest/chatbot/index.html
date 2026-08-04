@@ -1584,6 +1584,11 @@ speaker, and how long ago. The model can tell your words from its own,
 see which of two conflicting statements came later, and answer "what
 did I decide this morning". <code>--no-turn-labels</code> restores the plain
 anonymous header.</p>
+<p>A worker's answer kept with <code>--offload-ingest</code> is headed <code>[from
+delegated work - turn 14, qwen05, 2h ago]</code> instead, naming the worker in
+place of a speaker. The model is told to quote it as that worker's
+report rather than as something said in this conversation, and the
+conversation map credits the same turn to <code>worker(qwen05)</code>.</p>
 <p><code>/stats</code> prints a <strong>conversation map</strong>, one line per recent turn with
 that turn's strongest keywords:</p>
 <div class="highlight"><pre><span></span><code>conversation map (all 4 turns):
