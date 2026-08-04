@@ -30,12 +30,15 @@ runs on CPU with no vLLM, no GPU and no second process.
      given up on for good.
  14. The /worker commands: start, stop, start --all, and the flag that
      starts the roster with the session.
- 15. Identity: a scripted conversation runs byte-identically with and
+ 15. Delegation context: the memory a worker is handed is the same
+     selection the chat model would get, and building it commits
+     nothing.
+ 16. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 16. Import purity: importing the agent layer costs nothing, and no
+ 17. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 17. Frozen core: the agent work has not touched the eval files.
- 18. Command surfaces: HELP, TAB completion and the docs
+ 18. Frozen core: the agent work has not touched the eval files.
+ 19. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -74,6 +77,7 @@ if not __debug__:
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+from salt.agents import delegate as D                            # noqa: E402
 from salt.agents import roster as R                              # noqa: E402
 from salt.agents.roster import (BGE_CARD_MB, PLACEMENT_CEILING,   # noqa: E402
                                 check_placement)
@@ -1285,6 +1289,130 @@ def check_worker_commands(tmp):
           "reporting 1 of 2 up")
 
 
+def replayed_state(tmp, cid, tok, mdl, turns=TRANSCRIPT):
+    """A session with real memory in it, left open for inspection."""
+    args = cli.build_parser().parse_args(["--device", "cpu", "--sync-ingest"])
+    trie = SessionTrie(cid, cache_dir=tmp, model_name=BGE_MODEL,
+                       budget_pct_default=args.budget_pct)
+    state = cli.ChatState(args, tok, mdl, _FakeRunner(tok, REPLIES), trie,
+                          None)
+    with redirect_stdout(io.StringIO()):
+        for line in turns:
+            cli.chat_turn(state, line)
+    return state
+
+
+def trie_snapshot(trie):
+    """Everything a committed turn would move."""
+    return {"coverage": dict(trie.coverage), "drift_ema": trie.drift_ema,
+            "keyword_weights": json.loads(json.dumps(trie.keyword_weights)),
+            "n_sentences": trie.n_sentences, "alive": list(trie.alive),
+            "texts": list(trie.texts), "turns": list(trie.turns)}
+
+
+def check_delegation_context(tmp, tok, mdl):
+    req = D.DelegationRequest(task="Summarize the sizing argument.")
+    assert req.query == req.task, "the task is not its own context query"
+    assert D.DelegationRequest(task="t", context_query="q").query == "q"
+    assert (req.target, req.ingest, req.budget_pct) == (None, False, None), req
+    assert not D.DelegationContext().text, "an empty context carries text"
+    assert D.DelegationContext().empty and D.DelegationContext().n_selected == 0
+
+    instructions = D.worker_instructions()
+    assert instructions and "TASK:" in instructions, instructions[:120]
+    assert instructions != D.FALLBACK_INSTRUCTIONS, (
+        "the shipped worker prompt is the fallback, so the file is missing")
+    real, D.INSTRUCTIONS_PATH = D.INSTRUCTIONS_PATH, Path("/nonexistent.md")
+    try:
+        assert D.worker_instructions() == D.FALLBACK_INSTRUCTIONS, (
+            "an unreadable worker prompt takes the delegation down with it")
+    finally:
+        D.INSTRUCTIONS_PATH = real
+    assert '"worker_instructions.md"' in (
+        REPO / "pyproject.toml").read_text(encoding="utf-8"), (
+        "the worker prompt is not package data, so an installed wheel would "
+        "fall back to the built-in wording")
+
+    state = replayed_state(tmp, "delegation_ctx", tok, mdl)
+    try:
+        assert state.tail, "the fixture built no verbatim tail to exclude"
+        assert state.tail_exclude, "the fixture session has tail exclusion off"
+        before, tail_before = trie_snapshot(state.trie), list(state.tail)
+        with redirect_stdout(io.StringIO()):
+            ctx = D.build_context(state, req)
+        assert ctx.text and ctx.n_selected, "the delegation context is empty"
+        assert ctx.words_used == ctx.stats["words_used"], ctx.stats
+        assert ctx.stats["excluded_sent"] == 0, (
+            f"{ctx.stats['excluded_sent']} sentences were held back as tail "
+            f"resident, but a worker never sees the tail, so they are "
+            f"ordinary context for it")
+
+        comp = state.trie.compress(
+            query=req.task, budget_pct=state.budget, tokenizer=state.bge_tok,
+            model=state.bge_model, device=state.bge_device,
+            coverage_half_life=state.coverage_half_life,
+            coverage_decay_docs=state.coverage_decay_docs,
+            shift_damping=state.shift_damping,
+            shift_margin=state.shift_margin,
+            shift_query_boost=state.shift_query_boost,
+            per_source_themes=state.per_source_themes,
+            max_words=cli.memory_word_cap(state, req.task),
+            stable_keys=state.stable_coverage_keys,
+            coverage_gc=state.coverage_gc,
+            coverage_max_keys=state.coverage_max_keys,
+            defer_commit=True, exclude_sent_idx=None)
+        reference = cli.format_memory_block(state.trie,
+                                            comp["selected_sent_idx"],
+                                            state.turn_labels,
+                                            state.conversation_map)
+        assert ctx.text == reference, (
+            "the delegation context is not what the same deferred compress "
+            "produces, so a worker reads the conversation differently from "
+            "the chat model")
+        assert list(ctx.selected_idx) == comp["selected_sent_idx"], (
+            ctx.selected_idx, comp["selected_sent_idx"])
+        assert comp.get("commit") is not None, (
+            "the deferred compress returned no commit, so this pin proves "
+            "nothing about dropping it")
+
+        with redirect_stdout(io.StringIO()):
+            for _ in range(50):
+                D.build_context(state, req)
+        after = trie_snapshot(state.trie)
+        for key in before:
+            assert before[key] == after[key], (
+                f"51 delegations moved trie.{key}, so delegating is visible "
+                f"in the session's own memory")
+        assert state.tail == tail_before, "delegating moved the verbatim tail"
+
+        # budget_pct is a fraction, so 1.0 is the whole corpus
+        wide = D.DelegationRequest(task=req.task, budget_pct=1.0)
+        with redirect_stdout(io.StringIO()):
+            whole = D.build_context(state, wide)
+        assert whole.words_used > ctx.words_used, (
+            f"a full budget selected {whole.words_used} words against "
+            f"{ctx.words_used} at the session's {state.budget}, so the "
+            f"request's budget_pct is not reaching the compress")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    empty = replayed_state(tmp, "delegation_empty", tok, mdl, turns=())
+    try:
+        assert empty.trie.n_sentences == 0, "the empty fixture has memory"
+        with redirect_stdout(io.StringIO()):
+            blank = D.build_context(empty, req)
+        assert blank.empty and blank.n_selected == 0 and blank.stats == {}, (
+            "a session with no memory did not yield an empty context, so a "
+            "pure-task delegation would fail before it started")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(empty)
+    print("15. delegation context: byte-identical to the same deferred "
+          "compress, tail-resident rows kept, and 51 of them moved nothing "
+          "in the session's memory")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -1310,7 +1438,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"15. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"16. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -1338,7 +1466,8 @@ def imports_pulled(module, watch):
 def check_import_purity():
     heavy = ("torch", "transformers", "requests", "vllm", "salt.mcp",
              "salt.chat.runner_serve")
-    for module in ("salt.agents", "salt.agents.roster", "salt.agents.worker"):
+    for module in ("salt.agents", "salt.agents.roster", "salt.agents.worker",
+                   "salt.agents.delegate"):
         pulled = imports_pulled(module, heavy)
         assert not pulled, (
             f"importing {module} pulled {pulled}: the agent layer must cost "
@@ -1350,7 +1479,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("16. import purity: the agent layer pulls none of "
+    print("17. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -1364,7 +1493,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"17. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"18. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -1376,7 +1505,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"17. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"18. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -1395,7 +1524,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"18. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"19. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -1425,6 +1554,7 @@ def main():
         check_call_timeout(tok_path)
         check_retry_policy(tok_path)
         check_worker_commands(tmp)
+        check_delegation_context(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()
