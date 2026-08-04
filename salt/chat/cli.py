@@ -86,6 +86,11 @@ CONVERSATION_LABEL = "[from the earlier conversation]"
 CONVERSATION_LABEL_TURN = "[from the earlier conversation — turn {turn}, {role}]"
 CONVERSATION_LABEL_AGE = (
     "[from the earlier conversation — turn {turn}, {role}, {age}]")
+# Delegated work gets a header of its own rather than a speaker slot in
+# the conversation's: the words are a worker model's, and the origin says
+# which worker, since 'worker' alone would not.
+WORKER_LABEL = "[from delegated work — turn {turn}, {origin}]"
+WORKER_LABEL_AGE = "[from delegated work — turn {turn}, {origin}, {age}]"
 CONVERSATION_MAP_LABEL = "[map of the conversation so far]"
 CONVERSATION_MAP_LABEL_RECENT = (
     "[map of the conversation — most recent {n} of {total} turns]")
@@ -455,8 +460,10 @@ def parse_memory_cap(val):
 
 def conversation_sections(trie, idxs, turn_labels=True):
     """The conversation excerpts, cut into one section per contiguous
-    (turn, role) run so the model can tell who said what and when instead
-    of reading one anonymous block. Selection comes back ascending by
+    (turn, role, origin) run so the model can tell who said what and when
+    instead of reading one anonymous block. Origin joins the key so two
+    workers answering on the same turn cannot be merged under one name.
+    Selection comes back ascending by
     sentence index and a message's sentences are appended together, so a
     run is exactly one speaker's turn, and higher turn numbers are later.
     A run whose role is unreadable (a session resumed from a build that
@@ -467,16 +474,22 @@ def conversation_sections(trie, idxs, turn_labels=True):
                 + " ".join(trie.texts[i] for i in idxs)]
     now = time.time()
     sections = []
-    for (turn, role), run in groupby(
-            idxs, key=lambda i: (trie.turns[i], trie.roles[i])):
+    for (turn, role, origin), run in groupby(
+            idxs, key=lambda i: (trie.turns[i], trie.roles[i],
+                                 trie.origins[i])):
         run = list(run)
-        if role in VALID_ROLES and turn is not None:
-            # sessions from before ingest time was recorded carry no stamp,
-            # so those labels simply drop the age instead of guessing one
-            filed_at = trie.timestamps[run[0]]
-            head = (CONVERSATION_LABEL_AGE.format(
-                        turn=turn, role=role, age=format_age(now - filed_at))
-                    if filed_at is not None
+        # sessions from before ingest time was recorded carry no stamp, so
+        # those labels simply drop the age instead of guessing one
+        filed_at = trie.timestamps[run[0]]
+        age = format_age(now - filed_at) if filed_at is not None else None
+        if role == "worker" and origin and turn is not None:
+            head = (WORKER_LABEL_AGE.format(turn=turn, origin=origin, age=age)
+                    if age is not None
+                    else WORKER_LABEL.format(turn=turn, origin=origin))
+        elif role in VALID_ROLES and turn is not None:
+            head = (CONVERSATION_LABEL_AGE.format(turn=turn, role=role,
+                                                  age=age)
+                    if age is not None
                     else CONVERSATION_LABEL_TURN.format(turn=turn, role=role))
         else:
             head = CONVERSATION_LABEL
@@ -498,6 +511,13 @@ def format_age(seconds):
     if hours < 24:
         return f"{int(hours)}h ago"
     return f"{int(hours / 24)}d ago"
+
+
+def map_speaker(role, origin):
+    """Who a map line credits. A delegated turn carries the worker's name
+    with it, because 'worker' alone leaves a session with several of them
+    pointing at nobody in particular."""
+    return f"{role}({origin})" if role == "worker" and origin else role
 
 
 def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):
@@ -527,16 +547,18 @@ def conversation_map(trie, n_turns=20, char_cap=600, top_k=3):
     for i in range(trie.n_sentences):
         if trie.sources[i] is not None or not trie.alive[i]:
             continue
-        role, kws = by_turn.setdefault(trie.turns[i], (trie.roles[i], {}))
+        role, origin, kws = by_turn.setdefault(
+            trie.turns[i], (trie.roles[i], trie.origins[i], {}))
         scale = math.sqrt(max(trie.n_words[i], 1))
         for word, weight in trie.keyword_weights[i].items():
             kws[word] = max(kws.get(word, 0.0), weight * scale)
     entries = []
     for turn in sorted(by_turn):
-        role, kws = by_turn[turn]
+        role, origin, kws = by_turn[turn]
         top = sorted(kws, key=lambda w: (-kws[w], w))[:top_k]
         if top:
-            entries.append(f"t{turn} {role}: {', '.join(top)}")
+            entries.append(f"t{turn} {map_speaker(role, origin)}: "
+                           f"{', '.join(top)}")
     lines = entries[-n_turns:]
     while lines and sum(len(l) + 1 for l in lines) > char_cap:
         lines.pop(0)

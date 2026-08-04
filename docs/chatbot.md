@@ -143,6 +143,12 @@ see which of two conflicting statements came later, and answer "what
 did I decide this morning". `--no-turn-labels` restores the plain
 anonymous header.
 
+A worker's answer kept with `--offload-ingest` is headed `[from
+delegated work - turn 14, qwen05, 2h ago]` instead, naming the worker in
+place of a speaker. The model is told to quote it as that worker's
+report rather than as something said in this conversation, and the
+conversation map credits the same turn to `worker(qwen05)`.
+
 `/stats` prints a **conversation map**, one line per recent turn with
 that turn's strongest keywords:
 

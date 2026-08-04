@@ -41,12 +41,14 @@ runs on CPU with no vLLM, no GPU and no second process.
      resumed session picks its ids up, and what a damaged line costs.
  19. Worker rows: a remembered answer's role, origin and gating, and
      the flag that decides whether one is remembered at all.
- 20. Identity: a scripted conversation runs byte-identically with and
+ 20. Delegated-work labels: what a remembered answer is headed with,
+     and the reading guide saying the same thing to the model.
+ 21. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 21. Import purity: importing the agent layer costs nothing, and no
+ 22. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 22. Frozen core: the agent work has not touched the eval files.
- 23. Command surfaces: HELP, TAB completion and the docs
+ 23. Frozen core: the agent work has not touched the eval files.
+ 24. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -1936,6 +1938,99 @@ def check_worker_rows(tmp, tok, mdl):
           "conversation, and only when --offload-ingest asks for it")
 
 
+def labeled_trie(tmp, tok, mdl):
+    """A session holding one turn each of user, assistant and worker."""
+    kw = dict(tokenizer=tok, model=mdl, device="cpu")
+    trie = bare_trie(tmp, "labels")
+    trie.add_turn("We are sizing a home battery for 9 kW of panels.",
+                  role="user", **kw)
+    trie.add_turn("The inverter caps continuous output at 5 kW.",
+                  role="assistant", **kw)
+    trie.add_turn("A battery of about 9 kWh covers the winter evening draw.",
+                  role="worker", origin="qwen05", **kw)
+    return trie
+
+
+def head_of(section):
+    return section.splitlines()[0]
+
+
+def check_worker_labels(tmp, tok, mdl):
+    assert cli.WORKER_LABEL == (
+        "[from delegated work — turn {turn}, {origin}]"), cli.WORKER_LABEL
+    assert cli.WORKER_LABEL_AGE == (
+        "[from delegated work — turn {turn}, {origin}, {age}]"), (
+        cli.WORKER_LABEL_AGE)
+    # the lockstep contract, made executable: the guide the model reads
+    # has to name the header the code actually emits
+    guide = (REPO / "salt" / "chat" / "instructions.md").read_text(
+        encoding="utf-8")
+    assert "[from delegated work — turn" in guide, (
+        "instructions.md never tells the model what a delegated-work "
+        "header is")
+    assert "worker(<name>)" in guide, (
+        "instructions.md does not explain the map's worker speaker")
+    for label in (cli.CONVERSATION_LABEL, cli.CONVERSATION_MAP_LABEL):
+        assert label in guide, f"{label} left the reading guide"
+
+    trie = labeled_trie(tmp, tok, mdl)
+    idxs = list(range(trie.n_sentences))
+    heads = [head_of(s) for s in cli.conversation_sections(trie, idxs)]
+    assert len(heads) == 3, f"one section per turn expected, got {heads}"
+    assert heads[0].startswith("[from the earlier conversation — turn 0, "
+                               "user, "), heads[0]
+    assert heads[1].startswith("[from the earlier conversation — turn 1, "
+                               "assistant, "), heads[1]
+    assert heads[2].startswith("[from delegated work — turn 2, qwen05, "), (
+        f"the delegated section is not labeled as one: {heads[2]}")
+    assert heads[2].endswith("just now]"), heads[2]
+    assert "worker" not in heads[2], (
+        f"the label says the role instead of the worker: {heads[2]}")
+
+    # an origin is what makes it a delegated section: without one the
+    # generic header is the honest fallback, not an invented name
+    trie.origins[-1] = None
+    assert head_of(cli.conversation_sections(trie, idxs)[2]) == (
+        "[from the earlier conversation — turn 2, worker, just now]"), (
+        cli.conversation_sections(trie, idxs)[2])
+    trie.origins[-1] = "qwen05"
+    # a session resumed from a build that stored no ingest time
+    trie.timestamps[-1] = None
+    assert head_of(cli.conversation_sections(trie, idxs)[2]) == (
+        "[from delegated work — turn 2, qwen05]"), (
+        "a missing stamp invented an age")
+    trie.timestamps[-1] = time.time()
+
+    # origin is part of the grouping key, so two workers answering the
+    # same turn are two sections rather than one under one name
+    trie.turns[-1] = trie.turns[-2]
+    trie.roles[-2] = "worker"
+    trie.origins[-2] = "helper2"
+    heads = [head_of(s) for s in cli.conversation_sections(trie, idxs)]
+    assert len(heads) == 3, f"two origins were merged into one section: {heads}"
+    assert "helper2]" in heads[1] or "helper2," in heads[1], heads[1]
+    assert "qwen05]" in heads[2] or "qwen05," in heads[2], heads[2]
+
+    trie = labeled_trie(tmp, tok, mdl)
+    plain = cli.conversation_sections(trie, idxs, turn_labels=False)
+    assert len(plain) == 1 and head_of(plain[0]) == cli.CONVERSATION_LABEL, (
+        f"--no-turn-labels no longer falls back to the plain header: {plain}")
+    assert "qwen05" not in plain[0], (
+        "the unlabeled form leaked provenance it is supposed to drop")
+
+    lines, total = cli.conversation_map(trie)
+    assert total == 3 and len(lines) == 3, (lines, total)
+    assert lines[0].startswith("t0 user: "), lines[0]
+    assert lines[2].startswith("t2 worker(qwen05): "), (
+        f"the map does not say which worker answered: {lines[2]}")
+    block = cli.format_memory_block(trie, idxs, conv_map=True)
+    assert "[from delegated work — turn 2, qwen05" in block, block
+    assert "t2 worker(qwen05):" in block, block
+    print("20. delegated-work labels: the header names the worker rather "
+          "than the role, origin splits sections, and the reading guide "
+          "the model gets carries the same strings")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -1961,7 +2056,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"20. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"21. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -2002,7 +2097,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("21. import purity: the agent layer pulls none of "
+    print("22. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -2016,7 +2111,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"22. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"23. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -2028,7 +2123,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"22. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"23. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -2047,7 +2142,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"23. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"24. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -2082,6 +2177,7 @@ def main():
         check_offload_command(tmp, tok, mdl)
         check_delegation_ledger(tmp, tok, mdl)
         check_worker_rows(tmp, tok, mdl)
+        check_worker_labels(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()

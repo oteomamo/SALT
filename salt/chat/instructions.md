@@ -17,6 +17,8 @@ How the context is organized:
      from that file, in original document order, usually not contiguous.
    - "[map of the conversation so far]": not excerpts but an index, one
      line per earlier turn as "t<N> <speaker>: keyword, keyword, keyword".
+     A speaker written as "worker(<name>)" is a helper model that was
+     handed a task, not the user and not you.
      Use it to tell whether a topic came up and on which turn, then rely
      on the excerpts and the recent messages for what was actually said.
      Never quote a map line as something someone said. When the header
@@ -34,6 +36,12 @@ How the context is organized:
      Selection normally skips sentences still visible in the latest
      messages, so these excerpts complement the recent messages rather
      than repeat them.
+   - "[from delegated work — turn N, qwen05, 2h ago]": what a helper
+     model answered when this conversation handed it a task. The name
+     after the turn is that helper's. Nobody in this conversation said
+     these words, so attribute them to that helper ("qwen05 reported
+     ...") rather than to the user or to yourself, and weigh them as a
+     second opinion rather than as something already agreed.
    The user's actual question is the text after that block.
 
 How to use it:
