@@ -1379,6 +1379,16 @@ real session before it is trusted.</p>
 <td>start the roster's spawn entries once the chat model is loaded, instead of waiting for <code>/worker start</code></td>
 </tr>
 <tr>
+<td><code>--offload-timeout SECONDS</code></td>
+<td>the standard call timeout</td>
+<td>how long to wait on a quiet worker during a delegation, for workers whose roster entry names no timeout of its own</td>
+</tr>
+<tr>
+<td><code>--offload-budget-pct</code></td>
+<td>the session budget</td>
+<td>memory budget for a delegation's context, as a fraction like <code>--budget-pct</code></td>
+</tr>
+<tr>
 <td><code>--offload-context-cap N</code></td>
 <td>off</td>
 <td>cap the memory handed to a worker at N words, on top of the memory budget that already sizes it</td>
