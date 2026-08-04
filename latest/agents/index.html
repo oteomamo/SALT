@@ -786,6 +786,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#coming-back-to-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coming back to a session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#seeing-what-is-there" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1255,6 +1266,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#coming-back-to-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coming back to a session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#seeing-what-is-there" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1439,6 +1461,18 @@ how many went out in all, and per worker the calls, how many came back,
 the tokens each way and the mean time one took. The totals are read back
 from the ledger when the session opens, so a resumed conversation carries
 on counting instead of starting again at zero.</p>
+<h2 id="coming-back-to-a-session">Coming back to a session</h2>
+<p>Reopening a session picks its delegation history up where it stopped.
+The numbering carries on, the <code>/stats</code> totals continue, and a remembered
+answer is still labeled with the worker that gave it.</p>
+<p>Workers are not restarted. A worker is a server holding a GPU, so
+bringing one back is a decision to make out loud with <code>/worker start</code>,
+or at launch with <code>--workers-autostart</code>. What reopening does tell you is
+which servers from the earlier run are still up, and which of them left
+a record behind after the process was gone. A record nobody can honour
+is archived rather than believed, because trusting it would point the
+session at a port nothing is serving. The worker's log is kept either
+way, so the reason it went is still on disk.</p>
 <h2 id="seeing-what-is-there">Seeing what is there</h2>
 <div class="highlight"><pre><span></span><code>you&gt; /roster probe
   NAME    ROLE    ALIAS   MODE    ENDPOINT               STATE
