@@ -14,13 +14,33 @@ runs on CPU with no vLLM, no GPU and no second process.
   5. Worker calls: one call at a time, and closing without stopping
      the server.
   6. Abandoning a call: the response is severed so the worker aborts.
-  7. Identity: a scripted conversation runs byte-identically with and
+  7. Spawning: port picking, the command line the child gets, and the
+     starts that are refused instead.
+  8. What a spawned worker leaves on disk: the pid record's fields and
+     the log the child writes.
+  9. Readiness: a slow start polled through, one that dies with its log
+     tail, and a deadline that is honoured.
+ 10. Stopping: SIGTERM then SIGKILL, and a session that exits without
+     stopping its worker.
+ 11. Placement: which GPU a worker may spawn onto beside the chat model
+     and the workers already running.
+ 12. Call timeouts: a worker that goes quiet mid-reply is given up on
+     and the next call still works.
+ 13. Retry policy: what is retried, what never is, and when a worker is
+     given up on for good.
+ 14. The /worker commands: start, stop, start --all, and the flag that
+     starts the roster with the session.
+ 15. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
-  8. Import purity: importing the agent layer costs nothing, and no
+ 16. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
-  9. Frozen core: the agent work has not touched the eval files.
- 10. Command surfaces: HELP, TAB completion and the docs
+ 17. Frozen core: the agent work has not touched the eval files.
+ 18. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
+
+Groups 7 to 14 spawn stub servers instead of saltServe, through the
+roster's undocumented spawn.command, so the whole worker lifecycle runs
+on CPU with no vLLM, no GPU and no downloaded chat model.
 
 Needs only the salt install and the BGE encoder (downloaded to the HF
 cache on first use). Assert-based: refuses to run under python -O.
@@ -34,10 +54,12 @@ import io
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 from contextlib import redirect_stdout
@@ -53,8 +75,15 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from salt.agents import roster as R                              # noqa: E402
-from salt.agents.worker import (BUSY, DECLARED, DEAD, PROBED, READY,   # noqa: E402
-                                WorkerError, WorkerHandle)
+from salt.agents.roster import (BGE_CARD_MB, PLACEMENT_CEILING,   # noqa: E402
+                                check_placement)
+from salt.agents.worker import (BUSY, CALL_RETRIES, CALL_TIMEOUT,  # noqa: E402
+                                DECLARED, DEAD, FAILURES_TO_DEAD, HOST,
+                                PROBED, READY, READY_TIMEOUT, RETRY_DELAY,
+                                STARTING, STATES, WorkerError, WorkerHandle,
+                                free_port, is_connection_error,
+                                is_read_timeout, port_available,
+                                serve_executable, spawn_argv)
 from salt.chat import cli                                        # noqa: E402
 from salt.chat.registry import RegistryError, resolve_model      # noqa: E402
 from salt.engine.compressor import load_bge                      # noqa: E402
@@ -63,6 +92,7 @@ from salt.engine.session_trie import SessionTrie                 # noqa: E402
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 SAMPLE = REPO / "salt" / "agents" / "roster_sample.json"
 SAMPLE_ALIAS = "qwen05"
+CARDS = [{"id": "some/model", "max_model_len": 4096}]
 
 # the eval core, frozen by CONTRIBUTING: the agent work is designed to
 # need no edit here, and group 9 is what proves it kept to that
@@ -104,26 +134,41 @@ class _StubHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             self.server.aborted.set()
 
+    def _frame(self, text):
+        self.wfile.write(b"data: " + json.dumps(
+            {"choices": [{"text": text}]}).encode() + b"\n\n")
+        self.wfile.flush()
+
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0))
         self.server.last_payload = json.loads(self.rfile.read(n) or b"{}")
         with self.server.gauge:
             self.server.inflight += 1
             self.server.peak = max(self.server.peak, self.server.inflight)
+            self.server.posts += 1
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             for piece in self.server.pieces:
-                frame = {"choices": [{"text": piece}]}
-                self.wfile.write(b"data: " + json.dumps(frame).encode()
-                                 + b"\n\n")
-                self.wfile.flush()
+                self._frame(piece)
                 if self.server.delay:
                     time.sleep(self.server.delay)
+            if self.server.drop:
+                self.close_connection = True
+                self.connection.close()
+                return
+            if self.server.stall:
+                # quiet mid-reply without hanging up, then talking again:
+                # the second write is where a client that walked away
+                # surfaces as a broken pipe
+                self.server.stalled.set()
+                time.sleep(self.server.stall)
+                for i in range(400):
+                    self._frame(f"late{i} ")
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, OSError):
             self.server.aborted.set()
         finally:
             with self.server.gauge:
@@ -133,28 +178,53 @@ class _StubHandler(BaseHTTPRequestHandler):
 class Stub:
     """One /v1/models plus /v1/completions endpoint with a scripted answer.
 
-    Port 0 so a real server on the sample roster's port never collides
-    with, or silently satisfies, one of these checks.
+    Port 0 by default so a real server on the sample roster's port never
+    collides with, or silently satisfies, one of these checks. A fixed
+    port is for the checks that stop the server and bring it back with a
+    session's client still pointing at it.
     """
 
     def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
-                 status=200, raw=None):
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), _StubHandler)
-        self.httpd.cards, self.httpd.pieces = list(cards), list(pieces)
-        self.httpd.delay, self.httpd.status, self.httpd.raw = delay, status, raw
+                 status=200, raw=None, port=0, stall=0.0, drop=False,
+                 serving=True):
+        self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
+                        status=status, raw=raw, stall=stall, drop=drop)
+        self.port = port
+        self.httpd = None
+        self.aborted = threading.Event()
+        self.stalled = threading.Event()
+        self.url = f"http://127.0.0.1:{port}"
+        if serving:
+            self.start()
+
+    def start(self):
+        self.httpd = ThreadingHTTPServer((HOST, self.port), _StubHandler)
+        for key, value in self.cfg.items():
+            setattr(self.httpd, key, value)
         self.httpd.last_payload = None
-        self.httpd.aborted = threading.Event()
-        self.httpd.inflight, self.httpd.peak = 0, 0
+        self.httpd.aborted, self.httpd.stalled = self.aborted, self.stalled
+        self.httpd.inflight, self.httpd.peak, self.httpd.posts = 0, 0, 0
         self.httpd.gauge = threading.Lock()
-        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        self.port = self.httpd.server_address[1]
+        self.url = f"http://127.0.0.1:{self.port}"
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        return self
+
+    def stop(self):
+        if self.httpd is not None:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+            self.httpd = None
+
+    @property
+    def posts(self):
+        return 0 if self.httpd is None else self.httpd.posts
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc):
-        self.httpd.shutdown()
-        self.httpd.server_close()
+        self.stop()
 
 
 class _FakeRunner:
@@ -192,6 +262,84 @@ def closed_port():
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+STUB_SERVER = '''
+import argparse, json, sys, time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--port", type=int)
+ap.add_argument("--gpu")
+ap.add_argument("--gpu-mem-util")
+ap.add_argument("--max-model-len")
+ap.add_argument("--delay", type=float, default=0.0)
+ap.add_argument("--die", type=float, default=None)
+ap.add_argument("--ignore-term", action="store_true")
+a, rest = ap.parse_known_args()
+if a.ignore_term:
+    import signal
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+print("loading weights, gpu", a.gpu, "extra", rest, flush=True)
+if a.die is not None:
+    time.sleep(a.die)
+    print("CUDA out of memory: tried to allocate 24.00 GiB", flush=True)
+    print("engine failed to start", flush=True)
+    sys.exit(7)
+time.sleep(a.delay)
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *x):
+        pass
+
+    def do_GET(self):
+        b = json.dumps({"data": [{"id": "some/model",
+                                  "max_model_len": 4096}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+print("serving on", a.port, flush=True)
+HTTPServer(("127.0.0.1", a.port), H).serve_forever()
+'''
+
+STUB_CFG = {"alias": "stub", "hf_id": "some/model", "path": str(REPO)}
+
+
+def stub_server(tmp):
+    """The script that stands in for saltServe, written once per run."""
+    path = Path(tmp) / "stub_server.py"
+    if not path.exists():
+        path.write_text(STUB_SERVER)
+    return str(path)
+
+
+def spawn_entry(tmp, name="w", *extra, **spawn):
+    """A roster entry whose server is the stub script, not saltServe."""
+    s = {"port": "auto", "ready_timeout": 30,
+         "command": [sys.executable, stub_server(tmp)] + list(extra)}
+    s.update(spawn)
+    return R.RosterEntry(name=name, alias="stub", role="worker", spawn=s,
+                         model=STUB_CFG)
+
+
+def spawn_handle(tmp, name="w", *extra, **spawn):
+    return WorkerHandle(spawn_entry(tmp, name, *extra, **spawn))
+
+
+def attach_entry(name="att", url="http://127.0.0.1:8099"):
+    return R.RosterEntry(name=name, alias="stub", role="worker",
+                         server_url=url, model=STUB_CFG)
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def entry(url=None, alias=SAMPLE_ALIAS, name="w", model=None, **kw):
@@ -285,8 +433,27 @@ def check_validation(tmp):
     write_roster(bad, [{"name": "w", "alias": "a", "server_url": "http://h",
                         "timeout_s": 0}])
     refuses(bad, "timeout_s must be >= 1")
+    for command in ("echo hi", [], ["ok", 7], ["ok", ""]):
+        write_roster(bad, [{"name": "w", "alias": "a",
+                            "spawn": {"port": "auto", "command": command}}])
+        refuses(bad, "spawn.command must be a non-empty list of strings")
+    write_roster(bad, [{"name": "w", "alias": "a",
+                        "spawn": {"port": "auto", "commnad": ["x"]}}])
+    refuses(bad, "unknown spawn keys ['commnad']")
+    for val, fragment in (("soon", "must be a number"), (0, "must be >= 1"),
+                          (True, "must be a number")):
+        write_roster(bad, [{"name": "w", "alias": "a",
+                            "spawn": {"port": "auto", "ready_timeout": val}}])
+        refuses(bad, "spawn.ready_timeout " + fragment)
     refuses(tmp / "absent.json", "Cannot read roster")
-    print("1. roster validation: 16 malformed files each refused by name")
+    # spawn.command is how these checks stand a stub in for saltServe. It
+    # is deliberately absent from every surface a user reads
+    assert "spawn.command" not in (REPO / "docs" / "options.md").read_text(
+        encoding="utf-8")
+    assert '"command"' not in SAMPLE.read_text(encoding="utf-8")
+    assert "command" not in R.__doc__
+    print("1. roster validation: 24 malformed files each refused by name, "
+          "and the test spawn hook stays out of the sample and the docs")
 
 
 def check_loading():
@@ -467,6 +634,657 @@ def check_abort(tok_path):
           "and the handle takes the next call")
 
 
+def check_spawning(tmp):
+    assert STARTING in STATES and STATES.index(STARTING) == 1, (
+        f"STARTING left its place between DECLARED and PROBED: {STATES}")
+
+    port = free_port()
+    assert 1024 < port <= 65535 and port_available(port), (
+        f"free_port returned {port}, which cannot be bound")
+    listener = socket.socket()
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind((HOST, 0))
+    listener.listen(1)
+    taken = listener.getsockname()[1]
+    assert not port_available(taken), "a listening port read as available"
+    listener.close()
+    assert port_available(taken), (
+        "a just-closed port read as taken, so the pre-bind probe is not "
+        "using REUSEADDR and a restarted worker would be refused its port")
+    assert len({free_port() for _ in range(20)}) > 1, (
+        "free_port handed out the same port 20 times")
+
+    e = R.RosterEntry(name="w", alias=SAMPLE_ALIAS, role="worker",
+                      spawn={"port": 8081}, model=STUB_CFG)
+    argv = spawn_argv(e, 8081)
+    assert argv[-2:] == ["--port", "8081"] and argv[-3] == SAMPLE_ALIAS, argv
+    assert "saltServe" in argv[0] or argv[1:3] == ["-m", "salt.chat.serve"], (
+        f"the command line does not run saltServe: {argv}")
+    full = R.RosterEntry(name="w", alias=SAMPLE_ALIAS, role="worker",
+                         model=STUB_CFG,
+                         spawn={"port": "auto", "gpu": "1",
+                                "gpu_mem_util": 0.4, "max_model_len": 4096})
+    argv = spawn_argv(full, 9000)
+    for flag, val in (("--port", "9000"), ("--gpu", "1"),
+                      ("--gpu-mem-util", "0.4"), ("--max-model-len", "4096")):
+        assert flag in argv and argv[argv.index(flag) + 1] == val, (
+            f"{flag} {val} is missing from {argv}")
+    bare = R.RosterEntry(name="w", alias=SAMPLE_ALIAS, role="worker",
+                         model=STUB_CFG, spawn={"port": "auto",
+                                                "max_model_len": 0})
+    argv = spawn_argv(bare, 9000)
+    assert not [f for f in ("--gpu", "--gpu-mem-util", "--max-model-len")
+                if f in argv], (
+        f"an unset spawn field still reached the child, overriding "
+        f"saltServe's own default: {argv}")
+    injected = R.RosterEntry(name="w", alias=SAMPLE_ALIAS, role="worker",
+                             model=STUB_CFG,
+                             spawn={"port": "auto",
+                                    "command": ["/bin/true", "x"]})
+    assert spawn_argv(injected, 7000) == ["/bin/true", "x", "--port", "7000"]
+    exe = serve_executable()
+    assert exe and all(isinstance(part, str) for part in exe), exe
+
+    d = Path(tmp) / "spawn" / "workers"
+    h = spawn_handle(tmp)
+    assert h.state == DECLARED and h.process is None and h.url is None
+    assert h.endpoint == "port auto", h.endpoint
+    proc = h.start(d)
+    assert proc.poll() is None, "the child died immediately"
+    assert h.state == STARTING, f"the handle read {h.state} after start"
+    assert h.port and h.url == f"http://{HOST}:{h.port}", h.url
+    assert h.endpoint == h.url, h.endpoint
+    assert h.start(d) is proc, "start() spawned a second child over a live one"
+    assert h.wait_ready(timeout=30, poll=0.2).state == PROBED, h.note
+
+    attach = WorkerHandle(attach_entry("a"))
+    try:
+        attach.start(d)
+        raise AssertionError("an attach entry was started")
+    except WorkerError as exc:
+        assert "nothing for this session to start" in str(exc), exc
+
+    busy = spawn_handle(tmp, "busy", port=h.port)
+    try:
+        busy.start(d)
+        raise AssertionError(f"a worker spawned onto occupied port {h.port}")
+    except WorkerError as exc:
+        assert f"port {h.port} is already taken" in str(exc), exc
+        assert "server_url" in str(exc), "the refusal points at no fix"
+    assert busy.process is None and busy.state == DECLARED, busy.state
+
+    missing = WorkerHandle(spawn_entry(tmp, "nope",
+                                       command=["/nonexistent/binary"]))
+    try:
+        missing.start(d)
+        raise AssertionError("a missing executable spawned")
+    except WorkerError as exc:
+        assert "cannot run" in str(exc) and "/nonexistent" in str(exc), exc
+    assert missing.state == DEAD and missing.last_error, "no reason recorded"
+    h.stop()
+    print("7. spawning: an auto port picked and served, and 3 starts refused "
+          "instead (attach entry, occupied port, missing binary)")
+
+
+def check_worker_files(tmp):
+    """The pid record is what a later session reads to tell a live worker
+    from one this machine forgot, so its shape is pinned here."""
+    d = Path(tmp) / "files" / "workers"
+    h = spawn_handle(tmp, "rec")
+    proc = h.start(d)
+    h.wait_ready(timeout=30, poll=0.2)
+
+    record = json.loads((d / "rec.json").read_text())
+    assert set(record) == {"name", "alias", "pid", "port", "url",
+                           "started_at", "argv", "log"}, sorted(record)
+    assert record["pid"] == proc.pid, record
+    assert record["port"] == h.port and record["url"] == h.url, record
+    assert record["name"] == "rec" and record["alias"] == "stub", record
+    assert isinstance(record["started_at"], float), record
+    assert record["started_at"] > 0, record
+    assert record["argv"][-2:] == ["--port", str(h.port)], record
+    assert record["log"] == str(d / "rec.log"), record
+    assert h.record_path == d / "rec.json", h.record_path
+    assert not list(d.glob("*.tmp")), (
+        "an atomic-write temp file was left behind")
+
+    log = (d / "rec.log").read_text()
+    assert f"serving on {h.port}" in log, log
+    assert h.log_path == d / "rec.log", h.log_path
+    assert h.log_tail(1) == f"serving on {h.port}", repr(h.log_tail(1))
+
+    h.stop()
+    assert not (d / "rec.json").exists(), (
+        "the pid record survived a clean stop, so a later session would "
+        "read it as a worker still running")
+    assert (d / "rec.log").exists(), "the log was removed with the record"
+    h.start(d)
+    h.wait_ready(timeout=30, poll=0.2)
+    assert (d / "rec.log").read_text().count("loading weights") == 2, (
+        "the log was truncated on restart, losing the run that came before")
+    h.stop()
+    print("8. worker files: <name>.json carries 8 pinned fields and is "
+          "removed on a clean stop, <name>.log survives and is appended to")
+
+
+def check_readiness(tmp):
+    d = Path(tmp) / "ready" / "workers"
+    h = spawn_handle(tmp, "slow", "--delay", "1.5")
+    h.start(d)
+    t0 = time.monotonic()
+    result = h.wait_ready(timeout=30, poll=0.2)
+    waited = time.monotonic() - t0
+    assert result.state == PROBED and result.served_model == "some/model"
+    assert result.max_model_len == 4096, result
+    assert waited >= 1.4, f"it returned before the server answered ({waited}s)"
+    assert h.state == PROBED and not h.last_error, (h.state, h.last_error)
+    assert h.wait_ready(timeout=5, poll=0.2).state == PROBED, (
+        "wait_ready on a worker that is already up did not return at once")
+    assert h.healthy(timeout=3), f"a live worker reported unhealthy: {h.note}"
+    h.process.kill()
+    h.process.wait(10)
+    assert not h.healthy(timeout=3), "a killed worker reported healthy"
+    assert h.state == DEAD and "exited with code" in h.last_error, h.last_error
+    h.stop()
+
+    dead = spawn_handle(tmp, "oom", "--die", "0.3")
+    dead.start(d)
+    try:
+        dead.wait_ready(timeout=30, poll=0.2)
+        raise AssertionError("a server that exited was reported ready")
+    except WorkerError as exc:
+        msg = str(exc)
+    assert "exited with code 7" in msg, msg
+    assert "CUDA out of memory" in msg and "engine failed to start" in msg, (
+        f"the log tail did not come with the error, so the reason for the "
+        f"failed start is nowhere on screen: {msg}")
+    assert str(d / "oom.log") in msg, msg
+    assert dead.state == DEAD and dead.last_error == msg, dead.state
+    assert len(dead.log_tail().splitlines()) == 3, dead.log_tail()
+
+    late = spawn_handle(tmp, "never", "--delay", "60")
+    late.start(d)
+    t0 = time.monotonic()
+    try:
+        late.wait_ready(timeout=1.5, poll=0.2)
+        raise AssertionError("a server that never answered was reported ready")
+    except WorkerError as exc:
+        msg = str(exc)
+    took = time.monotonic() - t0
+    assert 1.4 <= took < 12, f"the deadline was not honoured ({took:.1f}s)"
+    assert "did not answer" in msg and "1.5s" in msg, msg
+    assert "spawn.ready_timeout" in msg, (
+        f"the timeout names no way to raise the limit: {msg}")
+    late.stop()
+
+    assert spawn_handle(tmp, "d").ready_timeout == 30, "the fixture's own"
+    assert WorkerHandle(R.RosterEntry(name="x", alias="stub", role="worker",
+                                      spawn={"port": "auto"}, model=STUB_CFG)
+                        ).ready_timeout == READY_TIMEOUT == 180
+    roster_limit = spawn_handle(tmp, "late2", "--delay", "60", ready_timeout=1)
+    roster_limit.start(d)
+    t0 = time.monotonic()
+    try:
+        roster_limit.wait_ready(poll=0.2)
+        raise AssertionError("the roster's ready_timeout was not used")
+    except WorkerError as exc:
+        assert "within 1s" in str(exc), str(exc)
+    assert time.monotonic() - t0 < 10, "the 180s default was used instead"
+    roster_limit.stop()
+    print("9. readiness: a slow start polled through without flapping to "
+          "DEAD, a crash surfaced with its exit code and log tail, and both "
+          "deadlines honoured")
+
+
+def check_stopping(tmp):
+    d = Path(tmp) / "stop" / "workers"
+    h = spawn_handle(tmp, "term")
+    h.start(d)
+    h.wait_ready(timeout=30, poll=0.2)
+    pid = h.process.pid
+    code = h.stop()
+    assert code is not None, "stop() returned no exit code for a live child"
+    assert h.process is None and h.state == DECLARED, (h.process, h.state)
+    assert h.url is None and h.port is None, (h.url, h.port)
+    assert not alive(pid), f"pid {pid} is still alive after stop()"
+    assert h.stop() is None, "a second stop did something"
+
+    stubborn = spawn_handle(tmp, "stubborn", "--ignore-term")
+    stubborn.start(d)
+    stubborn.wait_ready(timeout=30, poll=0.2)
+    pid = stubborn.process.pid
+    t0 = time.monotonic()
+    code = stubborn.stop(grace=1)
+    took = time.monotonic() - t0
+    assert took >= 1.0, f"SIGKILL came before the grace period ({took:.1f}s)"
+    assert took < 8, f"stopping took {took:.1f}s"
+    assert code == -signal.SIGKILL, f"the exit code was {code}"
+    assert not alive(pid), "the child that ignored SIGTERM survived"
+
+    attach = WorkerHandle(attach_entry("a"))
+    try:
+        attach.stop()
+        raise AssertionError("an attached server was stopped")
+    except WorkerError as exc:
+        assert "must not stop it" in str(exc), str(exc)
+
+    prog = textwrap.dedent(f'''
+        import sys
+        sys.path.insert(0, {str(REPO)!r})
+        from salt.agents import roster as R
+        from salt.agents.worker import WorkerHandle
+        e = R.RosterEntry(name="ax", alias="stub", role="worker",
+                          model={STUB_CFG!r},
+                          spawn={{"port": "auto",
+                                  "command": [sys.executable,
+                                              {stub_server(tmp)!r}]}})
+        h = WorkerHandle(e)
+        h.start({str(d)!r})
+        h.wait_ready(timeout=60, poll=0.2)
+        print(h.process.pid)
+        sys.stdout.flush()
+    ''')
+    out = subprocess.run([sys.executable, "-c", prog], capture_output=True,
+                         text=True, timeout=180)
+    assert out.returncode == 0, out.stderr
+    pid = int(out.stdout.strip().splitlines()[-1])
+    for _ in range(100):
+        if not alive(pid):
+            break
+        time.sleep(0.05)
+    assert not alive(pid), (
+        f"the spawned server (pid {pid}) outlived the session that started "
+        f"it, so a REPL exiting without /worker stop leaks a server")
+    assert not (d / "ax.json").exists(), "the pid record outlived the session"
+
+    out = subprocess.run([sys.executable, "-c", prog + "\nh.stop()\n"],
+                         capture_output=True, text=True, timeout=180)
+    assert out.returncode == 0, out.stderr
+    assert not out.stderr.strip(), (
+        f"exiting after an explicit stop printed to stderr, so the atexit "
+        f"hook ran a second time:\n{out.stderr}")
+    print("10. stopping: SIGTERM, SIGKILL after the grace, idempotent, and a "
+          "session that exits without stopping still takes its worker down")
+
+
+def placement_entry(name="w", gpu=None, util=None):
+    spawn = {"port": "auto"}
+    if gpu is not None:
+        spawn["gpu"] = gpu
+    if util is not None:
+        spawn["gpu_mem_util"] = util
+    return R.RosterEntry(name=name, alias="stub", role="worker", spawn=spawn,
+                         model=STUB_CFG)
+
+
+def check_placement_rules():
+    assert R.entry_cards(placement_entry(gpu="1")) == (1,)
+    assert R.entry_cards(placement_entry(gpu="0,2")) == (0, 2)
+    assert R.entry_cards(placement_entry()) == ()
+    assert R.entry_cards(attach_entry()) == ()
+
+    refusal, notes = check_placement(placement_entry(gpu="1"), chat_gpus=[0],
+                                     bge_gpu=0)
+    assert refusal is None and notes == [], (refusal, notes)
+    refusal, notes = check_placement(placement_entry(gpu="1", util=0.4),
+                                     chat_gpus=[0], chat_mem_util=0.85,
+                                     bge_gpu=0)
+    assert refusal is None and notes == [], (refusal, notes)
+
+    refusal, _ = check_placement(placement_entry(gpu="0"), chat_gpus=[0],
+                                 chat_mem_util=0.85)
+    assert refusal and "GPU 0 already carries the chat model" in refusal
+    assert "out of memory at load" in refusal and "gpu_mem_util" in refusal
+    assert "this entry declares" in refusal, (
+        f"the refusal does not say which side failed to declare a share: "
+        f"{refusal}")
+    refusal, notes = check_placement(placement_entry(gpu="0", util=0.10),
+                                     chat_gpus=[0], chat_mem_util=0.85)
+    assert refusal is None and notes == [], (refusal, notes)
+    refusal, notes = check_placement(placement_entry(gpu="0", util=0.30),
+                                     chat_gpus=[0], chat_mem_util=0.85)
+    assert refusal is None, "an over-subscription became a refusal"
+    assert len(notes) == 1 and "1.15 in total" in notes[0], notes
+    assert f"{PLACEMENT_CEILING:g}" in notes[0], notes
+    refusal, _ = check_placement(placement_entry(gpu="0", util=0.10),
+                                 chat_gpus=[0], chat_mem_util=None)
+    assert refusal and "the chat model does not declare" in refusal, refusal
+    refusal, _ = check_placement(placement_entry(gpu="0,1"), chat_gpus=[1],
+                                 chat_mem_util=0.8)
+    assert refusal and "GPU 1" in refusal, refusal
+
+    refusal, _ = check_placement(placement_entry("second", gpu="1"),
+                                 chat_gpus=[0], running=[("first", (1,), None)])
+    assert refusal and "worker 'first'" in refusal, refusal
+    refusal, notes = check_placement(placement_entry("second", gpu="1",
+                                                     util=0.3),
+                                     chat_gpus=[0],
+                                     running=[("first", (1,), 0.4)])
+    assert refusal is None and notes == [], (refusal, notes)
+    refusal, notes = check_placement(placement_entry("third", gpu="1",
+                                                     util=0.4),
+                                     running=[("first", (1,), 0.4),
+                                              ("second", (1,), 0.3)])
+    assert refusal is None and "1.10 in total" in notes[0], (refusal, notes)
+
+    refusal, notes = check_placement(placement_entry(gpu="1"), chat_gpus=[0],
+                                     bge_gpu=1)
+    assert refusal is None, "the BGE card was refused"
+    assert len(notes) == 1 and f"about {BGE_CARD_MB} MB" in notes[0], notes
+    assert "BGE encoder" in notes[0], notes
+    refusal, notes = check_placement(placement_entry(), chat_gpus=[0])
+    assert refusal is None and len(notes) == 1, (refusal, notes)
+    assert "names no gpu" in notes[0] and "spawn.gpu" in notes[0], notes
+
+    args = cli.build_parser().parse_args(["--gpu", "0,1"])
+    from salt.chat.serve import parse_gpu_list
+    args.device, args.bge_device, args.gpu_mem_util, _ = \
+        cli.resolve_gpu_devices(parse_gpu_list(args.gpu), args.device,
+                                args.bge_device, args.gpu_mem_util)
+    assert cli.cuda_index(args.device) == 0, args.device
+    assert cli.cuda_index(args.bge_device) == 1, args.bge_device
+    assert cli.cuda_index("cuda") == 0, "bare cuda is not read as card 0"
+    assert cli.cuda_index("cuda:3") == 3
+    assert cli.cuda_index("cpu") is None and cli.cuda_index(None) is None
+    src = (REPO / "salt" / "chat" / "cli.py").read_text(encoding="utf-8")
+    assert 'self.chat_gpus = [] if args.backend == "vllm-serve"' in src, (
+        "a session whose model lives in another process still claims a card")
+    assert src.index("refusal, notes = check_placement") < src.index(
+        "handle.start(state.workers_dir())"), (
+        "placement is checked after the spawn, which would be pointless")
+    print("11. placement: a taken card refused unless both sides declare a "
+          "share, over-subscription warned, and the BGE card allowed with "
+          "its note")
+
+
+def worker_entry(url, tok_path, timeout_s=3):
+    return R.RosterEntry(name="w", alias="stub", role="worker", server_url=url,
+                         model={"alias": "stub", "hf_id": "some/model",
+                                "path": tok_path},
+                         timeout_s=timeout_s)
+
+
+def quiet_call(handle):
+    with redirect_stdout(io.StringIO()):
+        return "".join(handle.call([{"role": "user", "content": "hi"}]))
+
+
+def failed_call(handle):
+    with redirect_stdout(io.StringIO()):
+        try:
+            "".join(handle.call([{"role": "user", "content": "hi"}]))
+        except Exception as exc:
+            return exc
+    raise AssertionError("the call was supposed to fail and did not")
+
+
+def check_call_timeout(tok_path):
+    h = WorkerHandle(worker_entry("http://x", tok_path, timeout_s=None))
+    assert h.timeout_s == CALL_TIMEOUT == 300, h.timeout_s
+    assert WorkerHandle(worker_entry("http://x", tok_path,
+                                     timeout_s=12)).timeout_s == 12
+    runner_src = (REPO / "salt" / "chat" / "runner_serve.py").read_text(
+        encoding="utf-8")
+    assert "timeout=(5, self.read_timeout)" in runner_src, (
+        "the serve client no longer passes its read timeout to the request")
+    cli_src = (REPO / "salt" / "chat" / "cli.py").read_text(encoding="utf-8")
+    assert "read_timeout" not in cli_src, (
+        "the chat model's own client now passes a read timeout, so a slow "
+        "reply from the model the session depends on can be cut off")
+
+    import requests
+    assert is_read_timeout(requests.exceptions.ReadTimeout("x"))
+    assert not is_read_timeout(requests.exceptions.ConnectTimeout("x"))
+    assert is_read_timeout(requests.exceptions.ConnectionError(
+        "HTTPConnectionPool: ReadTimeoutError(read timeout=1)"))
+    assert not is_read_timeout(requests.exceptions.ConnectionError("refused"))
+    assert not is_read_timeout(ValueError("nope"))
+
+    # past 512 bytes, so text really reaches the caller through requests'
+    # chunked line reader before the worker goes quiet
+    sent = [f"word{i:03d} " for i in range(120)]
+    with Stub(cards=CARDS, pieces=sent, stall=6) as s:
+        h = WorkerHandle(worker_entry(s.url, tok_path, timeout_s=1))
+        got = []
+        t0 = time.monotonic()
+        with redirect_stdout(io.StringIO()):
+            try:
+                for piece in h.call([{"role": "user", "content": "hi"}]):
+                    got.append(piece)
+                raise AssertionError("the stalled call never timed out")
+            except WorkerError as exc:
+                msg = str(exc)
+        took = time.monotonic() - t0
+        assert got and got == sent[:len(got)], (
+            f"{len(got)} pieces arrived and they are not a prefix of what "
+            f"the worker sent")
+        assert 1.0 <= took < 8, f"the timeout took {took:.1f}s for a 1s limit"
+        assert "sent nothing for 1s" in msg and "given up on" in msg, msg
+        assert h.state == READY, f"a timed-out worker read {h.state}"
+        assert h.failures == 0, (
+            f"a stall counted as {h.failures} failures toward DEAD, but the "
+            f"worker is alive and took the next call")
+        assert h.last_error == msg, h.last_error
+        assert s.aborted.wait(20), (
+            "the timeout did not sever the response, so the worker would "
+            "keep generating")
+        s.httpd.stall, s.httpd.pieces = 0, ["fine"]
+        assert quiet_call(h) == "fine", "the handle refused the next call"
+        assert h.state == READY and h.calls == 2, (h.state, h.calls)
+        h.close()
+    print(f"12. call timeouts: {len(sent)} pieces streamed, then a quiet "
+          f"worker was given up on at its own limit, severed, and took the "
+          f"next call")
+
+
+def check_retry_policy(tok_path):
+    assert (CALL_RETRIES, FAILURES_TO_DEAD) == (1, 2), (
+        f"the policy constants moved: {CALL_RETRIES}, {FAILURES_TO_DEAD}")
+    import requests
+    assert is_connection_error(requests.exceptions.ConnectionError("x"))
+    assert is_connection_error(requests.exceptions.ConnectTimeout("x"))
+    assert not is_connection_error(requests.exceptions.ReadTimeout("x"))
+    assert not is_connection_error(requests.exceptions.ConnectionError(
+        "ReadTimeoutError(read timeout=1)"))
+
+    port = free_port()
+    first = Stub(cards=CARDS, pieces=("he", "llo"), port=port)
+    h = WorkerHandle(worker_entry(first.url, tok_path))
+    assert quiet_call(h) == "hello"
+    first.stop()
+    second = Stub(cards=CARDS, pieces=("re", "tried"), port=port)
+    try:
+        assert quiet_call(h) == "retried", "the call after a restart failed"
+        assert h.retries == 0, (
+            f"{h.retries} retries spent on a restart the connection pool "
+            f"already handles by dropping the dead connection")
+    finally:
+        h.close()
+        second.stop()
+
+    port = free_port()
+    down = Stub(cards=CARDS, pieces=("re", "tried"), port=port, serving=False)
+    up = Stub(cards=CARDS, port=port)
+    h = WorkerHandle(worker_entry(down.url, tok_path))
+    with redirect_stdout(io.StringIO()):
+        h.ready()
+    up.stop()
+    timer = threading.Timer(RETRY_DELAY / 2, down.start)
+    timer.start()
+    try:
+        t0 = time.monotonic()
+        text = quiet_call(h)
+        took = time.monotonic() - t0
+        assert text == "retried", f"the retried call returned {text!r}"
+        assert h.retries == 1, f"retries counted {h.retries}"
+        assert took >= RETRY_DELAY, (
+            f"the retry went out after {took:.2f}s, inside the {RETRY_DELAY}s "
+            f"backoff, so a server coming back up gets no time")
+        assert down.posts == 1, f"the server saw {down.posts} requests"
+        assert h.failures == 0 and h.state == READY, (h.failures, h.state)
+        assert h.calls == 1, f"the retry inflated the call count to {h.calls}"
+    finally:
+        timer.cancel()
+        h.close()
+        down.stop()
+
+    sent = [f"word{i:03d} " for i in range(120)]
+    with Stub(cards=CARDS, pieces=sent, drop=True) as s:
+        h = WorkerHandle(worker_entry(s.url, tok_path))
+        got = []
+        with redirect_stdout(io.StringIO()):
+            try:
+                for piece in h.call([{"role": "user", "content": "hi"}]):
+                    got.append(piece)
+            except Exception:
+                pass
+        assert got, "nothing streamed before the drop, so this proves nothing"
+        assert s.posts == 1, (
+            f"the worker saw {s.posts} requests, so a half-written reply was "
+            f"asked for again and its text would be duplicated")
+        assert h.retries == 0, h.retries
+        h.close()
+
+    port = free_port()
+    s = Stub(cards=CARDS, port=port)
+    h = WorkerHandle(worker_entry(s.url, tok_path))
+    assert quiet_call(h) == "hello"
+    s.stop()
+    failed_call(h)
+    assert h.failures == 1 and h.state != DEAD, (h.failures, h.state)
+    assert h.retries == 1, f"the failed call spent {h.retries} retries"
+    back = Stub(cards=CARDS, port=port)
+    assert quiet_call(h) == "hello"
+    assert h.failures == 0, (
+        f"a good call left {h.failures} failures, so DEAD would not need "
+        f"two IN A ROW")
+    back.stop()
+    failed_call(h)
+    assert h.state != DEAD and h.failures == 1, (h.state, h.failures)
+    failed_call(h)
+    assert h.failures == FAILURES_TO_DEAD and h.state == DEAD, h.failures
+    assert h.last_error, "DEAD with no reason recorded"
+    revived = Stub(cards=CARDS, pieces=("a", "live"), port=port)
+    try:
+        assert h.probe(timeout=3).state == PROBED, h.note
+        assert h.failures == 0, f"a revived worker kept {h.failures} failures"
+        assert quiet_call(h) == "alive"
+    finally:
+        h.close()
+        revived.stop()
+    print("13. retry policy: a refused connection retried once after its "
+          "backoff, a half-written reply never retried, and DEAD only after "
+          "two failures in a row, cleared by a probe")
+
+
+class _FakeState:
+    """What the /worker command reads off a session, without a chat model,
+    a trie or a GPU."""
+
+    def __init__(self, tmp, entries, chat_gpus=(), chat_mem_util=None,
+                 bge_gpu=None):
+        self.roster = (None if entries is None
+                       else R.Roster(path=str(Path(tmp) / "r.json"),
+                                     entries=tuple(entries)))
+        self.workers = {}
+        self._dir = Path(tmp) / "session" / "workers"
+        self.chat_gpus = list(chat_gpus)
+        self.chat_mem_util = chat_mem_util
+        self.bge_gpu = bge_gpu
+
+    def workers_dir(self):
+        return self._dir
+
+    worker = cli.ChatState.worker
+    worker_handles = cli.ChatState.worker_handles
+    running_workers = cli.ChatState.running_workers
+
+
+def worker_line(state, line):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.worker_command(state, line.split())
+    return buf.getvalue()
+
+
+def check_worker_commands(tmp):
+    st = _FakeState(tmp, [spawn_entry(tmp, "w")])
+    out = worker_line(st, "")
+    assert "NAME" in out and "w" in out, out
+    for bad in ("bogus", "start", "stop", "probe", "start a b", "stop --all",
+                "probe a b"):
+        out = worker_line(st, bad)
+        assert "Usage: /worker" in out, f"{bad!r} printed {out!r}"
+        assert "start --all" in out, "the usage does not name every verb"
+    out = worker_line(st, "start nosuch")
+    assert "No roster entry named 'nosuch'" in out and "known: w" in out, out
+    assert "no roster loaded" in worker_line(_FakeState(tmp, None), "start w")
+
+    st = _FakeState(tmp, [spawn_entry(tmp, "w", "--delay", "0.4")])
+    out = worker_line(st, "start w")
+    assert "starting stub at" in out, out
+    assert "ready, serving some/model" in out and "window 4096" in out, out
+    assert "PROBED" in out, out
+    h = st.worker("w")
+    assert h.state == PROBED and h.process.poll() is None, h.state
+    assert (st.workers_dir() / "w.log").exists(), "no log under the session"
+    assert (st.workers_dir() / "w.json").exists(), "no pid record"
+    assert "already running" in worker_line(st, "start w"), (
+        "starting a running worker spawned a second one")
+    h.state = BUSY
+    out = worker_line(st, "stop w")
+    assert "answering a call right now" in out and "Ctrl-C" in out, out
+    assert h.process is not None and h.process.poll() is None, (
+        "a worker mid-call was stopped out from under the caller")
+    h.state = PROBED
+    assert "stopped, exit code" in worker_line(st, "stop w")
+    assert h.process is None and h.state == DECLARED, (h.process, h.state)
+    assert "nothing running" in worker_line(st, "stop w"), out
+
+    att = _FakeState(tmp, [attach_entry()])
+    out = worker_line(att, "start att")
+    assert "attached to http://127.0.0.1:8099" in out, out
+    assert "nothing for this session to start" in out, out
+    assert att.worker("att").process is None, "an attach entry spawned"
+    assert "must not stop it" in worker_line(att, "stop att")
+
+    every = _FakeState(tmp, [spawn_entry(tmp, "a"), attach_entry("b"),
+                             spawn_entry(tmp, "c", "--die", "0.1")])
+    out = worker_line(every, "start --all")
+    assert "Starting 2 of the roster's workers" in out, out
+    assert "b:" not in out, f"the attach entry was touched: {out}"
+    assert "1 of 2 ready" in out, out
+    assert "exited with code 7" in out and "CUDA out of memory" in out, out
+    assert every.worker("a").state == PROBED, every.worker("a").state
+    assert every.worker("c").state == DEAD, every.worker("c").state
+    worker_line(every, "stop a")
+    assert "no spawn entries in the roster" in worker_line(
+        _FakeState(tmp, [attach_entry("b")]), "start --all")
+
+    clash = _FakeState(tmp, [placement_entry("clash", gpu="0")],
+                       chat_gpus=[0], chat_mem_util=0.85, bge_gpu=0)
+    out = worker_line(clash, "start clash")
+    assert "already carries the chat model" in out, out
+    assert clash.worker("clash").process is None, "it spawned anyway"
+
+    assert cli.build_parser().parse_args([]).workers_autostart is False, (
+        "--workers-autostart is not off by default")
+    assert cli.build_parser().parse_args(
+        ["--workers-autostart"]).workers_autostart is True
+    src = (REPO / "salt" / "chat" / "cli.py").read_text(encoding="utf-8")
+    assert "args.workers_autostart and state.roster is not None" in src
+    assert src.index("start_all_workers(state)") < src.index(
+        "for doc in args.doc:"), (
+        "autostart runs after the --doc ingests, so a document is compressed "
+        "before the workers it might be delegated to exist")
+    assert 'self.trie.cache_dir / "workers"' in src, (
+        "the workers dir is not anchored on this session's own cache dir, "
+        "so two conversations would fight over one worker name")
+    print("14. /worker commands: 7 malformed lines refused, start and stop "
+          "over a real child, a BUSY worker protected, and start --all "
+          "reporting 1 of 2 up")
+
+
 def check_identity(tmp, tok, mdl):
     roster = R.Roster(path=str(SAMPLE), entries=(
         R.RosterEntry(name="qwen05", alias=SAMPLE_ALIAS, role="worker",
@@ -492,7 +1310,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"7. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"15. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -532,7 +1350,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("8. import purity: the agent layer pulls none of "
+    print("16. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -546,7 +1364,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"9. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"17. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -558,7 +1376,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"9. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"17. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -577,7 +1395,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"10. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"18. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -599,6 +1417,14 @@ def main():
         tok_path = BGE_MODEL
         check_worker_calls(tok_path)
         check_abort(tok_path)
+        check_spawning(tmp)
+        check_worker_files(tmp)
+        check_readiness(tmp)
+        check_stopping(tmp)
+        check_placement_rules()
+        check_call_timeout(tok_path)
+        check_retry_policy(tok_path)
+        check_worker_commands(tmp)
         check_identity(tmp, tok, mdl)
         check_import_purity()
         check_frozen_core()
