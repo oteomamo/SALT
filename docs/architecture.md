@@ -328,4 +328,4 @@ Where each stage lives:
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | Multi-GPU placement (`--gpu` list) | `salt/chat/runner.py`, `salt/chat/serve.py` |
-| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat` |
+| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat`, `saltServe` |
