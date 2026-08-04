@@ -1436,10 +1436,16 @@ your own conversation for the same memory budget, which is worth turning
 on deliberately rather than by accident.</p>
 <p>Ctrl-C during a delegation cuts the connection, which aborts the request
 on the worker rather than leaving it generating into nothing, and returns
-you to the prompt with the worker ready for the next task. A worker that
-goes quiet, refuses the request, or has stopped answering ends the same
-way: the status line says which of those happened, and the session
-carries on.</p>
+you to the prompt with the worker ready for the next task. Whatever the
+worker had said by then is still shown.</p>
+<p>A delegation ends in one of five ways, and the status line says which:
+<code>ok</code> when the worker answered, <code>timeout</code> when it went quiet mid-reply and
+is still usable, <code>dead</code> when it has stopped answering at all, <code>aborted</code>
+when you interrupted it, and <code>error</code> for everything else, including a
+server that refused the request. Only <code>ok</code> leaves anything behind. A
+delegation that ended any other way never touches the conversation's
+memory, even with <code>--offload-ingest</code> on, because there is no answer to
+remember.</p>
 <p>Every delegation is written to <code>delegations.jsonl</code> in the session folder,
 one line each: which worker it went to, the task, how much context it was
 given, how it ended and what it cost. The answer itself is not kept there,
