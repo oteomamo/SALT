@@ -65,7 +65,8 @@ area_engine() { area_chat; area_smoke; }
 area_vllm()   { run "vllm backend"    "${PY[@]}" scripts/chat_vllm_regression.py; }
 area_serve()  { run "serving"         "${PY[@]}" scripts/chat_serve_regression.py; }
 area_all()    { area_text; area_keys; area_chat; area_dedup; area_evict
-                area_incr; area_tail; area_pdf; area_smoke; area_docs; }
+                area_incr; area_tail; area_agents; area_pdf; area_smoke
+                area_docs; }
 
 case "${1:-}" in
   chat|engine|dedup|keys|evict|incr|tail|text|agents|pdf|docs|smoke|vllm|serve|all)
