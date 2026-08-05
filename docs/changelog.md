@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.41
+## 2.10.0 - 2.10.50
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -50,6 +50,27 @@ Patch releases, grouped where several versions shipped one thing:
   `salt/agents/demo_turns.json`, and the sample roster now shows both an
   attach and a spawn entry. A delegation runs on the session's own
   thread, and interrupting one twice still leaves its record behind.
+- **2.10.42** A worker can answer a turn. A line typed as `@NAME
+  question` sends that turn's own prompt to a worker and keeps the
+  answer as the session's own, remembered and recorded like any other,
+  stamped with the model that gave it. This is changing model in the
+  middle of a conversation without ending it, including under
+  `--backend vllm-serve`, where the server holds one model and
+  `/model` cannot switch it.
+- **2.10.44 - 2.10.50** MCP server. `pip install "salt[mcp]"` adds a
+  `salt-mcp` command that speaks the Model Context Protocol over
+  stdio, so an editor or an agent runtime reaches SALT directly.
+  `salt_compress` compresses one text under a budget, optionally
+  biased to a query. Conversations are the other half:
+  `session_create`, `session_resume`, `session_list` and
+  `session_stats` open and report the same sessions saltChat keeps,
+  `session_add_turn` remembers a message or a whole exchange in one
+  call, `session_memory` returns the labeled memory block a chat turn
+  would be given, and `salt_ingest_document` reads a file or a text
+  into a conversation under its own source name. Open sessions are
+  held warm up to a cap, and the one used longest ago is written to
+  disk before it is closed. The [MCP server](mcp.md) page covers the
+  install, the client entry and every tool.
 
 ## 2.9.0 - 2.9.123
 

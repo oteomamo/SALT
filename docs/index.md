@@ -59,6 +59,15 @@ survive. Any model, plain text out, less compute in.
 
     [Agents](agents.md)
 
+- 🔌 **MCP server**
+
+    ---
+
+    `salt-mcp` puts compression and conversation memory behind the
+    Model Context Protocol, for editors and agent runtimes.
+
+    [MCP server](mcp.md)
+
 - 🎛 **Options**
 
     ---

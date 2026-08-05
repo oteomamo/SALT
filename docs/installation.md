@@ -60,5 +60,16 @@ that needs no vLLM. `saltChat` already defaults to its HF backend.
 `saltServe` can also run a vLLM installed in a separate environment
 through `--vllm-bin`.
 
+**6. (Optional) MCP server.** `salt-mcp` puts SALT behind the Model
+Context Protocol, so an editor or an agent runtime can compress text
+and keep conversation memory through it. Install the extra:
+
+```bash
+pip install "salt[mcp]"
+```
+
+Then point a client at the `salt-mcp` command, see
+[MCP server](mcp.md). It needs no GPU.
+
 > `bash scripts/setup_env.sh` does steps 2–3 in one shot (add `WITH_VLLM=1` to
 > include vLLM).
