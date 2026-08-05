@@ -34,6 +34,9 @@ plain install stays green.
   `/roster`, `/worker`, `/offload`), from the whole worker lifecycle to
   the delegation ledger and the fact that a loaded roster changes
   nothing.
+- `chat_mcp_regression.py` covers the MCP server (`salt-mcp`), driving
+  it over a stdio pipe the way a client does. It skips when the `mcp`
+  extra is not installed.
 - `_agent_stub.py` is not a test of its own. It is the fake worker the
   agent checks run against, in process or as a small server of its own,
   so the whole worker lifecycle runs on CPU with no GPU and no model. It

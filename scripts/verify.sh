@@ -6,8 +6,8 @@
 #   bash scripts/verify.sh chat      # chat ingest + theme suites
 #   bash scripts/verify.sh all      # every CPU suite + eval smoke + docs
 #
-# Areas: chat, engine, dedup, keys, evict, incr, tail, text, agents, pdf,
-# docs, smoke, vllm, serve, all. `all` covers everything that runs on CPU
+# Areas: chat, engine, dedup, keys, evict, incr, tail, text, agents, mcp,
+# pdf, docs, smoke, vllm, serve, all. `all` covers everything that runs on CPU
 # with no server (vllm and serve need a GPU or a running server, run them
 # explicitly).
 #
@@ -58,6 +58,7 @@ area_incr()   { run "carried caches"  "${PY[@]}" scripts/chat_incremental_regres
 area_tail()   { run "tail exclusion"  "${PY[@]}" scripts/chat_tail_regression.py; }
 area_text()   { run "chat text"       "${PY[@]}" scripts/chat_textclean_regression.py; }
 area_agents() { run "agent layer"     "${PY[@]}" scripts/chat_agents_regression.py; }
+area_mcp()    { run "mcp server"      "${PY[@]}" scripts/chat_mcp_regression.py; }
 area_pdf()    { run "pdf ingestion"   pdf_suite; }
 area_smoke()  { run "eval smoke"      smoke_suite; }
 area_docs()   { run "mkdocs strict"   mkdocs build --strict; }
@@ -65,11 +66,11 @@ area_engine() { area_chat; area_smoke; }
 area_vllm()   { run "vllm backend"    "${PY[@]}" scripts/chat_vllm_regression.py; }
 area_serve()  { run "serving"         "${PY[@]}" scripts/chat_serve_regression.py; }
 area_all()    { area_text; area_keys; area_chat; area_dedup; area_evict
-                area_incr; area_tail; area_agents; area_pdf; area_smoke
-                area_docs; }
+                area_incr; area_tail; area_agents; area_mcp; area_pdf
+                area_smoke; area_docs; }
 
 case "${1:-}" in
-  chat|engine|dedup|keys|evict|incr|tail|text|agents|pdf|docs|smoke|vllm|serve|all)
+  chat|engine|dedup|keys|evict|incr|tail|text|agents|mcp|pdf|docs|smoke|vllm|serve|all)
     "area_$1" ;;
   *)
     sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'

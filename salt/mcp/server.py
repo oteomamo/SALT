@@ -22,22 +22,28 @@ DEFAULT_BUDGET_PCT = 0.20
 
 
 def salt_version():
-    """The installed version, or the source tree's when running from a
-    checkout that was never installed."""
-    try:
-        from importlib.metadata import version
-        return version("salt")
-    except Exception:
-        pass
+    """The version this server carries.
+
+    A checkout's pyproject wins over the installed metadata, because an
+    editable install keeps reporting whatever version it was installed
+    at while the tree moves on, and the handshake should say what is
+    actually running.
+    """
     import re
     from pathlib import Path
     pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
     try:
         match = re.search(r'^version = "([^"]+)"',
                           pyproject.read_text(encoding="utf-8"), re.M)
+        if match:
+            return match.group(1)
     except OSError:
+        pass
+    try:
+        from importlib.metadata import version
+        return version("salt")
+    except Exception:
         return "unknown"
-    return match.group(1) if match else "unknown"
 
 
 def resolve_device(args):
