@@ -836,6 +836,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#a-server-that-only-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A server that only reads
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-not-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is not here
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1317,6 +1339,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#a-server-that-only-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A server that only reads
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-not-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is not here
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1395,6 +1439,10 @@ client that connects and asks for nothing pays nothing.</p>
 <tr>
 <td><code>--max-open-sessions</code></td>
 <td>how many conversations stay open at once (default: 8)</td>
+</tr>
+<tr>
+<td><code>--read-only</code></td>
+<td>answer reads and refuse every write</td>
 </tr>
 </tbody>
 </table>
@@ -1524,6 +1572,32 @@ conversation around it never crowd each other out of the memory block.</p>
 whatever is passed is kept, so a name can never point somewhere on
 disk. Ingesting twice under one name merges into that same branch, the
 way attaching a file twice does at the prompt.</p>
+<h2 id="a-server-that-only-reads">A server that only reads</h2>
+<p><code>--read-only</code> starts a server that answers questions about
+conversations and changes none of them. Reads all work:
+<code>salt_compress</code>, <code>session_list</code>, <code>session_resume</code>, <code>session_stats</code> and
+<code>session_memory</code>. Writes refuse: <code>session_create</code>, <code>session_add_turn</code>
+and <code>salt_ingest_document</code> come back as an error beginning
+<code>read-only server:</code>, naming the tool and saying why, so a client can
+tell a server that will not from a call that was wrong.</p>
+<p>The tool list is the same either way. A read-only server offers all
+eight and refuses three of them when called, rather than hiding them,
+so what a client discovers does not depend on how the server was
+started.</p>
+<p>A memory read normally counts as a turn: the selection is committed, so
+what has already surfaced shapes what surfaces next. Read-only drops
+that commit, and says so in the reply with <code>committed: false</code>. Nothing
+in the session folder is written at all, not even the marker a normal
+server leaves to notice a second one.</p>
+<p>This is what to point a shared or automated client at when it should
+be able to look at conversations without being able to change them.</p>
+<h2 id="what-is-not-here">What is not here</h2>
+<p>Some things are deliberately left out of this first version. A
+conversation's turns are not written to the kv ledger the REPL keeps,
+so an MCP client's traffic does not appear in a session's turn records.
+There is no full-context attachment either: a document joins the memory
+and is compressed with everything else, the way <code>salt@</code> works at the
+prompt, rather than riding whole in every prompt like <code>attach@</code>.</p>
 
 
 
