@@ -59,6 +59,7 @@ nav:
       - Chatbot mode: chatbot.md
       - Serving: serving.md
       - Agents: agents.md
+      - MCP server: mcp.md
       - Options: options.md
   - Concepts:
       - Architecture: architecture.md
