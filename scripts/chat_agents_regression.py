@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Regression harness for the agent layer (--roster, /roster, /worker).
 
-The fixture is a small scripted conversation plus a stub HTTP endpoint
-that speaks the two routes a saltServe worker answers on, so every check
-runs on CPU with no vLLM, no GPU and no second process.
+The fixture is a small scripted conversation plus the stub worker from
+_agent_stub.py, which speaks the two routes a saltServe worker answers
+on, so every check runs on CPU with no vLLM, no GPU and no chat model.
 
   1. Roster validation: the shape errors a bad file has to produce.
   2. Roster loading: what a good file yields, and what the shipped
@@ -93,7 +93,6 @@ import textwrap
 import threading
 import time
 from contextlib import contextmanager, redirect_stdout
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import numpy as np
@@ -125,6 +124,8 @@ from salt.engine.compressor import load_bge                      # noqa: E402
 from salt.engine.session_trie import (CONVERSATION_ROLES,        # noqa: E402
                                       VALID_ROLES, SessionTrie)
 
+from _agent_stub import Stub, closed_port, stub_server            # noqa: E402
+
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 SAMPLE = REPO / "salt" / "agents" / "roster_sample.json"
 SAMPLE_ALIAS = "qwen05"
@@ -148,127 +149,6 @@ TRANSCRIPT = [
     "Summarize the sizing argument for the installer.",
 ]
 REPLIES = [f"noted point {i}." for i in range(len(TRANSCRIPT))]
-
-
-class _StubHandler(BaseHTTPRequestHandler):
-    def log_message(self, *args):
-        pass
-
-    def do_GET(self):
-        if self.server.raw is not None:
-            body = self.server.raw
-        else:
-            body = json.dumps({"data": list(self.server.cards)}).encode()
-        try:
-            if self.server.delay:
-                time.sleep(self.server.delay)
-            self.send_response(self.server.status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
-            self.server.aborted.set()
-
-    def _frame(self, text):
-        self.wfile.write(b"data: " + json.dumps(
-            {"choices": [{"text": text}]}).encode() + b"\n\n")
-        self.wfile.flush()
-
-    def do_POST(self):
-        n = int(self.headers.get("Content-Length", 0))
-        self.server.last_payload = json.loads(self.rfile.read(n) or b"{}")
-        with self.server.gauge:
-            self.server.inflight += 1
-            self.server.peak = max(self.server.peak, self.server.inflight)
-            self.server.posts += 1
-        try:
-            if self.server.post_status != 200:
-                body = b"no model is loaded on this server"
-                self.send_response(self.server.post_status)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.end_headers()
-            for piece in self.server.pieces:
-                self._frame(piece)
-                if self.server.delay:
-                    time.sleep(self.server.delay)
-            if self.server.drop:
-                self.close_connection = True
-                self.connection.close()
-                return
-            if self.server.stall:
-                # quiet mid-reply without hanging up, then talking again:
-                # the second write is where a client that walked away
-                # surfaces as a broken pipe
-                self.server.stalled.set()
-                time.sleep(self.server.stall)
-                for i in range(400):
-                    self._frame(f"late{i} ")
-            self.wfile.write(b"data: [DONE]\n\n")
-            self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError, OSError):
-            self.server.aborted.set()
-        finally:
-            with self.server.gauge:
-                self.server.inflight -= 1
-
-
-class Stub:
-    """One /v1/models plus /v1/completions endpoint with a scripted answer.
-
-    Port 0 by default so a real server on the sample roster's port never
-    collides with, or silently satisfies, one of these checks. A fixed
-    port is for the checks that stop the server and bring it back with a
-    session's client still pointing at it.
-    """
-
-    def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
-                 status=200, raw=None, port=0, stall=0.0, drop=False,
-                 serving=True, post_status=200):
-        self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
-                        status=status, raw=raw, stall=stall, drop=drop,
-                        post_status=post_status)
-        self.port = port
-        self.httpd = None
-        self.aborted = threading.Event()
-        self.stalled = threading.Event()
-        self.url = f"http://127.0.0.1:{port}"
-        if serving:
-            self.start()
-
-    def start(self):
-        self.httpd = ThreadingHTTPServer((HOST, self.port), _StubHandler)
-        for key, value in self.cfg.items():
-            setattr(self.httpd, key, value)
-        self.httpd.last_payload = None
-        self.httpd.aborted, self.httpd.stalled = self.aborted, self.stalled
-        self.httpd.inflight, self.httpd.peak, self.httpd.posts = 0, 0, 0
-        self.httpd.gauge = threading.Lock()
-        self.port = self.httpd.server_address[1]
-        self.url = f"http://127.0.0.1:{self.port}"
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-        return self
-
-    def stop(self):
-        if self.httpd is not None:
-            self.httpd.shutdown()
-            self.httpd.server_close()
-            self.httpd = None
-
-    @property
-    def posts(self):
-        return 0 if self.httpd is None else self.httpd.posts
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.stop()
 
 
 class _FakeRunner:
@@ -299,65 +179,7 @@ class _FakeRunner:
         pass
 
 
-def closed_port():
-    """A port nothing is listening on, taken and released."""
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
-STUB_SERVER = '''
-import argparse, json, sys, time
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-ap = argparse.ArgumentParser()
-ap.add_argument("--port", type=int)
-ap.add_argument("--gpu")
-ap.add_argument("--gpu-mem-util")
-ap.add_argument("--max-model-len")
-ap.add_argument("--delay", type=float, default=0.0)
-ap.add_argument("--die", type=float, default=None)
-ap.add_argument("--ignore-term", action="store_true")
-a, rest = ap.parse_known_args()
-if a.ignore_term:
-    import signal
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-print("loading weights, gpu", a.gpu, "extra", rest, flush=True)
-if a.die is not None:
-    time.sleep(a.die)
-    print("CUDA out of memory: tried to allocate 24.00 GiB", flush=True)
-    print("engine failed to start", flush=True)
-    sys.exit(7)
-time.sleep(a.delay)
-
-class H(BaseHTTPRequestHandler):
-    def log_message(self, *x):
-        pass
-
-    def do_GET(self):
-        b = json.dumps({"data": [{"id": "some/model",
-                                  "max_model_len": 4096}]}).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(b)))
-        self.end_headers()
-        self.wfile.write(b)
-
-print("serving on", a.port, flush=True)
-HTTPServer(("127.0.0.1", a.port), H).serve_forever()
-'''
-
 STUB_CFG = {"alias": "stub", "hf_id": "some/model", "path": str(REPO)}
-
-
-def stub_server(tmp):
-    """The script that stands in for saltServe, written once per run."""
-    path = Path(tmp) / "stub_server.py"
-    if not path.exists():
-        path.write_text(STUB_SERVER)
-    return str(path)
 
 
 def spawn_entry(tmp, name="w", *extra, **spawn):

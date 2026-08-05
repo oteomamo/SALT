@@ -34,6 +34,11 @@ plain install stays green.
   `/roster`, `/worker`, `/offload`), from the whole worker lifecycle to
   the delegation ledger and the fact that a loaded roster changes
   nothing.
+- `_agent_stub.py` is not a test of its own. It is the fake worker the
+  agent checks run against, in process or as a small server of its own,
+  so the whole worker lifecycle runs on CPU with no GPU and no model. It
+  lives here rather than in the package on purpose, since a stand-in for
+  a model server is a testing tool and never part of an install.
 
 ## 📦 Utilities
 
