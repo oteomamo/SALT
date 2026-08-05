@@ -1444,7 +1444,14 @@ is a winter evening drawing for about 4 hours ...
 conversation's memory, selected for that task the same way a chat turn
 selects it. The worker answers from what it was given and its reply is
 printed as it came back. With one worker in the roster it needs no
-naming, and with several <code>/offload @NAME &lt;task&gt;</code> picks the one.</p>
+naming, and with several <code>/offload @NAME &lt;task&gt;</code> picks the one. Typing
+<code>@</code> and pressing TAB completes the worker names the roster holds.</p>
+<p><code>/offload! @NAME</code> puts the last task to a second worker, so two models
+answer the same question from the same memory without you typing it
+twice. It takes a name and nothing else.</p>
+<p>Asking for a delegation with no roster loaded prints the recipe for
+enabling one: the <code>saltServe</code> command that runs a second model, and the
+roster file that names it.</p>
 <p>The session's own memory does not change. Delegating selects context but
 commits nothing, so the coverage state, the verbatim tail and the trie
 are the same after a delegation as before it, and the reply is not
