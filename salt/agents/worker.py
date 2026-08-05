@@ -70,6 +70,11 @@ class WorkerError(Exception):
     """A worker could not be reached, opened, or used."""
 
 
+def on_main_thread():
+    """Whether this is the thread a session dispatches on."""
+    return threading.current_thread() is threading.main_thread()
+
+
 def free_port(host=HOST):
     """A port nothing is listening on right now, taken and released."""
     with socket.socket() as s:
@@ -504,14 +509,28 @@ class WorkerHandle:
                     continue
                 raise
 
-    def call(self, messages, **overrides):
+    def call(self, messages, off_thread=False, **overrides):
         """Stream one reply from the worker, yielding text pieces.
 
         A generator that holds the single-flight lock for its whole
         iteration, so a second caller waits for the first to finish
         instead of interleaving on one HTTP session. Abandoning it
         (``close()`` on the generator, or Ctrl-C) severs the response,
-        which aborts the request server-side and frees the handle."""
+        which aborts the request server-side and frees the handle.
+
+        Delegation is blocking here, and it runs on the session's own
+        thread behind the dispatch barrier that keeps the ingest thread
+        off the trie while a turn reads it. A call from any other thread
+        is refused instead: the day work fans out to several workers at
+        once, each of them has to carry its results back rather than
+        reach into the session, and ``off_thread`` is where that caller
+        says it does. Nothing in saltChat passes it.
+        """
+        if not off_thread and not on_main_thread():
+            raise WorkerError(
+                f"worker {self.name!r} was called from "
+                f"{threading.current_thread().name!r}, and a delegation "
+                f"runs on the session's own thread")
         with self._lock:
             runner = self._open()
             self.state = BUSY

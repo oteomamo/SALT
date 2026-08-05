@@ -79,6 +79,7 @@ Usage:
 
 import _thread
 import argparse
+import ast
 import io
 import json
 import os
@@ -456,7 +457,25 @@ def check_worker_calls(tok_path):
         seen = {}
 
         def one(tag):
-            seen[tag] = "".join(h.call(msg))
+            # a thread of its own is exactly what call() refuses without
+            # being told the caller can carry its own results back
+            seen[tag] = "".join(h.call(msg, off_thread=True))
+
+        refused = {}
+
+        def unannounced():
+            try:
+                "".join(h.call(msg))
+            except WorkerError as exc:
+                refused["why"] = str(exc)
+
+        t = threading.Thread(target=unannounced, name="salt-ingest")
+        t.start()
+        t.join(30)
+        assert "salt-ingest" in refused.get("why", ""), (
+            f"a delegation from another thread was allowed: {refused}")
+        assert h.calls == 1, (
+            f"the refused call still reached the worker: {h.calls}")
 
         threads = [threading.Thread(target=one, args=(t,)) for t in "AB"]
         for t in threads:
@@ -473,7 +492,8 @@ def check_worker_calls(tok_path):
         assert h.runner is None, "close kept the client"
         assert h.probe().state == PROBED, "close stopped the server"
     print("5. worker calls: 2 concurrent callers serialized to 1 request at "
-          "a time, and close left the server serving")
+          "a time, a call from another thread refused unless it says so, "
+          "and close left the server serving")
 
 
 def check_abort(tok_path):
@@ -2492,7 +2512,37 @@ def scripted_arm(tmp, cid, tok, mdl, roster, sync):
     return state.trie
 
 
+def functions_containing(path, needle):
+    """Which functions of a module have `needle` in their source."""
+    src = Path(path).read_text(encoding="utf-8")
+    lines = src.splitlines()
+    found = set()
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = "\n".join(lines[node.lineno - 1:node.end_lineno])
+            if needle in body:
+                found.add(node.name)
+    return found
+
+
 def check_delegation_identity(tmp, tok, mdl):
+    # the barrier story, as source facts rather than as a comment: the
+    # agent layer runs no thread of its own, one function reads the trie
+    # and it is the one that drains first, and one function sends
+    agents = REPO / "salt" / "agents"
+    for mod in sorted(agents.glob("*.py")):
+        assert "Thread(" not in mod.read_text(encoding="utf-8"), (
+            f"{mod.name} starts a thread, so the delegation path is no "
+            f"longer the session's own thread")
+    touching = functions_containing(agents / "delegate.py", "state.trie")
+    assert touching == {"build_context"}, (
+        f"the trie is read outside build_context: {sorted(touching)}")
+    assert "state.ingest.drain()" in (agents / "delegate.py").read_text(
+        encoding="utf-8"), "build_context stopped draining before it reads"
+    sending = functions_containing(agents / "delegate.py", "handle.call(")
+    assert sending == {"delegate"}, (
+        f"a worker is called outside delegate(): {sorted(sending)}")
+
     # the same scripted run, once inline and once on the ingest thread. Two
     # workers with answers of their own, so each delegated row is a row of
     # its own rather than the near-dup of the one before it
@@ -2551,7 +2601,9 @@ def check_delegation_identity(tmp, tok, mdl):
     assert (len(state.trie.texts) == len(state.trie.origins) ==
             len(state.trie.roles) == len(state.trie.embeddings)), (
         "the corpus and its parallel lists disagree after the drain")
-    print(f"26. delegation identity: a scripted run with delegated answers "
+    print(f"26. delegation identity: the agent layer runs on the session's "
+          f"own thread and reads the trie in one place, a scripted run "
+          f"with delegated answers "
           f"builds the same {inline.n_sentences} sentence memory inline and "
           f"on the ingest thread, and a delegation raised mid-encode waited "
           f"{took:.1f}s for the row before selecting it")
