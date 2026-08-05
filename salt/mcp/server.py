@@ -19,6 +19,16 @@ from typing import Any
 
 SERVER_NAME = "salt"
 DEFAULT_BUDGET_PCT = 0.20
+# every refusal a read-only server makes starts with this, so a client
+# can tell "this server will not" apart from "this call was wrong"
+READ_ONLY_PREFIX = "read-only server:"
+
+
+def refuse_write(tool, what):
+    """The one shape a read-only refusal takes. Stable wording: clients
+    match on it, so it is part of the contract rather than a message."""
+    raise ValueError(f"{READ_ONLY_PREFIX} {tool} would {what}, and this "
+                     f"server was started with --read-only")
 
 
 def salt_version():
@@ -210,6 +220,8 @@ def add_turns(engine, pool, conversation_id, exchange, sync=False):
     `sync` the work happens inline and a failure is reported here rather
     than journaled.
     """
+    if pool.read_only:
+        refuse_write("session_add_turn", "add to a conversation's memory")
     rows = []
     for i, item in enumerate(exchange):
         if not isinstance(item, dict):
@@ -278,8 +290,11 @@ def session_memory(engine, pool, conversation_id, query,
                          device=engine.device, defer_commit=True)
     selected = comp["selected_sent_idx"]
     block = format_memory_block(trie, selected)
+    # a read is a turn, and commits like one. A read-only server drops
+    # the commit instead, which is the same thing a delegation does:
+    # the selection happened, the session did not move
     commit = comp.get("commit")
-    if commit is not None:
+    if commit is not None and not pool.read_only:
         commit(save=True)
     stats = comp["stats"]
     return {"conversation_id": trie.conversation_id,
@@ -291,6 +306,7 @@ def session_memory(engine, pool, conversation_id, query,
                       "budget_pct": (
                           trie.config.get("budget_pct_default")
                           if budget_pct is None else budget_pct),
+                      "committed": not pool.read_only,
                       "query": query}}
 
 
@@ -317,6 +333,9 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
     from pathlib import Path
     from salt.chat.pdfio import (ExtractionError, is_protected_unit,
                                  read_document, split_document_sentences)
+    if pool.read_only:
+        refuse_write("salt_ingest_document",
+                     "put a document into a conversation's memory")
     if bool(path) == bool(text):
         raise ValueError("salt_ingest_document takes exactly one of path "
                          "or text")
@@ -362,9 +381,14 @@ def build_server(engine, pool=None):
     """The MCP server and its tools, with the engine they compress on."""
     from mcp.server import MCPServer
 
+    read_only = bool(pool is not None and pool.read_only)
     server = MCPServer(name=SERVER_NAME, version=salt_version(),
                        instructions="SALT compresses long text down to the "
-                                    "part that answers a question.")
+                                    "part that answers a question."
+                                    + (" This server is read-only: it "
+                                       "answers about conversations and "
+                                       "changes none of them."
+                                       if read_only else ""))
 
     @server.tool(name="salt_compress",
                  description="Compress a text to a fraction of its words, "
@@ -385,6 +409,8 @@ def build_server(engine, pool=None):
                  structured_output=True)
     def session_create(conversation_id: str = "") -> dict[str, Any]:
         from salt.chat.cli import fresh_conversation_id
+        if pool.read_only:
+            refuse_write("session_create", "make a conversation on disk")
         cid = conversation_id or fresh_conversation_id()
         if pool.exists(cid):
             raise ValueError(f"session {cid!r} already exists - resume it "
@@ -478,6 +504,9 @@ def build_parser():
     p.add_argument("--max-open-sessions", type=int, default=8,
                    help="how many conversations stay open at once "
                         "(default: 8)")
+    p.add_argument("--read-only", action="store_true",
+                   help="answer reads and refuse every write, leaving "
+                        "every conversation exactly as it was found")
     return p
 
 
@@ -489,7 +518,8 @@ def main(argv=None):
     from salt.chat.cli import sessions_root
     from salt.mcp.pool import SessionPool
     pool = SessionPool(args.sessions_dir or sessions_root(),
-                       capacity=args.max_open_sessions)
+                       capacity=args.max_open_sessions,
+                       read_only=args.read_only)
     try:
         build_server(Engine(resolve_device(args)), pool).run("stdio")
     finally:

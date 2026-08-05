@@ -24,7 +24,10 @@ client does, and covers the surface a client depends on:
   7. Documents: a file and a bare text each land under their own
      source name, a name that looks like a path keeps only its last
      part, and an unreadable file is refused rather than half read.
-  8. Off-path: importing saltChat still imports neither the server nor
+  8. Read-only: a second server on the same folder reads everything
+     and refuses every write with one stable, recognisable error, and
+     the conversation it read is byte for byte as it was left.
+  9. Off-path: importing saltChat still imports neither the server nor
      the MCP SDK.
 
 Skips with exit 0 when the mcp extra is not installed, so a plain
@@ -340,6 +343,79 @@ async def drive(sessions):
                   f"they came from")
 
 
+def digest(root):
+    """Every byte of every session file, so a read-only run can be shown
+    to have changed nothing at all."""
+    import hashlib
+    out = {}
+    for f in sorted(Path(root).rglob("*")):
+        if f.is_file():
+            out[str(f.relative_to(root))] = hashlib.sha256(
+                f.read_bytes()).hexdigest()
+    return out
+
+
+async def drive_read_only(sessions, before):
+    """A second server over the same folder, started --read-only."""
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "salt.mcp.server", "--device", "cpu",
+              "--sessions-dir", str(sessions), "--read-only"])
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            init = await session.initialize()
+            assert "read-only" in (init.instructions or ""), (
+                f"the handshake does not say the server is read-only: "
+                f"{init.instructions!r}")
+            listed = await session.list_tools()
+            assert {t.name for t in listed.tools} == set(TOOLS), (
+                "a read-only server offers a different set of tools, so a "
+                "client cannot rely on the surface")
+
+            # reads all answer
+            listing = payload(await session.call_tool("session_list", {}))
+            assert listing["n"] >= 1, listing
+            stats = payload(await session.call_tool(
+                "session_stats", {"conversation_id": "mcp-turns"}))
+            assert stats["n_sentences"] >= 5, stats
+            mem = payload(await session.call_tool("session_memory", {
+                "conversation_id": "mcp-turns",
+                "query": "what happens to the panels in December",
+                "budget_pct": 0.5}))
+            assert mem["memory"], "a read-only server returned no memory"
+            assert mem["stats"]["committed"] is False, (
+                f"a read-only read committed the turn: {mem['stats']}")
+            compressed = payload(await session.call_tool(
+                "salt_compress", {"text": TEXT, "budget_pct": 0.25}))
+            assert compressed["compressed"], compressed
+
+            # writes all refuse, with the one wording
+            writes = (
+                ("session_create", {"conversation_id": "mcp-new-one"}),
+                ("session_add_turn", {"conversation_id": "mcp-turns",
+                                      "text": "one more thing"}),
+                ("salt_ingest_document", {"conversation_id": "mcp-turns",
+                                          "text": "a document"}),
+            )
+            for tool, args in writes:
+                refused = await session.call_tool(tool, args)
+                assert refused.is_error, f"{tool} wrote on a read-only server"
+                said = refused.content[0].text
+                assert "read-only server:" in said, (
+                    f"{tool} refused without the stable wording: {said}")
+                assert tool in said, f"{tool} is not named in its own "\
+                                     f"refusal: {said}"
+            assert not (sessions / "mcp-new-one").exists(), (
+                "a refused session_create still made a directory")
+    after = digest(sessions)
+    changed = [k for k in set(before) | set(after)
+               if before.get(k) != after.get(k)]
+    assert not changed, f"a read-only server changed {changed}"
+    print(f"8. read-only: reads answer and the memory block comes back "
+          f"uncommitted, 3 writes refuse with one stable error, and all "
+          f"{len(after)} session files are byte for byte unchanged")
+
+
 def check_off_path():
     code = ("import salt.chat.cli, sys; "
             "print([m for m in ('salt.mcp', 'salt.mcp.server', 'mcp') "
@@ -349,7 +425,7 @@ def check_off_path():
     assert out.returncode == 0, out.stderr[-400:]
     assert out.stdout.strip() == "[]", (
         f"saltChat now imports the MCP layer: {out.stdout.strip()}")
-    print("8. off-path: importing saltChat pulls in neither the server "
+    print("9. off-path: importing saltChat pulls in neither the server "
           "nor the MCP SDK")
 
 
@@ -357,6 +433,7 @@ def main():
     sessions = Path(tempfile.mkdtemp(prefix="salt_mcp_regression_"))
     try:
         asyncio.run(drive(sessions))
+        asyncio.run(drive_read_only(sessions, digest(sessions)))
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
     check_off_path()

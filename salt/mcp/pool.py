@@ -34,10 +34,11 @@ class SessionError(Exception):
 class OpenSession:
     """One open conversation: its trie, its ingest worker, its warning."""
 
-    def __init__(self, trie, ingest, warning=""):
+    def __init__(self, trie, ingest, warning="", read_only=False):
         self.trie = trie
         self.ingest = ingest
         self.warning = warning
+        self.read_only = read_only
         self.touched = time.monotonic()
 
     @property
@@ -49,13 +50,13 @@ class OpenSession:
         return self.ingest.drain()
 
     def close(self):
-        """Drain, save what changed, then let go. Never raises on the
-        save: a session that cannot be written is worth reporting, not
-        worth taking the server down for."""
+        """Drain, save what changed, then let go. A read-only server
+        saves nothing at all: its whole promise is that opening a
+        conversation leaves it exactly as it was found."""
         try:
             self.ingest.close()
         finally:
-            if self.trie.dirty:
+            if self.trie.dirty and not self.read_only:
                 self.trie.save()
 
 
@@ -94,11 +95,12 @@ class SessionPool:
     """The open sessions, newest use first, bounded by `capacity`."""
 
     def __init__(self, cache_dir, capacity=DEFAULT_CAPACITY,
-                 budget_pct=0.20, synchronous=False):
+                 budget_pct=0.20, synchronous=False, read_only=False):
         self.cache_dir = Path(cache_dir)
         self.capacity = max(1, int(capacity))
         self.budget_pct = budget_pct
         self.synchronous = synchronous
+        self.read_only = read_only
         self.open = {}
         self.evictions = 0
 
@@ -115,8 +117,12 @@ class SessionPool:
         ingest = IngestWorker(
             journal_path=trie.cache_dir / "ingest_failures.jsonl",
             synchronous=self.synchronous)
-        return OpenSession(trie, ingest,
-                           warning=claim(self.cache_dir, conversation_id))
+        # no sentinel on a read-only server: marking the directory is
+        # itself a write, and this server promises not to make any
+        warning = ("" if self.read_only
+                   else claim(self.cache_dir, conversation_id))
+        return OpenSession(trie, ingest, warning=warning,
+                           read_only=self.read_only)
 
     def get(self, conversation_id):
         """The open session for this id, opening it if needed."""
@@ -146,7 +152,8 @@ class SessionPool:
         if session is None:
             return False
         session.close()
-        release(self.cache_dir, conversation_id)
+        if not self.read_only:
+            release(self.cache_dir, conversation_id)
         return True
 
     def close_all(self):

@@ -48,6 +48,7 @@ client that connects and asks for nothing pays nothing.
 | `--bge-device` | device for the encoder, winning over `--device` |
 | `--sessions-dir` | where conversations live (default: the folder saltChat uses) |
 | `--max-open-sessions` | how many conversations stay open at once (default: 8) |
+| `--read-only` | answer reads and refuse every write |
 
 There is no GPU requirement. On a machine without one the encoder runs
 on the CPU, which is slower per call but needs nothing installed beyond
@@ -146,3 +147,36 @@ conversation around it never crowd each other out of the memory block.
 whatever is passed is kept, so a name can never point somewhere on
 disk. Ingesting twice under one name merges into that same branch, the
 way attaching a file twice does at the prompt.
+
+## A server that only reads
+
+`--read-only` starts a server that answers questions about
+conversations and changes none of them. Reads all work:
+`salt_compress`, `session_list`, `session_resume`, `session_stats` and
+`session_memory`. Writes refuse: `session_create`, `session_add_turn`
+and `salt_ingest_document` come back as an error beginning
+`read-only server:`, naming the tool and saying why, so a client can
+tell a server that will not from a call that was wrong.
+
+The tool list is the same either way. A read-only server offers all
+eight and refuses three of them when called, rather than hiding them,
+so what a client discovers does not depend on how the server was
+started.
+
+A memory read normally counts as a turn: the selection is committed, so
+what has already surfaced shapes what surfaces next. Read-only drops
+that commit, and says so in the reply with `committed: false`. Nothing
+in the session folder is written at all, not even the marker a normal
+server leaves to notice a second one.
+
+This is what to point a shared or automated client at when it should
+be able to look at conversations without being able to change them.
+
+## What is not here
+
+Some things are deliberately left out of this first version. A
+conversation's turns are not written to the kv ledger the REPL keeps,
+so an MCP client's traffic does not appear in a session's turn records.
+There is no full-context attachment either: a document joins the memory
+and is compressed with everything else, the way `salt@` works at the
+prompt, rather than riding whole in every prompt like `attach@`.
