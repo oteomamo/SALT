@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-21050" class="md-nav__link">
+  <a href="#2100-21053" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.50
+        2.10.0 - 2.10.53
       
     </span>
   </a>
@@ -1250,10 +1250,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-21050" class="md-nav__link">
+  <a href="#2100-21053" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.50
+        2.10.0 - 2.10.53
       
     </span>
   </a>
@@ -1404,7 +1404,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2100-21050">2.10.0 - 2.10.50</h2>
+<h2 id="2100-21053">2.10.0 - 2.10.53</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
 releases, hand parts of its work to them with SALT memory in the loop.</p>
@@ -1456,7 +1456,7 @@ releases, hand parts of its work to them with SALT memory in the loop.</p>
   middle of a conversation without ending it, including under
   <code>--backend vllm-serve</code>, where the server holds one model and
   <code>/model</code> cannot switch it.</li>
-<li><strong>2.10.44 - 2.10.50</strong> MCP server. <code>pip install "salt[mcp]"</code> adds a
+<li><strong>2.10.44 - 2.10.52</strong> MCP server. <code>pip install "salt[mcp]"</code> adds a
   <code>salt-mcp</code> command that speaks the Model Context Protocol over
   stdio, so an editor or an agent runtime reaches SALT directly.
   <code>salt_compress</code> compresses one text under a budget, optionally
@@ -1468,8 +1468,11 @@ releases, hand parts of its work to them with SALT memory in the loop.</p>
   would be given, and <code>salt_ingest_document</code> reads a file or a text
   into a conversation under its own source name. Open sessions are
   held warm up to a cap, and the one used longest ago is written to
-  disk before it is closed. The <a href="../mcp/">MCP server</a> page covers the
-  install, the client entry and every tool.</li>
+  disk before it is closed. A server started with <code>--read-only</code>
+  answers every read and refuses every write, leaving the
+  conversations it was pointed at exactly as it found them. The
+  <a href="../mcp/">MCP server</a> page covers the install, the client entry and
+  every tool.</li>
 </ul>
 <h2 id="290-29123">2.9.0 - 2.9.123</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
