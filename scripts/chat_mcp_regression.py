@@ -21,7 +21,10 @@ client does, and covers the surface a client depends on:
      one call, a turn submitted a moment earlier is in the memory the
      next call reads, and the block carries the same labels a chat turn
      is given.
-  7. Off-path: importing saltChat still imports neither the server nor
+  7. Documents: a file and a bare text each land under their own
+     source name, a name that looks like a path keeps only its last
+     part, and an unreadable file is refused rather than half read.
+  8. Off-path: importing saltChat still imports neither the server nor
      the MCP SDK.
 
 Skips with exit 0 when the mcp extra is not installed, so a plain
@@ -76,7 +79,9 @@ TOOLS = {"salt_compress": ["budget_pct", "query", "text"],
          "session_stats": ["conversation_id"],
          "session_add_turn": ["conversation_id", "exchange", "role", "sync",
                               "text"],
-         "session_memory": ["budget_pct", "conversation_id", "query"]}
+         "session_memory": ["budget_pct", "conversation_id", "query"],
+         "salt_ingest_document": ["conversation_id", "path", "source_name",
+                                  "text"]}
 STAT_KEYS = {"orig_words", "kept_words", "n_sentences", "n_sentences_raw",
              "n_selected", "word_budget", "actual_tokens",
              "theme_coverage_pct", "compression_ratio", "budget_pct",
@@ -114,6 +119,14 @@ def check_reply(out, budget, queried):
         f"the word count does not describe the text it came with: "
         f"{len(kept.split())} vs {stats['kept_words']}")
     return stats
+
+
+DOC = (
+    "The roof faces south and was replaced in 2019. "
+    "The utility charges more for power between five and nine. "
+    "A battery of nine kilowatt hours covers the winter evening draw. "
+    "The panels are rated at nine kilowatts in full sun."
+)
 
 
 async def drive(sessions):
@@ -288,6 +301,44 @@ async def drive(sessions):
                   f"an unsynced write saw all {mem['stats']['n_sentences']} "
                   f"sentences in a labeled block")
 
+            doc = sessions / "notes.txt"
+            doc.write_text(DOC, encoding="utf-8")
+            filed = payload(await session.call_tool("salt_ingest_document", {
+                "conversation_id": "mcp-turns", "path": str(doc)}))
+            assert filed["source"] == "notes.txt", filed
+            assert filed["added"] >= 3 and not filed["merged_into_existing"], (
+                filed)
+            assert "notes.txt" in filed["attachments"], filed
+            typed = payload(await session.call_tool("salt_ingest_document", {
+                "conversation_id": "mcp-turns",
+                "text": "The second inverter would cost more than the "
+                        "battery it supports.",
+                "source_name": "../../etc/passwd"}))
+            assert typed["source"] == "passwd", (
+                f"a source name kept a path: {typed['source']}")
+            assert typed["added"] == 1, typed
+            for bad, why in (
+                    ({"conversation_id": "mcp-turns"}, "neither a path nor "
+                                                      "a text"),
+                    ({"conversation_id": "mcp-turns", "path": str(doc),
+                      "text": DOC}, "both a path and a text"),
+                    ({"conversation_id": "mcp-turns",
+                      "path": str(sessions / "absent.txt")}, "a missing file"),
+                    ({"conversation_id": "mcp-turns", "text": "   "},
+                     "an empty text")):
+                refused = await session.call_tool("salt_ingest_document", bad)
+                assert refused.is_error, f"{why} was accepted"
+            after = payload(await session.call_tool("session_memory", {
+                "conversation_id": "mcp-turns",
+                "query": "when was the roof replaced", "budget_pct": 0.4}))
+            assert "notes.txt" in after["memory"], (
+                f"the document is not labeled with its source: "
+                f"{after['memory'][:300]}")
+            print(f"7. documents: a file under its own name, a typed text "
+                  f"under a name stripped to {typed['source']!r}, 4 bad "
+                  f"calls refused, and the excerpts labeled with the file "
+                  f"they came from")
+
 
 def check_off_path():
     code = ("import salt.chat.cli, sys; "
@@ -298,7 +349,7 @@ def check_off_path():
     assert out.returncode == 0, out.stderr[-400:]
     assert out.stdout.strip() == "[]", (
         f"saltChat now imports the MCP layer: {out.stdout.strip()}")
-    print("7. off-path: importing saltChat pulls in neither the server "
+    print("8. off-path: importing saltChat pulls in neither the server "
           "nor the MCP SDK")
 
 

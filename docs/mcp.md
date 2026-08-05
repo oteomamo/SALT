@@ -64,6 +64,7 @@ the package.
 | `session_stats` | what one conversation holds |
 | `session_add_turn` | remember a message, or a whole exchange at once |
 | `session_memory` | what the conversation remembers about a question |
+| `salt_ingest_document` | read a document into a conversation's memory |
 
 ### salt_compress
 
@@ -132,3 +133,16 @@ two servers on the same folder would each save over the other. A server
 that notices another one holding a session says so in its reply rather
 than refusing, since a leftover marker from a crashed server must not
 be what stops the next one from working.
+
+## Documents in a conversation
+
+`salt_ingest_document` puts a file into a session's memory. Give it a
+`path` and it reads the file itself, PDF or plain text, or give it
+`text` you already have. Either way it is filed under a source name and
+becomes its own branch of the session, so a long document and the
+conversation around it never crowd each other out of the memory block.
+
+`source_name` is what excerpts are labeled with. Only the last part of
+whatever is passed is kept, so a name can never point somewhere on
+disk. Ingesting twice under one name merges into that same branch, the
+way attaching a file twice does at the prompt.

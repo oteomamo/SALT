@@ -294,6 +294,70 @@ def session_memory(engine, pool, conversation_id, query,
                       "query": query}}
 
 
+def safe_source_name(name, fallback="document"):
+    """The name an excerpt is filed under. Only the last component of
+    whatever was passed, so a source name can never point at a place on
+    disk or climb out of the session's own branch."""
+    from pathlib import Path
+    cleaned = Path(str(name or "")).name.strip()
+    return cleaned or fallback
+
+
+def ingest_document(engine, pool, conversation_id, path=None, text=None,
+                    source_name=""):
+    """Put a document into a conversation's memory, from a file or from
+    text that was already read.
+
+    A path is resolved and read here, so a file the server cannot read
+    is refused with the reason rather than half ingested. The text is
+    split with the document splitter and filed under its own branch of
+    the session, which is what keeps a long file from crowding out the
+    conversation at selection time.
+    """
+    from pathlib import Path
+    from salt.chat.pdfio import (ExtractionError, is_protected_unit,
+                                 read_document, split_document_sentences)
+    if bool(path) == bool(text):
+        raise ValueError("salt_ingest_document takes exactly one of path "
+                         "or text")
+    n_pages = None
+    if path:
+        target = Path(str(path)).expanduser().resolve()
+        if not target.is_file():
+            raise ValueError(f"no such file: {target}")
+        try:
+            body, n_pages = read_document(target)
+        except (ExtractionError, OSError) as exc:
+            raise ValueError(str(exc)) from exc
+        name = safe_source_name(source_name or target.name, target.name)
+    else:
+        body = text
+        name = safe_source_name(source_name)
+    if not body or not body.strip():
+        raise ValueError("there is no text in that document to remember")
+
+    engine = engine.ready()
+    session = pool.get(conversation_id)
+    session.drain()
+    trie = session.trie
+    merging = name in trie.attached_sources
+    before = trie.n_sentences
+    info = trie.add_turn(body, role="doc", tokenizer=engine.tokenizer,
+                         model=engine.model, device=engine.device,
+                         source=name,
+                         sentences=split_document_sentences(body),
+                         keep=is_protected_unit, save=True)
+    return {"conversation_id": trie.conversation_id,
+            "source": name,
+            "merged_into_existing": merging,
+            "pages": n_pages,
+            "added": info["added"],
+            "filtered": info["filtered"],
+            "n_sentences": trie.n_sentences,
+            "new_sentences": trie.n_sentences - before,
+            "attachments": list(trie.attached_sources)}
+
+
 def build_server(engine, pool=None):
     """The MCP server and its tools, with the engine they compress on."""
     from mcp.server import MCPServer
@@ -369,6 +433,18 @@ def build_server(engine, pool=None):
                             budget_pct: float = None) -> dict[str, Any]:
         return session_memory(engine, pool, conversation_id, query,
                               budget_pct)
+
+    @server.tool(name="salt_ingest_document",
+                 description="Read a document into a conversation's "
+                             "memory, from a path or from text, filed "
+                             "under its own source name.",
+                 structured_output=True)
+    def salt_ingest_document(conversation_id: str, path: str = "",
+                             text: str = "",
+                             source_name: str = "") -> dict[str, Any]:
+        return ingest_document(engine, pool, conversation_id,
+                               path=path or None, text=text or None,
+                               source_name=source_name)
 
     @server.tool(name="session_stats",
                  description="What one conversation holds: turns, "
