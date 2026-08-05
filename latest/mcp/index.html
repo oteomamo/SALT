@@ -806,6 +806,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Conversations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#remembering-and-reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remembering and reading
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1259,6 +1276,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Conversations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#remembering-and-reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remembering and reading
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1374,6 +1408,14 @@ the package.</p>
 <td><code>session_stats</code></td>
 <td>what one conversation holds</td>
 </tr>
+<tr>
+<td><code>session_add_turn</code></td>
+<td>remember a message, or a whole exchange at once</td>
+</tr>
+<tr>
+<td><code>session_memory</code></td>
+<td>what the conversation remembers about a question</td>
+</tr>
 </tbody>
 </table>
 <h3 id="salt_compress">salt_compress</h3>
@@ -1422,6 +1464,22 @@ cap, attached files and the budget it compresses under.</p>
 <p>These are the same conversations <code>saltChat</code> keeps, in the same folder
 and under the same naming rule, so a session started here can be
 resumed at the prompt and the other way round.</p>
+<h3 id="remembering-and-reading">Remembering and reading</h3>
+<p><code>session_add_turn</code> puts something said into the conversation's memory.
+It takes one <code>text</code> with a <code>role</code> of <code>user</code> or <code>assistant</code>, or an
+<code>exchange</code> list of both sides in one call, which is the usual shape and
+saves a round trip. The work happens on the session's own worker, in
+the order it arrived. Pass <code>sync</code> to wait for it, which is worth doing
+when the next thing you do is read.</p>
+<p><code>session_memory</code> is the read. Give it a query and it returns the
+labeled memory block a chat turn would be given: excerpts grouped by
+where they came from, each conversation excerpt marked with the turn
+and the speaker. <code>budget_pct</code> sets how much of the conversation the
+block may spend, defaulting to the session's own budget.</p>
+<p>A read is a turn. The selection is committed the way a chat turn
+commits it, so what the conversation has already surfaced shapes what
+the next read surfaces. Anything submitted but not yet encoded is
+finished first, so a turn added a moment earlier is never missed.</p>
 <p>Open sessions are held warm, up to <code>--max-open-sessions</code> of them. Past
 that the one used longest ago is closed, and closing writes it first,
 so a conversation is never dropped with unsaved turns in it.</p>
