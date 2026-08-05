@@ -114,7 +114,9 @@ same way `/offload` does at the prompt. `target` picks the worker and can be
 left out when the roster has only one, and `ingest` decides whether the
 answer is remembered, defaulting to whatever the session was launched with.
 Delegated rows in `--turns-out` carry `{kind, status, worker}` as well, so a
-run can be told apart from the turns the chat model answered.
+run can be told apart from the turns the chat model answered. The
+[Agents](agents.md) page covers what a delegation is and what it leaves
+behind.
 
 ## Attachments
 

@@ -187,6 +187,36 @@ is dropped until it does and a note says how much was kept. The task
 itself is never trimmed, because a worker that lost its task would
 answer the wrong question with confidence.
 
+Two more knobs bound the same exchange from the other side.
+`--offload-budget-pct` sets the memory budget a delegation selects
+under, so a worker can be handed more or less of the conversation than a
+chat turn gets, and `--offload-timeout` says how long to wait on a
+worker that goes quiet. A roster entry that names a timeout of its own
+keeps it, because how long a model takes is a fact about that model
+rather than about the session asking.
+
+## Delegating from a script
+
+A scripted run can delegate as well as talk. An item in a `--turns` file
+shaped like this goes to a worker instead of the chat model, in the
+middle of the same conversation:
+
+```json
+[
+  "What did we decide about the inverter?",
+  {"offload": {"task": "Size the battery bank from that decision",
+               "target": "qwen05", "ingest": true}}
+]
+```
+
+The task is handed over exactly as `/offload` hands it over, so the
+memory it is given, the ledger line it leaves and the labels on a
+remembered answer are all the same. `target` picks the worker and can be
+left out when the roster has only one, and `ingest` decides whether the
+answer is remembered, defaulting to whatever the session was launched
+with. See [scripted turns](chatbot.md#scripted-turns) for the file
+format and what `--turns-out` writes for a delegated row.
+
 `/stats` adds a delegation line once a session has handed something over:
 how many went out in all, and per worker the calls, how many came back,
 the tokens each way and the mean time one took. The totals are read back

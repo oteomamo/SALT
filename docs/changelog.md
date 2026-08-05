@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.0
+## 2.10.0 - 2.10.34
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -15,6 +15,33 @@ Patch releases, grouped where several versions shipped one thing:
   validated roster file naming helper models and how to reach them,
   with a sample at `salt/agents/roster_sample.json`. Groundwork only,
   nothing in the chat changes yet.
+- **2.10.1 - 2.10.9** Workers in a session. `--roster FILE` loads the
+  roster at launch, `/roster` and `/worker` list what is there and probe
+  it for the model each endpoint is actually serving, and `/stats` names
+  the workers. A session with a roster loaded chats exactly as one
+  without.
+- **2.10.10 - 2.10.17** Starting and stopping workers. `/worker start`
+  launches a `saltServe` worker as a child of the session, `/worker
+  stop` takes it down, and `--workers-autostart` starts the roster with
+  the session. A worker is refused onto a card another server already
+  claims unless both sides declare their share. A worker that goes quiet
+  mid-reply is given up on, a refused connection is retried once, and
+  one that fails twice in a row is left alone until a probe revives it.
+- **2.10.18 - 2.10.26** Offload. `/offload <task>` hands one task to a
+  worker together with this conversation's memory, selected for the task
+  the way a chat turn selects it and committing nothing, so the session
+  is the same after a delegation as before it. Every delegation is
+  recorded in `delegations.jsonl`. With `--offload-ingest` the answer is
+  remembered as a turn of its own, headed with the worker it came from
+  rather than shown as something you or the model said.
+- **2.10.27 - 2.10.34** Bounds, resume and scripted delegations.
+  `--offload-context-cap`, `--offload-budget-pct` and
+  `--offload-timeout` bound what a delegation is handed, selects under
+  and waits for. `/stats` reports per-worker totals, and a reopened
+  session carries its numbering and totals on while retiring a worker
+  record no live process backs. A `--turns` file can carry an
+  `{"offload": ...}` item, so a scripted conversation delegates where it
+  needs to.
 
 ## 2.9.0 - 2.9.123
 
