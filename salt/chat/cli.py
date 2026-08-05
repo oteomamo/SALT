@@ -936,7 +936,14 @@ def run_offload(state, task, target=None, ingest=None):
     if result.text:
         print(result.text if result.text.endswith("\n") else result.text)
     print(offload_status_line(result))
-    record_delegation(state, result, ingest_result(state, req, result))
+    remembered = False
+    try:
+        remembered = ingest_result(state, req, result)
+    finally:
+        # filed even if a second Ctrl-C lands during the cleanup: the
+        # delegation happened, and losing its record is the one outcome
+        # an interrupt must not produce
+        record_delegation(state, result, remembered)
     return result
 
 

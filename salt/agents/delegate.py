@@ -37,6 +37,8 @@ TOKENS_PER_WORD = 1.6
 # changed their mind. error: everything else, including a server that
 # rejected the request
 STATUSES = ("ok", "timeout", "dead", "aborted", "error")
+# how many times a severing close is retried against arriving interrupts
+CLOSE_ATTEMPTS = 3
 
 
 class DelegationError(Exception):
@@ -278,6 +280,24 @@ def call_usage(handle, text):
             "output_tokens": output_tokens(runner, text)}
 
 
+def close_quietly(stream, attempts=CLOSE_ATTEMPTS):
+    """Sever the response even while Ctrl-C is still arriving.
+
+    Closing the stream is what aborts the request on the worker, so a
+    second interrupt landing during the cleanup must not be what leaves
+    a worker generating into a connection nobody is reading. Bounded on
+    purpose: after a few tries the interrupt is what the caller wants
+    more than the tidy close.
+    """
+    for _ in range(attempts):
+        try:
+            stream.close()
+            return True
+        except KeyboardInterrupt:
+            continue
+    return False
+
+
 def failure_status(handle, exc):
     """Which kind of failure this was, from the state the worker is in
     rather than from the wording of the message."""
@@ -337,7 +357,7 @@ def delegate(state, req, context=None):
         status = failure_status(handle, exc)
         error = f"{type(exc).__name__}: {exc}"
     finally:
-        stream.close()
+        close_quietly(stream)
         _restore_timeout(handle, prior)
     text = "".join(pieces)
     return DelegationResult(id=state.delegation_seq, target=handle.name,

@@ -1450,6 +1450,10 @@ def check_delegation_call(tmp, tok, mdl):
           "moves the session's memory")
 
 
+def _interrupt(*a, **kw):
+    raise KeyboardInterrupt
+
+
 def offload_line(state, line):
     buf = io.StringIO()
     with redirect_stdout(buf):
@@ -1564,10 +1568,75 @@ def check_offload_command(tmp, tok, mdl):
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
         slow.stop()
+    # a second Ctrl-C during the cleanup: severing the response is what
+    # aborts the request on the worker, so it is retried against the
+    # interrupt rather than skipped
+    class _Stubborn:
+        def __init__(self, refusals):
+            self.refusals, self.closed = refusals, 0
+
+        def close(self):
+            self.closed += 1
+            if self.closed <= self.refusals:
+                raise KeyboardInterrupt
+
+    one_more = _Stubborn(1)
+    assert D.close_quietly(one_more) is True, (
+        "an interrupt during the cleanup left the response open")
+    assert one_more.closed == 2, one_more.closed
+    endless = _Stubborn(99)
+    assert D.close_quietly(endless) is False, (
+        "closing the response never gave the interrupt back to the caller")
+    assert endless.closed == D.CLOSE_ATTEMPTS, endless.closed
+
+    # an interrupt while the answer is being remembered still files the
+    # delegation, and one before the worker was ever called files nothing
+    with Stub(cards=CARDS, pieces=("A bank of about 9 kWh usable ",
+                                   "covers the evening draw.")) as s:
+        state = replayed_state(tmp, "offload_cleanup", tok, mdl,
+                               roster=delegation_roster(s.url, tmp),
+                               flags=("--offload-ingest",))
+        try:
+            real_ingest = cli.submit_ingest
+            cli.submit_ingest = _interrupt
+            try:
+                offload_line(state, "what size bank")
+                raise AssertionError("the interrupt never reached the caller")
+            except KeyboardInterrupt:
+                pass
+            finally:
+                cli.submit_ingest = real_ingest
+            rec = ledger_lines(state.trie.cache_dir)[-1]
+            assert rec["status"] == "ok" and rec["ingest"] is False, (
+                f"an interrupted ingest lost or mislabeled the record: {rec}")
+            assert state.trie.roles.count("worker") == 0, (
+                "an interrupted ingest left half an answer in memory")
+
+            before = len(ledger_lines(state.trie.cache_dir))
+            # cli imported it by name, so that is the name to interrupt
+            real_build = cli.build_context
+            cli.build_context = _interrupt
+            try:
+                offload_line(state, "and the inverter")
+                raise AssertionError("the interrupt never reached the caller")
+            except KeyboardInterrupt:
+                pass
+            finally:
+                cli.build_context = real_build
+            assert len(ledger_lines(state.trie.cache_dir)) == before, (
+                "a delegation that never left the session was recorded")
+            assert state.delegation_seq == 1, (
+                f"an id was spent before the worker was called: "
+                f"{state.delegation_seq}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
     print("17. /offload: one worker needs no naming and several refuse "
-          "without @NAME, the reply and one status line are printed, and "
-          "Ctrl-C comes back as an aborted delegation with the worker "
-          "still ready")
+          "without @NAME, the reply and one status line are printed, Ctrl-C "
+          "comes back as an aborted delegation with the worker still ready, "
+          "and a second one during the cleanup loses neither the abort nor "
+          "the record")
 
 
 def _no_space(*a, **kw):
