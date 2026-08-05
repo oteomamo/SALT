@@ -129,6 +129,7 @@ from _agent_stub import Stub, closed_port, stub_server            # noqa: E402
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 SAMPLE = REPO / "salt" / "agents" / "roster_sample.json"
+DEMO = REPO / "salt" / "agents" / "demo_turns.json"
 SAMPLE_ALIAS = "qwen05"
 CARDS = [{"id": "some/model", "max_model_len": 4096}]
 
@@ -1297,8 +1298,8 @@ def check_delegation_context(tmp, tok, mdl):
           "in the session's memory")
 
 
-def delegation_roster(url, tmp, **kw):
-    entry = R.RosterEntry(name="w", alias="stub", role="worker",
+def delegation_roster(url, tmp, name="w", **kw):
+    entry = R.RosterEntry(name=name, alias="stub", role="worker",
                           server_url=url,
                           model={"alias": "stub", "hf_id": "some/model",
                                  "path": BGE_MODEL}, **kw)
@@ -2467,10 +2468,39 @@ def check_scripted_offload(tmp, tok, mdl):
         finally:
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(state)
-    print("24. scripted delegations: an offload item goes to a worker "
-          "instead of the chat model, its --turns-out row names the worker "
-          "and how it ended, a plain row keeps the shape it always had, "
-          "and a misspelled key is refused before the model loads")
+    # the shipped demo conversation is what a reader copies, so it has to
+    # parse, name workers the sample roster really has, and replay
+    demo = cli.load_turns(DEMO)
+    named = {e["name"] for e in json.loads(SAMPLE.read_text())["models"]}
+    delegated = [t for t in demo if t.offload]
+    assert len(demo) > len(delegated) > 0, "the demo stopped being mixed"
+    for t in delegated:
+        assert t.offload["target"] in named, (
+            f"the demo delegates to {t.offload['target']!r}, which the "
+            f"sample roster does not name: {sorted(named)}")
+    with Stub(cards=CARDS, pieces=("About 9 kWh ",
+                                   "covers the evening draw.")) as s:
+        target = delegated[0].offload["target"]
+        state = replayed_state(tmp, "demo", tok, mdl, turns=(),
+                               roster=delegation_roster(s.url, tmp,
+                                                        name=target))
+        try:
+            with redirect_stdout(io.StringIO()):
+                cli.run_turns(state, demo)
+            recs = ledger_lines(state.trie.cache_dir)
+            assert [r["status"] for r in recs] == ["ok"] * len(delegated), recs
+            assert s.httpd.posts == len(delegated), s.httpd.posts
+            assert state.trie.roles.count("worker") == 1, (
+                f"the demo remembered {state.trie.roles.count('worker')} "
+                f"worker answers, and one item asks for it")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print(f"24. scripted delegations: an offload item goes to a worker "
+          f"instead of the chat model, its --turns-out row names the worker "
+          f"and how it ended, a plain row keeps the shape it always had, a "
+          f"misspelled key is refused before the model loads, and the "
+          f"shipped demo replays its {len(delegated)} delegations")
 
 
 def dead_pid():

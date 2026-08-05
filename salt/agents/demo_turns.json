@@ -1,0 +1,16 @@
+[
+  {"id": "brief",
+   "text": "We are sizing a home battery for a house with 9 kW of panels."},
+  {"id": "inverter",
+   "text": "The inverter is rated at 5 kW continuous, and winter evenings draw from it for about four hours."},
+  {"id": "december",
+   "text": "Assume the panels produce almost nothing in December."},
+  {"id": "sizing",
+   "offload": {"task": "From the panels, the inverter and the winter evening draw, what usable capacity does the battery need?",
+               "target": "qwen05"}},
+  {"id": "risk",
+   "offload": {"task": "Name the one assumption in that sizing most likely to be wrong.",
+               "target": "qwen05", "ingest": true}},
+  {"id": "handover",
+   "text": "Summarize the sizing argument for the installer."}
+]

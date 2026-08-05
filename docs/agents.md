@@ -30,7 +30,8 @@ resolves to, and `role` is `worker` or `orchestrator`. A roster may name
 one orchestrator at most. Loading validates every entry up front, so a
 bad port, an unknown alias or a model whose weights are missing stops
 the launch instead of failing later. This file ships as
-`salt/agents/roster_sample.json`, ready to copy.
+`salt/agents/roster_sample.json`, ready to copy, with one entry of each
+mode in it.
 
 ## Attach or spawn
 
@@ -48,7 +49,7 @@ required, so an entry is never ambiguous about who owns the process.
   "role": "worker",
   "spawn": {
     "port": "auto",
-    "gpu": 1,
+    "gpu": "1",
     "gpu_mem_util": 0.3,
     "max_model_len": 8192,
     "ready_timeout": 180
@@ -216,6 +217,15 @@ left out when the roster has only one, and `ingest` decides whether the
 answer is remembered, defaulting to whatever the session was launched
 with. See [scripted turns](chatbot.md#scripted-turns) for the file
 format and what `--turns-out` writes for a delegated row.
+
+A short mixed conversation ships as `salt/agents/demo_turns.json`, three
+questions to the chat model and two tasks to the worker the sample
+roster names. With a worker up, it runs end to end:
+
+```
+saltChat --roster salt/agents/roster_sample.json \
+         --turns salt/agents/demo_turns.json --conversation-id demo
+```
 
 `/stats` adds a delegation line once a session has handed something over:
 how many went out in all, and per worker the calls, how many came back,

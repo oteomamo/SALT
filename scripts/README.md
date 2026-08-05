@@ -44,6 +44,10 @@ plain install stays green.
 
 - `verify.sh` runs the regression suites for one area in one command
   (`bash scripts/verify.sh chat`, or `all`). Start here.
+- The shipped demo conversation replays a mixed chat and delegation
+  session against a running worker:
+  `saltChat --roster salt/agents/roster_sample.json --turns
+  salt/agents/demo_turns.json --conversation-id demo`.
 - `setup_env.sh` creates the `salt` conda environment and installs the
   dependencies.
 - `run_datasets.sh` compresses the LongBench datasets and can then
