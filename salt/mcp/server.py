@@ -160,7 +160,46 @@ def compress_text(engine, text, budget_pct=None, query=None):
                       "queried": bool(query)}}
 
 
-def build_server(engine):
+def session_payload(pool, conversation_id, created=False):
+    """What a client is told about a session it just opened.
+
+    A new one is written to disk before it is answered for, so that
+    creating a conversation is a fact a later call can see rather than
+    something only this process knows.
+    """
+    session = pool.get(conversation_id)
+    trie = session.trie
+    if created:
+        trie.save()
+    out = {"conversation_id": trie.conversation_id,
+           "created": created,
+           "n_turns": trie.n_turns,
+           "n_sentences": trie.n_sentences,
+           "path": str(trie.cache_dir)}
+    if session.warning:
+        out["warning"] = session.warning
+    return out
+
+
+def session_stats_payload(pool, conversation_id):
+    """The session's own numbers, drained first so a turn submitted a
+    moment ago is counted rather than missed."""
+    session = pool.get(conversation_id)
+    session.drain()
+    trie = session.trie
+    return {"conversation_id": trie.conversation_id,
+            "n_turns": trie.n_turns,
+            "n_sentences": trie.n_sentences,
+            "n_alive": trie.n_alive,
+            "n_masked": trie.n_masked,
+            "n_near_dups": trie.n_near_dups,
+            "attachments": list(trie.attached_sources),
+            "budget_pct": trie.config.get("budget_pct_default"),
+            "open_sessions": len(pool.open),
+            "path": str(trie.cache_dir)}
+
+
+def build_server(engine, pool=None):
     """The MCP server and its tools, with the engine they compress on."""
     from mcp.server import MCPServer
 
@@ -176,6 +215,53 @@ def build_server(engine):
     def salt_compress(text: str, budget_pct: float = DEFAULT_BUDGET_PCT,
                       query: str = "") -> dict[str, Any]:
         return compress_text(engine, text, budget_pct, query or None)
+
+    if pool is None:
+        return server
+
+    @server.tool(name="session_create",
+                 description="Start a conversation whose memory this "
+                             "server keeps. Without an id, one is made "
+                             "from the date and time.",
+                 structured_output=True)
+    def session_create(conversation_id: str = "") -> dict[str, Any]:
+        from salt.chat.cli import fresh_conversation_id
+        cid = conversation_id or fresh_conversation_id()
+        if pool.exists(cid):
+            raise ValueError(f"session {cid!r} already exists - resume it "
+                             f"with session_resume")
+        return session_payload(pool, cid, created=True)
+
+    @server.tool(name="session_resume",
+                 description="Open a conversation that already exists, "
+                             "with the memory it had when it was last "
+                             "written.",
+                 structured_output=True)
+    def session_resume(conversation_id: str) -> dict[str, Any]:
+        if not pool.exists(conversation_id):
+            raise ValueError(f"no session named {conversation_id!r} - "
+                             f"session_list shows what is there")
+        return session_payload(pool, conversation_id)
+
+    @server.tool(name="session_list",
+                 description="Every conversation on disk, most recently "
+                             "written first.",
+                 structured_output=True)
+    def session_list() -> dict[str, Any]:
+        from salt.chat.cli import list_sessions
+        found = list_sessions(pool.cache_dir)
+        return {"sessions": found, "n": len(found),
+                "open": sorted(pool.open)}
+
+    @server.tool(name="session_stats",
+                 description="What one conversation holds: turns, "
+                             "sentences, attachments and its budget.",
+                 structured_output=True)
+    def session_stats(conversation_id: str) -> dict[str, Any]:
+        if not pool.exists(conversation_id) and (
+                conversation_id not in pool.open):
+            raise ValueError(f"no session named {conversation_id!r}")
+        return session_stats_payload(pool, conversation_id)
 
     return server
 
@@ -193,6 +279,12 @@ def build_parser():
                         "the last card")
     p.add_argument("--bge-device", default=None,
                    help="device for the encoder, winning over --device")
+    p.add_argument("--sessions-dir", default=None,
+                   help="where conversations live (default: the same "
+                        "folder saltChat uses)")
+    p.add_argument("--max-open-sessions", type=int, default=8,
+                   help="how many conversations stay open at once "
+                        "(default: 8)")
     return p
 
 
@@ -201,8 +293,16 @@ def main(argv=None):
     if args.version:
         print(salt_version())
         return 0
-    engine = Engine(resolve_device(args))
-    build_server(engine).run("stdio")
+    from salt.chat.cli import sessions_root
+    from salt.mcp.pool import SessionPool
+    pool = SessionPool(args.sessions_dir or sessions_root(),
+                       capacity=args.max_open_sessions)
+    try:
+        build_server(Engine(resolve_device(args)), pool).run("stdio")
+    finally:
+        # the client hanging up is how this server ends, so the last
+        # word a session gets is written here or not at all
+        pool.close_all()
     return 0
 
 

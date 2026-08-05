@@ -46,6 +46,8 @@ client that connects and asks for nothing pays nothing.
 | `--device` | device for the encoder (default: `cuda` when there is one, else `cpu`) |
 | `--gpu` | CUDA index or comma list, with the encoder on the last card |
 | `--bge-device` | device for the encoder, winning over `--device` |
+| `--sessions-dir` | where conversations live (default: the folder saltChat uses) |
+| `--max-open-sessions` | how many conversations stay open at once (default: 8) |
 
 There is no GPU requirement. On a machine without one the encoder runs
 on the CPU, which is slower per call but needs nothing installed beyond
@@ -56,6 +58,10 @@ the package.
 | Tool | What it does |
 |---|---|
 | `salt_compress` | compress one text to a fraction of its words |
+| `session_create` | start a conversation whose memory this server keeps |
+| `session_resume` | open one that already exists, with the memory it had |
+| `session_list` | every conversation on disk, most recently written first |
+| `session_stats` | what one conversation holds |
 
 ### salt_compress
 
@@ -78,3 +84,29 @@ Compression is prose-shaped here: sentences are cleaned, split and
 filtered, then selected under the budget. That is the same path the
 `salt` command runs, with the same defaults, so a tool call and a
 command line give the same answer for the same text.
+
+## Conversations
+
+`salt_compress` is a single shot: text in, shorter text out, nothing
+remembered. A session is the other way of working. `session_create`
+starts one, `session_resume` opens one again later, and what the
+conversation has accumulated is memory the server keeps between calls.
+
+`session_list` shows what is on disk, newest first, with the turn and
+sentence counts each one recorded. `session_stats` opens one and reports
+what it holds now: turns, sentences, how many are still live after any
+cap, attached files and the budget it compresses under.
+
+These are the same conversations `saltChat` keeps, in the same folder
+and under the same naming rule, so a session started here can be
+resumed at the prompt and the other way round.
+
+Open sessions are held warm, up to `--max-open-sessions` of them. Past
+that the one used longest ago is closed, and closing writes it first,
+so a conversation is never dropped with unsaved turns in it.
+
+One server per set of conversations. Nothing locks a session folder, so
+two servers on the same folder would each save over the other. A server
+that notices another one holding a session says so in its reply rather
+than refusing, since a leftover marker from a crashed server must not
+be what stops the next one from working.
