@@ -1130,6 +1130,13 @@ releases. Skip this and run <code>eval.py --backend hf</code> for a portable run
 that needs no vLLM. <code>saltChat</code> already defaults to its HF backend.
 <code>saltServe</code> can also run a vLLM installed in a separate environment
 through <code>--vllm-bin</code>.</p>
+<p><strong>6. (Optional) MCP server.</strong> <code>salt-mcp</code> puts SALT behind the Model
+Context Protocol, so an editor or an agent runtime can compress text
+and keep conversation memory through it. Install the extra:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;salt[mcp]&quot;</span>
+</code></pre></div>
+<p>Then point a client at the <code>salt-mcp</code> command, see
+<a href="../mcp/">MCP server</a>. It needs no GPU.</p>
 <blockquote>
 <p><code>bash scripts/setup_env.sh</code> does steps 2–3 in one shot (add <code>WITH_VLLM=1</code> to
 include vLLM).</p>
