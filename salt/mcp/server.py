@@ -199,6 +199,101 @@ def session_stats_payload(pool, conversation_id):
             "path": str(trie.cache_dir)}
 
 
+TURN_ROLES = ("user", "assistant")
+
+
+def add_turns(engine, pool, conversation_id, exchange, sync=False):
+    """Add one side of a conversation, or a whole exchange at once.
+
+    The rows go through the session's ingest worker, the same FIFO the
+    REPL uses, so the encode order is the order they were said in. With
+    `sync` the work happens inline and a failure is reported here rather
+    than journaled.
+    """
+    rows = []
+    for i, item in enumerate(exchange):
+        if not isinstance(item, dict):
+            raise ValueError(f"turn {i} is not an object with a role and "
+                             f"a text")
+        role = item.get("role", "user")
+        text = item.get("text", "")
+        if role not in TURN_ROLES:
+            raise ValueError(f"turn {i}: role must be one of "
+                             f"{list(TURN_ROLES)}, got {role!r}")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(f"turn {i}: no text to remember")
+        rows.append((role, text))
+    if not rows:
+        raise ValueError("session_add_turn needs a text or an exchange")
+
+    engine = engine.ready()
+    session = pool.get(conversation_id)
+    if sync:
+        session.ingest.synchronous = True
+    before = session.trie.n_sentences
+    for role, text in rows:
+        session.ingest.submit(
+            lambda role=role, text=text: session.trie.add_turn(
+                text, role=role, tokenizer=engine.tokenizer,
+                model=engine.model, device=engine.device, save=False),
+            label=f"{role}-message ingest", payload=text)
+    session.ingest.submit(
+        lambda: session.trie.save() if session.trie.dirty else None,
+        label="session save")
+    failures = session.drain() if sync else []
+    return {"conversation_id": session.conversation_id,
+            "added": len(rows),
+            "n_turns": session.trie.n_turns,
+            "n_sentences": session.trie.n_sentences,
+            "new_sentences": session.trie.n_sentences - before,
+            "pending": session.ingest.pending,
+            "failures": len(failures),
+            "sync": bool(sync)}
+
+
+def session_memory(engine, pool, conversation_id, query,
+                   budget_pct=None):
+    """What this conversation remembers about a question.
+
+    The block is the labeled one a saltChat turn is given, headed by
+    where each excerpt came from. Reading is a turn here: the selection
+    is committed, so the next call sees the coverage this one moved,
+    exactly as a chat turn would.
+    """
+    from salt.chat.cli import format_memory_block
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("session_memory needs a query to select for")
+    engine = engine.ready()
+    session = pool.get(conversation_id)
+    # the drain is the barrier: a turn submitted a moment ago has to be
+    # in the trie before this reads it, or the answer silently misses it
+    session.drain()
+    trie = session.trie
+    if trie.n_sentences == 0:
+        return {"conversation_id": trie.conversation_id, "memory": "",
+                "stats": {"n_selected": 0, "n_sentences": 0,
+                          "query": query}}
+    comp = trie.compress(query=query, budget_pct=budget_pct,
+                         tokenizer=engine.tokenizer, model=engine.model,
+                         device=engine.device, defer_commit=True)
+    selected = comp["selected_sent_idx"]
+    block = format_memory_block(trie, selected)
+    commit = comp.get("commit")
+    if commit is not None:
+        commit(save=True)
+    stats = comp["stats"]
+    return {"conversation_id": trie.conversation_id,
+            "memory": block,
+            "stats": {"n_selected": len(selected),
+                      "n_sentences": trie.n_sentences,
+                      "n_turns": trie.n_turns,
+                      "theme_coverage_pct": stats.get("theme_coverage_pct"),
+                      "budget_pct": (
+                          trie.config.get("budget_pct_default")
+                          if budget_pct is None else budget_pct),
+                      "query": query}}
+
+
 def build_server(engine, pool=None):
     """The MCP server and its tools, with the engine they compress on."""
     from mcp.server import MCPServer
@@ -252,6 +347,28 @@ def build_server(engine, pool=None):
         found = list_sessions(pool.cache_dir)
         return {"sessions": found, "n": len(found),
                 "open": sorted(pool.open)}
+
+    @server.tool(name="session_add_turn",
+                 description="Remember something said in a conversation: "
+                             "one message, or a whole exchange at once.",
+                 structured_output=True)
+    def session_add_turn(conversation_id: str, text: str = "",
+                         role: str = "user",
+                         exchange: list[dict[str, str]] = None,
+                         sync: bool = False) -> dict[str, Any]:
+        rows = list(exchange) if exchange else (
+            [{"role": role, "text": text}] if text else [])
+        return add_turns(engine, pool, conversation_id, rows, sync=sync)
+
+    @server.tool(name="session_memory",
+                 description="What this conversation remembers about a "
+                             "question, as the labeled memory block a "
+                             "chat turn would be given.",
+                 structured_output=True)
+    def session_memory_tool(conversation_id: str, query: str,
+                            budget_pct: float = None) -> dict[str, Any]:
+        return session_memory(engine, pool, conversation_id, query,
+                              budget_pct)
 
     @server.tool(name="session_stats",
                  description="What one conversation holds: turns, "

@@ -17,7 +17,11 @@ client does, and covers the surface a client depends on:
      scratch sessions folder, an id the REPL would refuse is refused
      here too, and the least recently used session is evicted with its
      unsaved rows written first.
-  6. Off-path: importing saltChat still imports neither the server nor
+  6. Turns and memory: a message is remembered, an exchange goes in as
+     one call, a turn submitted a moment earlier is in the memory the
+     next call reads, and the block carries the same labels a chat turn
+     is given.
+  7. Off-path: importing saltChat still imports neither the server nor
      the MCP SDK.
 
 Skips with exit 0 when the mcp extra is not installed, so a plain
@@ -69,7 +73,10 @@ TOOLS = {"salt_compress": ["budget_pct", "query", "text"],
          "session_create": ["conversation_id"],
          "session_resume": ["conversation_id"],
          "session_list": [],
-         "session_stats": ["conversation_id"]}
+         "session_stats": ["conversation_id"],
+         "session_add_turn": ["conversation_id", "exchange", "role", "sync",
+                              "text"],
+         "session_memory": ["budget_pct", "conversation_id", "query"]}
 STAT_KEYS = {"orig_words", "kept_words", "n_sentences", "n_sentences_raw",
              "n_selected", "word_budget", "actual_tokens",
              "theme_coverage_pct", "compression_ratio", "budget_pct",
@@ -222,6 +229,65 @@ async def drive(sessions):
                   f"3 malformed ids refused, and a cap of 2 evicted the "
                   f"oldest with its state written first")
 
+            payload(await session.call_tool("session_create",
+                                            {"conversation_id": "mcp-turns"}))
+            one = payload(await session.call_tool("session_add_turn", {
+                "conversation_id": "mcp-turns", "role": "user",
+                "text": "We are sizing a home battery for a house with "
+                        "9 kW of panels.", "sync": True}))
+            assert one["added"] == 1 and one["new_sentences"] == 1, one
+            batch = payload(await session.call_tool("session_add_turn", {
+                "conversation_id": "mcp-turns", "sync": True,
+                "exchange": [
+                    {"role": "assistant",
+                     "text": "The inverter is rated at 5 kW continuous, so "
+                             "the evening draw matters most."},
+                    {"role": "user",
+                     "text": "Winter evenings are the worst case, roughly "
+                             "four hours of draw each night."},
+                    {"role": "assistant",
+                     "text": "In December the panels produce almost "
+                             "nothing, so the battery carries the "
+                             "evening."}]}))
+            assert batch["added"] == 3, batch
+            assert batch["n_sentences"] == 4, batch
+            for bad in ({"conversation_id": "mcp-turns"},
+                        {"conversation_id": "mcp-turns", "text": "  "},
+                        {"conversation_id": "mcp-turns", "text": "hi",
+                         "role": "worker"}):
+                refused = await session.call_tool("session_add_turn", bad)
+                assert refused.is_error, f"{bad} was accepted"
+
+            # submitted without sync, then read: the read drains first, so
+            # the sentence is in the memory rather than still in flight
+            payload(await session.call_tool("session_add_turn", {
+                "conversation_id": "mcp-turns", "role": "user",
+                "text": "The installer quoted two options, and the cheaper "
+                        "one reuses the existing inverter."}))
+            mem = payload(await session.call_tool("session_memory", {
+                "conversation_id": "mcp-turns",
+                "query": "what happens to the panels in December",
+                "budget_pct": 0.5}))
+            assert mem["stats"]["n_sentences"] == 5, (
+                f"a turn submitted without sync was missed by the read: "
+                f"{mem['stats']}")
+            assert "SALT memory" in mem["memory"], mem["memory"][:200]
+            assert "earlier conversation" in mem["memory"], mem["memory"][:200]
+            assert "December" in mem["memory"], mem["memory"]
+            assert mem["stats"]["n_selected"] >= 1, mem["stats"]
+            assert mem["stats"]["budget_pct"] == 0.5, mem["stats"]
+            empty = payload(await session.call_tool("session_memory", {
+                "conversation_id": "mcp-two", "query": "anything"}))
+            assert empty["memory"] == "" and empty["stats"][
+                "n_selected"] == 0, empty
+            no_query = await session.call_tool("session_memory", {
+                "conversation_id": "mcp-turns", "query": "   "})
+            assert no_query.is_error, "a memory read with no query was taken"
+            print(f"6. turns and memory: 1 message and a 3 turn exchange "
+                  f"remembered, 3 malformed rows refused, and a read after "
+                  f"an unsynced write saw all {mem['stats']['n_sentences']} "
+                  f"sentences in a labeled block")
+
 
 def check_off_path():
     code = ("import salt.chat.cli, sys; "
@@ -232,7 +298,7 @@ def check_off_path():
     assert out.returncode == 0, out.stderr[-400:]
     assert out.stdout.strip() == "[]", (
         f"saltChat now imports the MCP layer: {out.stdout.strip()}")
-    print("6. off-path: importing saltChat pulls in neither the server "
+    print("7. off-path: importing saltChat pulls in neither the server "
           "nor the MCP SDK")
 
 

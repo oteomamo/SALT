@@ -62,6 +62,8 @@ the package.
 | `session_resume` | open one that already exists, with the memory it had |
 | `session_list` | every conversation on disk, most recently written first |
 | `session_stats` | what one conversation holds |
+| `session_add_turn` | remember a message, or a whole exchange at once |
+| `session_memory` | what the conversation remembers about a question |
 
 ### salt_compress
 
@@ -100,6 +102,26 @@ cap, attached files and the budget it compresses under.
 These are the same conversations `saltChat` keeps, in the same folder
 and under the same naming rule, so a session started here can be
 resumed at the prompt and the other way round.
+
+### Remembering and reading
+
+`session_add_turn` puts something said into the conversation's memory.
+It takes one `text` with a `role` of `user` or `assistant`, or an
+`exchange` list of both sides in one call, which is the usual shape and
+saves a round trip. The work happens on the session's own worker, in
+the order it arrived. Pass `sync` to wait for it, which is worth doing
+when the next thing you do is read.
+
+`session_memory` is the read. Give it a query and it returns the
+labeled memory block a chat turn would be given: excerpts grouped by
+where they came from, each conversation excerpt marked with the turn
+and the speaker. `budget_pct` sets how much of the conversation the
+block may spend, defaulting to the session's own budget.
+
+A read is a turn. The selection is committed the way a chat turn
+commits it, so what the conversation has already surfaced shapes what
+the next read surfaces. Anything submitted but not yet encoded is
+finished first, so a turn added a moment earlier is never missed.
 
 Open sessions are held warm, up to `--max-open-sessions` of them. Past
 that the one used longest ago is closed, and closing writes it first,
