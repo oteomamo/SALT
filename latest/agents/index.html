@@ -709,6 +709,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#your-first-delegation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Your first delegation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-roster-file" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1200,6 +1211,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#your-first-delegation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Your first delegation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-roster-file" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1336,6 +1358,39 @@ on each one. Nothing is contacted until you ask, and a session that
 never asks behaves exactly as it did before. This page covers the
 roster and the workers it starts. What a session does with a worker
 once it is up is being built over the 2.10 releases.</p>
+<h2 id="your-first-delegation">Your first delegation</h2>
+<p>Four steps, starting from a saltChat that already works.</p>
+<p>Run a second model as a server, in its own terminal:</p>
+<div class="highlight"><pre><span></span><code>saltServe qwen05 --port 8081
+</code></pre></div>
+<p>Write a roster file that names it, or copy the one that ships as
+<code>salt/agents/roster_sample.json</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt-roster/1&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;alias&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;role&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;worker&quot;</span><span class="p">,</span>
+<span class="w">     </span><span class="nt">&quot;server_url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:8081&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Start the chat with that file:</p>
+<div class="highlight"><pre><span></span><code>saltChat --roster roster.json --conversation-id demo
+</code></pre></div>
+<p>Then talk for a few turns and hand one task over:</p>
+<div class="highlight"><pre><span></span><code>you&gt; /roster probe
+  NAME    ROLE    ALIAS   MODE    ENDPOINT               STATE
+  qwen05  worker  qwen05  attach  http://127.0.0.1:8081  PROBED
+      serving qwen05, window 32768 tokens
+
+you&gt; /offload summarize the sizing argument for the installer
+  delegating to qwen05 (qwen05), 9 sentences of context [214 words] ...
+The house has 9 kW of panels against a 5 kW inverter ...
+  [qwen05] ok, 486 in, 92 out, 2.4s
+</code></pre></div>
+<p>The worker got this conversation's memory, selected for that task, and
+the session that asked is unchanged by the answer. The rest of this page
+is what the roster can say, what a worker costs, and what to do when one
+stops answering.</p>
 <h2 id="the-roster-file">The roster file</h2>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt-roster/1&quot;</span><span class="p">,</span>
