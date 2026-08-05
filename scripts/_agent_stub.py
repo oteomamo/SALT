@@ -52,6 +52,29 @@ class _StubHandler(BaseHTTPRequestHandler):
             {"choices": [{"text": text}]}).encode() + b"\n\n")
         self.wfile.flush()
 
+    def _usage_frame(self, prompt, kept):
+        """What a server with a prefix cache reports about the prompt it
+        was just sent: how long it was, and how much of it it already
+        had. Exact here rather than block-aligned, so a check can name a
+        number instead of a range."""
+        self.wfile.write(b"data: " + json.dumps(
+            {"choices": [], "usage": {
+                "prompt_tokens": len(prompt),
+                "completion_tokens": len(self.server.pieces),
+                "prompt_tokens_details": {"cached_tokens": kept}}}).encode()
+            + b"\n\n")
+        self.wfile.flush()
+
+    def _reuse(self, prompt):
+        """How much of this prompt the previous one already covered."""
+        prior, self.server.last_prompt = self.server.last_prompt, list(prompt)
+        kept = 0
+        for a, b in zip(prior or [], prompt):
+            if a != b:
+                break
+            kept += 1
+        return kept
+
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0))
         self.server.last_payload = json.loads(self.rfile.read(n) or b"{}")
@@ -78,6 +101,9 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self.close_connection = True
                 self.connection.close()
                 return
+            if self.server.usage:
+                prompt = self.server.last_payload.get("prompt") or []
+                self._usage_frame(prompt, self._reuse(prompt))
             if self.server.stall:
                 # quiet mid-reply without hanging up, then talking again:
                 # the second write is where a client that walked away
@@ -106,10 +132,10 @@ class Stub:
 
     def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
                  status=200, raw=None, port=0, stall=0.0, drop=False,
-                 serving=True, post_status=200):
+                 serving=True, post_status=200, usage=False):
         self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
                         status=status, raw=raw, stall=stall, drop=drop,
-                        post_status=post_status)
+                        post_status=post_status, usage=usage)
         self.port = port
         self.httpd = None
         self.aborted = threading.Event()
@@ -123,6 +149,7 @@ class Stub:
         for key, value in self.cfg.items():
             setattr(self.httpd, key, value)
         self.httpd.last_payload = None
+        self.httpd.last_prompt = None
         self.httpd.aborted, self.httpd.stalled = self.aborted, self.stalled
         self.httpd.inflight, self.httpd.peak, self.httpd.posts = 0, 0, 0
         self.httpd.gauge = threading.Lock()

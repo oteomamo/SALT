@@ -1370,6 +1370,34 @@ def check_delegation_call(tmp, tok, mdl):
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(state)
 
+    # what a warm worker gets to keep between two unrelated tasks: the
+    # standing instructions, which are a static file and therefore the
+    # same tokens every time. The context under them is selected per task
+    # and is expected to differ
+    head = D.worker_instructions()
+    assert head == D.worker_instructions(), "the worker prompt is not stable"
+    with Stub(cards=CARDS, pieces=("an ", "answer"), usage=True) as s:
+        state = replayed_state(tmp, "delegation_cache", tok, mdl,
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            offload_line(state, "What size battery?")
+            offload_line(state, "Name the biggest risk.")
+            runner = state.worker("w").runner
+            head_tokens = len(runner.tokenizer(head).input_ids)
+            first, second = [r["usage"] for r in
+                             ledger_lines(state.trie.cache_dir)]
+            assert first["cached_tokens"] == 0, (
+                f"a cold worker reported reuse: {first}")
+            kept = second["cached_tokens"]
+            assert kept >= head_tokens * 0.9, (
+                f"a second task to the same worker reused {kept} tokens, "
+                f"less than the {head_tokens} token instruction head")
+            assert kept < second["prompt_tokens"], (
+                f"the whole prompt was reported as reused: {second}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
     with Stub(cards=CARDS, post_status=503) as s:
         state = replayed_state(tmp, "delegation_error", tok, mdl,
                                roster=delegation_roster(s.url, tmp))
@@ -1444,10 +1472,12 @@ def check_delegation_call(tmp, tok, mdl):
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
         dead.stop()
-    print("16. executing a delegation: text and usage captured, a directive "
-          "shaped reply returned verbatim, a rejection, a stall and a "
-          "vanished server each named as what they are, and no failure "
-          "moves the session's memory")
+    print(f"16. executing a delegation: text and usage captured, a second "
+          f"task to a warm worker keeping {kept} tokens, all {head_tokens} of "
+          f"the instruction head, a directive shaped reply returned verbatim, "
+          f"a "
+          f"rejection, a stall and a vanished server each named as what they "
+          f"are, and no failure moves the session's memory")
 
 
 def _interrupt(*a, **kw):
