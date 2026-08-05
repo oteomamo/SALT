@@ -10,29 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://oteomamo.github.io/SALT/latest/">
+        <link rel="canonical" href="https://oteomamo.github.io/SALT/latest/mcp/">
       
       
+        <link rel="prev" href="../agents/">
       
-        <link rel="next" href="installation/">
+      
+        <link rel="next" href="../options/">
       
       
         
       
       
-      <link rel="icon" href="assets/favicon.svg">
+      <link rel="icon" href="../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>SALT</title>
+        <title>MCP server - SALT</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,9 +53,9 @@
       
     
     
-      <link rel="stylesheet" href="assets/extra.css">
+      <link rel="stylesheet" href="../assets/extra.css">
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#salt" class="md-skip">
+        <a href="#mcp-server" class="md-skip">
           Skip to content
         </a>
       
@@ -98,9 +100,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="SALT" class="md-header__button md-logo" aria-label="SALT" data-md-component="logo">
+    <a href=".." title="SALT" class="md-header__button md-logo" aria-label="SALT" data-md-component="logo">
       
-  <img src="assets/logo.svg" alt="logo">
+  <img src="../assets/logo.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -117,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              MCP server
             
           </span>
         </div>
@@ -222,11 +224,9 @@
   
   
   
-    
   
-  
-    <li class="md-tabs__item md-tabs__item--active">
-      <a href="." class="md-tabs__link">
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
         
   
   
@@ -247,7 +247,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="installation/" class="md-tabs__link">
+        <a href="../installation/" class="md-tabs__link">
           
   
   
@@ -263,11 +263,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="chatbot/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../chatbot/" class="md-tabs__link">
           
   
   
@@ -287,7 +289,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="architecture/" class="md-tabs__link">
+        <a href="../architecture/" class="md-tabs__link">
           
   
   
@@ -307,7 +309,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="datasets/" class="md-tabs__link">
+        <a href="../datasets/" class="md-tabs__link">
           
   
   
@@ -327,7 +329,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="changelog/" class="md-tabs__link">
+        <a href="../changelog/" class="md-tabs__link">
           
   
   
@@ -356,9 +358,7 @@
           
             
               
-                
-              
-              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" hidden>
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
                 <div class="md-sidebar__scrollwrap">
                   <div class="md-sidebar__inner">
                     
@@ -369,9 +369,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="SALT" class="md-nav__button md-logo" aria-label="SALT" data-md-component="logo">
+    <a href=".." title="SALT" class="md-nav__button md-logo" aria-label="SALT" data-md-component="logo">
       
-  <img src="assets/logo.svg" alt="logo">
+  <img src="../assets/logo.svg" alt="logo">
 
     </a>
     SALT
@@ -395,37 +395,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Home
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -441,59 +414,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#new-here" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🧭 New here
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#where-the-project-is-going" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        🔭 Where the project is going
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#paper" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        📝 Paper
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -555,7 +475,7 @@
   
   
     <li class="md-nav__item">
-      <a href="installation/" class="md-nav__link">
+      <a href="../installation/" class="md-nav__link">
         
   
   
@@ -583,7 +503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="usage/" class="md-nav__link">
+      <a href="../usage/" class="md-nav__link">
         
   
   
@@ -615,24 +535,29 @@
       
   
   
+    
   
   
+  
     
     
     
     
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
             
   
   
@@ -650,7 +575,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -668,7 +593,7 @@
   
   
     <li class="md-nav__item">
-      <a href="chatbot/" class="md-nav__link">
+      <a href="../chatbot/" class="md-nav__link">
         
   
   
@@ -696,7 +621,7 @@
   
   
     <li class="md-nav__item">
-      <a href="serving/" class="md-nav__link">
+      <a href="../serving/" class="md-nav__link">
         
   
   
@@ -724,7 +649,7 @@
   
   
     <li class="md-nav__item">
-      <a href="agents/" class="md-nav__link">
+      <a href="../agents/" class="md-nav__link">
         
   
   
@@ -749,10 +674,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="mcp/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -768,6 +720,87 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#point-a-client-at-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Point a client at it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#server-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#salt_compress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt_compress
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -780,7 +813,7 @@
   
   
     <li class="md-nav__item">
-      <a href="options/" class="md-nav__link">
+      <a href="../options/" class="md-nav__link">
         
   
   
@@ -865,7 +898,7 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/" class="md-nav__link">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -950,7 +983,7 @@
   
   
     <li class="md-nav__item">
-      <a href="datasets/" class="md-nav__link">
+      <a href="../datasets/" class="md-nav__link">
         
   
   
@@ -978,7 +1011,7 @@
   
   
     <li class="md-nav__item">
-      <a href="results/" class="md-nav__link">
+      <a href="../results/" class="md-nav__link">
         
   
   
@@ -1063,7 +1096,7 @@
   
   
     <li class="md-nav__item">
-      <a href="changelog/" class="md-nav__link">
+      <a href="../changelog/" class="md-nav__link">
         
   
   
@@ -1091,7 +1124,7 @@
   
   
     <li class="md-nav__item">
-      <a href="roadmap/" class="md-nav__link">
+      <a href="../roadmap/" class="md-nav__link">
         
   
   
@@ -1127,9 +1160,7 @@
             
             
               
-                
-              
-              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" hidden>
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
                 <div class="md-sidebar__scrollwrap">
                   <div class="md-sidebar__inner">
                     
@@ -1148,10 +1179,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#new-here" class="md-nav__link">
+  <a href="#install" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🧭 New here
+        Install
       
     </span>
   </a>
@@ -1159,10 +1190,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-the-project-is-going" class="md-nav__link">
+  <a href="#point-a-client-at-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔭 Where the project is going
+        Point a client at it
       
     </span>
   </a>
@@ -1170,13 +1201,41 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#paper" class="md-nav__link">
+  <a href="#server-flags" class="md-nav__link">
     <span class="md-ellipsis">
       
-        📝 Paper
+        Server flags
       
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#salt_compress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt_compress
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1194,109 +1253,117 @@
               <article class="md-content__inner md-typeset">
                 
                   
-  
-
 
 
   
   
 
 
-<h1 id="salt">SALT</h1>
-<div class="salt-hero">
-<p><img alt="SALT flow animation" src="assets/flow.webp" /></p>
-</div>
-<p><strong>SALT keeps long context small.</strong> It compresses documents and whole
-conversations down to the sentences that carry the most information,
-spreading the budget across a document's themes instead of ranking
-everything by one score, so the minor points that answer real questions
-survive. Any model, plain text out, less compute in.</p>
-<div class="salt-buttons">
-<p><a class="md-button md-button--primary" href="installation/">Get started</a>
-<a class="md-button" href="architecture/">How it works</a></p>
-</div>
-<div class="grid cards">
-<ul>
-<li>
-<p>🧂 <strong>salt</strong></p>
-<hr />
-<p>Compress a document or dataset in one shot. The engine itself, and
-the surface the evaluation runs on.</p>
-<p><a href="usage/">Usage</a></p>
-</li>
-<li>
-<p>🤖 <strong>saltChat</strong></p>
-<hr />
-<p>A chat REPL where SALT is the conversation memory, so long chats
-and attached files stay recallable at a fixed prompt size.</p>
-<p><a href="chatbot/">Chatbot mode</a></p>
-</li>
-<li>
-<p>🔌 <strong>saltServe</strong></p>
-<hr />
-<p>A persistent model server chats connect to and resume against with
-their cache still warm.</p>
-<p><a href="serving/">Serving</a></p>
-</li>
-<li>
-<p>🤝 <strong>Agents</strong></p>
-<hr />
-<p>Name smaller models beside the chat model, so a session can reach
-one without giving up its own model or warm cache.</p>
-<p><a href="agents/">Agents</a></p>
-</li>
-<li>
-<p>🎛 <strong>Options</strong></p>
-<hr />
-<p>Every flag of the three commands in one line each, including the
-off by default switches that make long sessions better.</p>
-<p><a href="options/">Options</a></p>
-</li>
-<li>
-<p>🧩 <strong>Architecture</strong></p>
-<hr />
-<p>The ideas behind the features: the keyword trie, coverage
-selection, the memory contract, and where each stage lives.</p>
-<p><a href="architecture/">Architecture</a></p>
-</li>
-<li>
-<p>📈 <strong>Results</strong></p>
-<hr />
-<p>A 44.60 LongBench average with Llama 3.1 8B at a 20% token budget,
-per dataset.</p>
-<p><a href="results/">Results</a></p>
-</li>
-</ul>
-</div>
-<h2 id="new-here">🧭 New here</h2>
-<ol>
-<li><a href="installation/">Install</a> the environment and the three commands.</li>
-<li><a href="usage/">Compress</a> one document and read what SALT kept.</li>
-<li><a href="chatbot/">Chat</a> with a file attached and watch the memory block
-   choose what to remember.</li>
-<li><a href="architecture/">Read why</a> selection spreads the budget across
-   themes instead of ranking sentences.</li>
-</ol>
-<h2 id="where-the-project-is-going">🔭 Where the project is going</h2>
-<p>The <a href="roadmap/">Roadmap</a> lists what is in progress and what comes
-next, and the <a href="changelog/">Changelog</a> explains what every version
-changed in plain language.</p>
-<h2 id="paper">📝 Paper</h2>
-<p>SALT is described in
-<a href="https://arxiv.org/abs/2607.17486">arXiv:2607.17486</a>. The paper covers
-the legacy selector, tagged
-<a href="https://github.com/oteomamo/SALT/releases/tag/v1.0.0">v1.0.0</a>.
-Current releases default to the coverage selector described on the
-<a href="architecture/">Architecture</a> page.</p>
-<div class="highlight"><pre><span></span><code><span class="nc">@misc</span><span class="p">{</span><span class="nl">mamo2026saltsalienceawarelexicaltrie</span><span class="p">,</span>
-<span class="w">      </span><span class="na">title</span><span class="p">=</span><span class="s">{SALT: Salience-Aware Lexical Trie for Long-Context Compression}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">author</span><span class="p">=</span><span class="s">{Oteo Mamo and Hyunjin Yi and Joydhriti Choudhury and Shangqian Gao and Weikuan Yu}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">year</span><span class="p">=</span><span class="s">{2026}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">eprint</span><span class="p">=</span><span class="s">{2607.17486}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">archivePrefix</span><span class="p">=</span><span class="s">{arXiv}</span><span class="p">,</span>
-<span class="w">      </span><span class="na">url</span><span class="p">=</span><span class="s">{https://arxiv.org/abs/2607.17486}</span>
+<h1 id="mcp-server">🔌 MCP server</h1>
+<p><code>salt-mcp</code> puts SALT behind the Model Context Protocol, so an editor or
+an agent runtime can compress text through the same engine <code>salt</code> and
+<code>saltChat</code> use. It speaks JSON-RPC over stdio and is started by the
+client, not by you.</p>
+<h2 id="install">Install</h2>
+<p>The server ships with the optional extra:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;salt[mcp]&quot;</span>
+</code></pre></div>
+<p>Check it:</p>
+<div class="highlight"><pre><span></span><code>salt-mcp<span class="w"> </span>--version
+</code></pre></div>
+<h2 id="point-a-client-at-it">Point a client at it</h2>
+<p>Most clients read a JSON file naming the servers they may start. The
+entry for SALT is the command and its flags:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;salt&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt-mcp&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;--gpu&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;0&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
+<p>The server loads the encoder on the first call that needs it, so a
+client that connects and asks for nothing pays nothing.</p>
+<h2 id="server-flags">Server flags</h2>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--version</code></td>
+<td>print the SALT version this server carries and exit</td>
+</tr>
+<tr>
+<td><code>--device</code></td>
+<td>device for the encoder (default: <code>cuda</code> when there is one, else <code>cpu</code>)</td>
+</tr>
+<tr>
+<td><code>--gpu</code></td>
+<td>CUDA index or comma list, with the encoder on the last card</td>
+</tr>
+<tr>
+<td><code>--bge-device</code></td>
+<td>device for the encoder, winning over <code>--device</code></td>
+</tr>
+</tbody>
+</table>
+<p>There is no GPU requirement. On a machine without one the encoder runs
+on the CPU, which is slower per call but needs nothing installed beyond
+the package.</p>
+<h2 id="tools">Tools</h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>salt_compress</code></td>
+<td>compress one text to a fraction of its words</td>
+</tr>
+</tbody>
+</table>
+<h3 id="salt_compress">salt_compress</h3>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>text</code></td>
+<td>the text to compress (required)</td>
+</tr>
+<tr>
+<td><code>budget_pct</code></td>
+<td>the share of the original words to keep, <code>0.2</code> by default</td>
+</tr>
+<tr>
+<td><code>query</code></td>
+<td>what the compression should favor, optional</td>
+</tr>
+</tbody>
+</table>
+<p>It returns the compressed text and the numbers behind it: how many
+words went in and came back, how many sentences were found and kept,
+the word budget, the token count of the result, and the share of the
+text's themes the result still covers.</p>
+<p>Without a query the result keeps what covers the text as a whole. With
+one, the selection is biased toward the sentences that answer it, which
+is the same thing a saltChat turn does with its memory.</p>
+<p>Compression is prose-shaped here: sentences are cleaned, split and
+filtered, then selected under the budget. That is the same path the
+<code>salt</code> command runs, with the same defaults, so a tool call and a
+command line give the same answer for the same text.</p>
 
 
 
@@ -1304,13 +1371,8 @@ Current releases default to the coverage selector described on the
 
 
 
-  
-  
 
 
-
-
-  
 
 
 
@@ -1334,19 +1396,33 @@ Current releases default to the coverage selector described on the
   
     
       
-        
-      
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../agents/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Agents">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Agents
+              </div>
+            </div>
+          </a>
         
         
           
-          <a href="installation/" class="md-footer__link md-footer__link--next" aria-label="Next: Installation">
+          <a href="../options/" class="md-footer__link md-footer__link--next" aria-label="Next: Options">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Installation
+                Options
               </div>
             </div>
             <div class="md-footer__button md-icon">
@@ -1383,12 +1459,12 @@ Current releases default to the coverage selector described on the
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
-        <script src="assets/versions.js"></script>
+        <script src="../assets/versions.js"></script>
       
     
   </body>
