@@ -80,6 +80,7 @@ Usage:
 import _thread
 import argparse
 import ast
+import inspect
 import io
 import json
 import os
@@ -2902,6 +2903,84 @@ def check_offload_ergonomics(tmp, tok, mdl):
           "with no roster prints the recipe for having one")
 
 
+def worker_turn_line(state, line):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.worker_turn(state, line)
+    return buf.getvalue()
+
+
+def check_worker_turns(tmp, tok, mdl):
+    # the seam's default is what keeps every other turn in this suite
+    # honest: all of it None is the path that was there before
+    seam = ["reply_fn", "reply_model_id", "reply_tokenizer", "reply_label"]
+    params = inspect.signature(cli.chat_turn).parameters
+    for name in seam:
+        assert params[name].default is None, (
+            f"chat_turn.{name} defaults to {params[name].default!r}, so an "
+            f"ordinary turn no longer takes the ordinary path")
+
+    answer = "A 9 kWh bank covers the evening. Winter is the binding case."
+    with Stub(cards=CARDS, pieces=(answer[:20], answer[20:])) as s:
+        state = replayed_state(tmp, "worker_turn", tok, mdl,
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            for bad in ("@w", "@w   "):
+                assert "Usage: @NAME" in worker_turn_line(state, bad), bad
+            assert "known:" in worker_turn_line(state, "@nope anything"), (
+                "an unknown worker was not refused by name")
+            assert s.httpd.posts == 0, "a refused line still reached a worker"
+
+            prompts_before = len(state.runner.prompts)
+            out = worker_turn_line(state,
+                                   "@w what size battery does that argue for")
+            assert f"w> {answer}" in out, (
+                f"the turn was not labeled with the worker that spoke: {out}")
+            assert s.httpd.posts == 1, s.httpd.posts
+            assert len(state.runner.prompts) == prompts_before, (
+                "the chat model answered a turn that was not its own")
+            # the serve client sends token ids, so the prompt is read back
+            # through the worker's own tokenizer
+            worker_runner = state.worker("w").runner
+            sent = worker_runner.tokenizer.decode(
+                s.httpd.last_payload["prompt"]).lower()
+            assert "what size battery does that argue for" in sent, (
+                "the worker was not given this turn's own question")
+            assert "salt memory" in sent, (
+                "the worker answered without the turn's memory block")
+
+            assert [t["role"] for t in state.tail[-2:]] == [
+                "user", "assistant"], state.tail[-2:]
+            assert state.tail[-1]["content"] == answer, state.tail[-1]
+            assert state.tail[-2]["content"].startswith("what size battery"), (
+                state.tail[-2])
+            assert state.trie.roles[-1] == "assistant", (
+                f"the answer was remembered as {state.trie.roles[-1]!r} "
+                f"rather than as this session's own assistant turn")
+            assert not L.ledger_path(state.trie.cache_dir).exists(), (
+                "a turn the worker answered was filed as a delegation")
+            assert state.delegation_seq == 0, state.delegation_seq
+
+            spoke = events_of(state)[-1]["model"]
+            assert spoke == "some/model", (
+                f"the turn was stamped {spoke!r} rather than the worker's "
+                f"model")
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and what about the inverter?")
+            assert events_of(state)[-1]["model"] == "test/fake", (
+                "the next turn did not go back to the chat model")
+            assert len(state.runner.prompts) == prompts_before + 1, (
+                "the chat model did not take the turn after it")
+            assert s.httpd.posts == 1, "a plain turn reached the worker"
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("32. worker-answered turns: @NAME hands this turn's own prompt "
+          "to a worker and keeps the answer as the session's own, stamped "
+          "with the model that gave it, and the next turn is the chat "
+          "model's again")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -2945,6 +3024,7 @@ def main():
         check_frozen_core()
         check_command_surfaces()
         check_offload_ergonomics(tmp, tok, mdl)
+        check_worker_turns(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

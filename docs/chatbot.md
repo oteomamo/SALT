@@ -74,11 +74,32 @@ them. It has its own page: [Agents](agents.md).
 | `/worker stop <name>` | stop a server this session started |
 | `/offload <task>` | hand a task to a worker, `/offload @NAME <task>` picks one |
 | `/offload! @NAME` | put the last delegated task to another worker as well |
+| `@NAME <question>` | let that worker answer this turn instead |
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
 | `/exit` | leave (the session is saved and resumable by id) |
 
-TAB completes `/commands`, `salt@<file>`, and `attach@<file>` names (see
+TAB completes `/commands`, `@worker` names, `salt@<file>`, and
+`attach@<file>` names (see
 [`salt/files/README.md`](https://github.com/oteomamo/SALT/blob/main/salt/files/README.md)).
+
+## Letting another model answer
+
+A line that starts with `@NAME` gives this one turn to a worker from the
+[roster](agents.md). The prompt is the turn's own, memory and recent
+messages and question together, so the worker answers exactly what the
+chat model would have been asked. What comes back is this session's
+reply: it joins the recent messages, it is remembered, and the next turn
+goes back to the chat model as though nothing had changed hands. The
+record of the turn names the model that actually spoke.
+
+```
+you> @qwen05 which of those two options is cheaper to install?
+qwen05> The second one, because it reuses the existing inverter ...
+```
+
+That makes it possible to change model in the middle of a conversation
+without ending it, including with `--backend vllm-serve`, where the
+server holds one model and `/model` cannot switch it.
 
 ## Scripted turns
 

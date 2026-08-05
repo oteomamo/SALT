@@ -199,6 +199,11 @@ Asking for a delegation with no roster loaded prints the recipe for
 enabling one: the `saltServe` command that runs a second model, and the
 roster file that names it.
 
+A worker can also answer a whole turn rather than take a task off to one
+side: a line starting `@NAME` gives that turn to it, and the answer is
+kept as the session's own, which is
+[changing model mid-conversation](chatbot.md#letting-another-model-answer).
+
 The session's own memory does not change. Delegating selects context but
 commits nothing, so the coverage state, the verbatim tail and the trie
 are the same after a delegation as before it, and the reply is not

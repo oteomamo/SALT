@@ -138,6 +138,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /offload <task>    hand one task to a worker with this conversation's
                    memory as its context (/offload @NAME <task> picks one)
 /offload! @NAME    put the last delegated task to another worker too
+@NAME <question>   let that worker answer this turn instead of the chat
+                   model, with the turn kept as any other
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
 /stats             session, attachments, compression, and GPU memory stats
@@ -1002,6 +1004,55 @@ def offload_command(state, rest, again=False):
         print(exc)
 
 
+def worker_stream(handle):
+    """A reply_fn that answers this turn from a worker.
+
+    The prompt is the turn's own, assembled for the chat model and sent
+    unchanged, because what makes this a turn rather than a delegation
+    is that the session did not rearrange itself for the answerer.
+    """
+    def reply(state, messages, memory_block):
+        over = {}
+        if handle.entry.max_tokens is not None:
+            over["max_new_tokens"] = int(handle.entry.max_tokens)
+        if handle.entry.temperature is not None:
+            over["temperature"] = float(handle.entry.temperature)
+        for piece in handle.call(messages, **over):
+            yield piece
+    return reply
+
+
+def worker_turn(state, line):
+    """`@NAME question` - the same turn, answered by a worker.
+
+    Everything the turn does with the answer is unchanged: it enters the
+    verbatim tail as the assistant side of the pair, it is remembered,
+    and the session commits it. Only who generated it differs, and the
+    turn is stamped with that model so the record says who spoke. This
+    is how a session changes model mid-conversation without losing the
+    conversation, including under a backend where /model cannot.
+    """
+    name, _, question = line[1:].partition(" ")
+    question = question.strip()
+    if not question:
+        print("Usage: @NAME <question>   (that worker answers this turn)")
+        return
+    try:
+        handle = offload_handle(state, name)
+    except RosterError as exc:
+        print(exc)
+        return
+    runner = handle.opened()
+    if runner is None:
+        print(f"worker {handle.name!r} is not reachable: "
+              f"{handle.last_error or 'nothing is serving it yet'}")
+        return
+    return chat_turn(state, question, reply_fn=worker_stream(handle),
+                     reply_model_id=handle.cfg.get("hf_id"),
+                     reply_tokenizer=getattr(runner, "tokenizer", None),
+                     reply_label=handle.name)
+
+
 def ingest_result(state, req, result):
     """Remember a worker's answer as a turn of this session, when the
     session was launched asking for that. Only an answer is remembered:
@@ -1660,7 +1711,17 @@ def handle_command(line, state):
     return True
 
 
-def chat_turn(state, line):
+def chat_turn(state, line, reply_fn=None, reply_model_id=None,
+              reply_tokenizer=None, reply_label=None):
+    """One turn of the conversation, from the question to what is kept.
+
+    ``reply_fn(state, messages, memory_block)`` yields the answer's text
+    pieces in place of the chat model, and the other three say who to
+    stamp the turn with. All four None is the ordinary turn, unchanged
+    down to the bytes of the prompt: the seam exists so another model
+    can answer inside this session without the session becoming a
+    different thing for that turn.
+    """
     if state.runner is None:
         print("No chat model loaded - /model <name> to load one.")
         return
@@ -1724,12 +1785,14 @@ def chat_turn(state, line):
     # previous turn's prompt size for this one
     state.runner.last_prompt_tokens = None
     state.runner.last_engine_stats = None
-    print(f"{state.runner.alias}> ", end="", flush=True)
+    print(f"{reply_label or state.runner.alias}> ", end="", flush=True)
     pieces = []
     interrupted = False
     gen_ok = False
+    stream = (reply_fn(state, messages, memory_block) if reply_fn is not None
+              else state.runner.stream_chat(messages))
     try:
-        for piece in state.runner.stream_chat(messages):
+        for piece in stream:
             print(piece, end="", flush=True)
             pieces.append(piece)
         gen_ok = True
@@ -1738,6 +1801,12 @@ def chat_turn(state, line):
         # below, so its bookkeeping commits like a finished turn
         interrupted = True
         gen_ok = True
+    finally:
+        # a borrowed answerer holds a connection, and closing the
+        # generator is what tells it to stop. The chat model's own
+        # stream is left exactly as it always was
+        if reply_fn is not None:
+            stream.close()
     print("\n" if not interrupted else "  [interrupted]\n")
     # the turn's coverage/EMA bookkeeping lands only now that the model
     # actually answered - a runner error skips this, so the retry sees
@@ -1755,9 +1824,11 @@ def chat_turn(state, line):
     extra.update(delegation_extra(state))
     try:
         state.kvtrace.record_turn(
-            tokenizer=state.runner.tokenizer, trie=state.trie,
+            tokenizer=reply_tokenizer or state.runner.tokenizer,
+            trie=state.trie,
             selected_idx=selected_idx, reply_text=reply,
-            model_id=state.runner.cfg["hf_id"], ts_start=ts_start,
+            model_id=reply_model_id or state.runner.cfg["hf_id"],
+            ts_start=ts_start,
             ts_end=datetime.now().isoformat(timespec="seconds"),
             prompt_tokens=getattr(state.runner, "last_prompt_tokens", None),
             extra=extra or None)
@@ -1963,6 +2034,8 @@ def repl(state):
                 handle_salt_at(state, line)
             elif line.startswith("attach@"):
                 handle_attach_at(state, line)
+            elif line.startswith("@"):
+                worker_turn(state, line)
             elif line.startswith("/"):
                 if not handle_command(line, state):
                     break
