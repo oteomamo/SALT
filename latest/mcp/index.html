@@ -825,6 +825,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#documents-in-a-conversation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documents in a conversation
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1295,6 +1306,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#documents-in-a-conversation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documents in a conversation
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1416,6 +1438,10 @@ the package.</p>
 <td><code>session_memory</code></td>
 <td>what the conversation remembers about a question</td>
 </tr>
+<tr>
+<td><code>salt_ingest_document</code></td>
+<td>read a document into a conversation's memory</td>
+</tr>
 </tbody>
 </table>
 <h3 id="salt_compress">salt_compress</h3>
@@ -1488,6 +1514,16 @@ two servers on the same folder would each save over the other. A server
 that notices another one holding a session says so in its reply rather
 than refusing, since a leftover marker from a crashed server must not
 be what stops the next one from working.</p>
+<h2 id="documents-in-a-conversation">Documents in a conversation</h2>
+<p><code>salt_ingest_document</code> puts a file into a session's memory. Give it a
+<code>path</code> and it reads the file itself, PDF or plain text, or give it
+<code>text</code> you already have. Either way it is filed under a source name and
+becomes its own branch of the session, so a long document and the
+conversation around it never crowd each other out of the memory block.</p>
+<p><code>source_name</code> is what excerpts are labeled with. Only the last part of
+whatever is passed is kept, so a name can never point somewhere on
+disk. Ingesting twice under one name merges into that same branch, the
+way attaching a file twice does at the prompt.</p>
 
 
 
