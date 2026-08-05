@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "salt"
-version = "2.10.43"
+version = "2.10.44"
 description = "SALT: Salience-Aware Lexical Trie for Long-Context Compression"
 readme = "README.md"
 license = "MIT"
@@ -27,15 +27,17 @@ dependencies = [
 
 [project.optional-dependencies]
 vllm = ["vllm==0.11.0", "prometheus-fastapi-instrumentator>=8.0.1"]
+mcp = ["mcp>=1.0"]
 docs = ["mkdocs-material>=9", "mike>=2"]
 
 [project.scripts]
 salt = "salt.compress:main"
 saltChat = "salt.chat.cli:main"
 saltServe = "salt.chat.serve:main"
+salt-mcp = "salt.mcp.server:main"
 
 [tool.setuptools.packages.find]
-include = ["salt", "salt.engine", "salt.datasets", "salt.results", "salt.chat", "salt.agents"]
+include = ["salt", "salt.engine", "salt.datasets", "salt.results", "salt.chat", "salt.agents", "salt.mcp"]
 namespaces = false
 
 [tool.setuptools.package-data]
