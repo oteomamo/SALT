@@ -697,6 +697,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-another-model-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting another model answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scripted-turns" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1288,6 +1299,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-another-model-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting another model answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scripted-turns" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1527,6 +1549,10 @@ them. It has its own page: <a href="../agents/">Agents</a>.</p>
 <td>put the last delegated task to another worker as well</td>
 </tr>
 <tr>
+<td><code>@NAME &lt;question&gt;</code></td>
+<td>let that worker answer this turn instead</td>
+</tr>
+<tr>
 <td><code>/new [id]</code>, <code>/clear</code></td>
 <td>start another conversation, wipe this one</td>
 </tr>
@@ -1536,8 +1562,23 @@ them. It has its own page: <a href="../agents/">Agents</a>.</p>
 </tr>
 </tbody>
 </table>
-<p>TAB completes <code>/commands</code>, <code>salt@&lt;file&gt;</code>, and <code>attach@&lt;file&gt;</code> names (see
+<p>TAB completes <code>/commands</code>, <code>@worker</code> names, <code>salt@&lt;file&gt;</code>, and
+<code>attach@&lt;file&gt;</code> names (see
 <a href="https://github.com/oteomamo/SALT/blob/main/salt/files/README.md"><code>salt/files/README.md</code></a>).</p>
+<h2 id="letting-another-model-answer">Letting another model answer</h2>
+<p>A line that starts with <code>@NAME</code> gives this one turn to a worker from the
+<a href="../agents/">roster</a>. The prompt is the turn's own, memory and recent
+messages and question together, so the worker answers exactly what the
+chat model would have been asked. What comes back is this session's
+reply: it joins the recent messages, it is remembered, and the next turn
+goes back to the chat model as though nothing had changed hands. The
+record of the turn names the model that actually spoke.</p>
+<div class="highlight"><pre><span></span><code>you&gt; @qwen05 which of those two options is cheaper to install?
+qwen05&gt; The second one, because it reuses the existing inverter ...
+</code></pre></div>
+<p>That makes it possible to change model in the middle of a conversation
+without ending it, including with <code>--backend vllm-serve</code>, where the
+server holds one model and <code>/model</code> cannot switch it.</p>
 <h2 id="scripted-turns">Scripted turns</h2>
 <p>Instead of typing, <code>--turns FILE</code> runs a whole conversation from a file,
 one turn after the next, into the same session so the memory builds across
