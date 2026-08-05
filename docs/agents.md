@@ -7,6 +7,54 @@ never asks behaves exactly as it did before. This page covers the
 roster and the workers it starts. What a session does with a worker
 once it is up is being built over the 2.10 releases.
 
+## Your first delegation
+
+Four steps, starting from a saltChat that already works.
+
+Run a second model as a server, in its own terminal:
+
+```
+saltServe qwen05 --port 8081
+```
+
+Write a roster file that names it, or copy the one that ships as
+`salt/agents/roster_sample.json`:
+
+```json
+{
+  "version": "salt-roster/1",
+  "models": [
+    {"name": "qwen05", "alias": "qwen05", "role": "worker",
+     "server_url": "http://127.0.0.1:8081"}
+  ]
+}
+```
+
+Start the chat with that file:
+
+```
+saltChat --roster roster.json --conversation-id demo
+```
+
+Then talk for a few turns and hand one task over:
+
+```
+you> /roster probe
+  NAME    ROLE    ALIAS   MODE    ENDPOINT               STATE
+  qwen05  worker  qwen05  attach  http://127.0.0.1:8081  PROBED
+      serving qwen05, window 32768 tokens
+
+you> /offload summarize the sizing argument for the installer
+  delegating to qwen05 (qwen05), 9 sentences of context [214 words] ...
+The house has 9 kW of panels against a 5 kW inverter ...
+  [qwen05] ok, 486 in, 92 out, 2.4s
+```
+
+The worker got this conversation's memory, selected for that task, and
+the session that asked is unchanged by the answer. The rest of this page
+is what the roster can say, what a worker costs, and what to do when one
+stops answering.
+
 ## The roster file
 
 ```json
