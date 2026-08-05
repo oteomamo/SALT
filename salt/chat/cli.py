@@ -480,6 +480,44 @@ def valid_session_id(cid):
     return bool(SESSION_ID_RE.fullmatch(cid or ""))
 
 
+def sessions_root():
+    """Where conversations live. Read through this rather than off the
+    constant, so a caller that moves the directory moves every reader
+    with it."""
+    return SESSIONS_DIR
+
+
+def list_sessions(root=None):
+    """Every conversation on disk, most recently written first.
+
+    Each entry is what can be known without opening a session: its id,
+    the turn and sentence counts its config recorded, and when it was
+    last written. A directory with no config is a session that never
+    got as far as saving, and it is listed with what is knowable rather
+    than hidden.
+    """
+    root = Path(root) if root is not None else sessions_root()
+    if not root.is_dir():
+        return []
+    out = []
+    for d in root.iterdir():
+        if not d.is_dir() or not valid_session_id(d.name):
+            continue
+        cfg = {}
+        try:
+            cfg = json.loads((d / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        out.append({"conversation_id": cfg.get("conversation_id", d.name),
+                    "n_turns": cfg.get("n_turns"),
+                    "n_sentences": cfg.get("n_sentences"),
+                    "saved": bool(cfg),
+                    "modified": d.stat().st_mtime,
+                    "path": str(d)})
+    out.sort(key=lambda s: s["modified"], reverse=True)
+    return out
+
+
 def normalize_budget(val):
     """Accept 0.3 or 30 for 30%; None if out of range."""
     if val > 1:
@@ -1103,11 +1141,11 @@ def delegation_extra(state):
             "agent_workers": names}
 
 
-def print_delegation_stats(state):
+def print_delegation_stats(state, stats=None):
     """What this session has handed out, per worker. Silent until it has
     handed out something: a session with a roster it never used has
     nothing to report that /roster does not already say."""
-    stats = state.delegation_stats
+    stats = state.delegation_stats if stats is None else stats
     if not stats["n"]:
         return
     workers = stats["workers"]
@@ -1121,6 +1159,220 @@ def print_delegation_stats(state):
               f"{'call' if w['calls'] == 1 else 'calls'}, {w['ok']} ok, "
               f"{w['prompt_tokens']} in / {w['output_tokens']} out tokens, "
               f"{mean:.1f}s mean, last {w['last_status']}")
+
+
+def build_stats(state):
+    """Everything /stats knows, as data rather than as lines.
+
+    The printer below renders it and nothing else assembles it, so a
+    caller that is not a terminal reads exactly what the REPL shows.
+    Values are raw here: the formatting, and the decision to leave a
+    section out, both belong to the printer.
+    """
+    t = state.trie
+    s = state.last_stats or {}
+    kv = state.kvtrace
+    ing = state.ingest.stats
+    full = []
+    for name, text in state.full_attachments.items():
+        full.append({"name": name, "tokens": state.count_tokens(text)})
+    cmap, cmap_total = conversation_map(t)
+    limit = state.runner.input_budget() if state.runner else None
+    return {
+        "session": {"conversation_id": t.conversation_id,
+                    "n_sentences": t.n_sentences, "n_alive": t.n_alive,
+                    "n_masked": t.n_masked, "n_turns": t.n_turns,
+                    "budget": state.budget,
+                    "model": state.runner.alias if state.runner else None},
+        "attachments": {"trie": list(t.attached_sources), "full": full},
+        "conversation_map": {"lines": cmap, "total": cmap_total},
+        "compression": s,
+        "prompt": {"fixed_tokens": prompt_fixed_tokens(state),
+                   "input_budget": limit},
+        "switches": {"coverage_half_life": state.coverage_half_life,
+                     "coverage_decay_docs": state.coverage_decay_docs,
+                     "tail_exclude": state.tail_exclude,
+                     "shift_damping": state.shift_damping,
+                     "shift_query_boost": state.shift_query_boost,
+                     "shift_margin": state.shift_margin,
+                     "per_source_themes": state.per_source_themes,
+                     "dedup_cos": state.dedup_cos,
+                     "max_sentences": state.max_sentences,
+                     "coverage_bounded": bool(
+                         state.coverage_gc or state.coverage_max_keys
+                         or state.coverage_half_life
+                         or state.stable_coverage_keys)},
+        "memory": {"n_near_dups": t.n_near_dups, "n_masked": t.n_masked},
+        "delegations": state.delegation_stats,
+        "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
+                   "failures": ing["failures"],
+                   "pending": state.ingest.pending,
+                   "sync": state.sync_ingest},
+        "kv": {"last_event": kv.last_event, "totals": kv.totals},
+        "workers": [{"name": h.name, "state": h.state, "calls": h.calls,
+                     "mean_latency": h.mean_latency}
+                    for h in state.worker_handles()]
+        if state.roster is not None else None,
+        "device": str(state.device),
+    }
+
+
+def print_stats(state, payload=None):
+    """The /stats block, rendered from build_stats."""
+    d = payload or build_stats(state)
+    sess = d["session"]
+    counted = (f"{sess['n_sentences']} sentences" if not sess["n_masked"]
+               else f"{sess['n_alive']} of {sess['n_sentences']} "
+                    f"sentences live")
+    print(f"session {sess['conversation_id']!r}: {counted} over "
+          f"{sess['n_turns']} turns, budget {sess['budget']:.0%}, "
+          f"model {sess['model'] or 'none'}")
+    files = d["attachments"]["trie"]
+    if files:
+        print(f"trie attachments ({len(files)}): {', '.join(files)}")
+    if d["attachments"]["full"]:
+        parts = [f"{a['name']} (~{a['tokens']} tok)" if a["tokens"]
+                 else a["name"] for a in d["attachments"]["full"]]
+        print(f"full-context attachments ({len(parts)}): {', '.join(parts)}")
+    cmap = d["conversation_map"]["lines"]
+    cmap_total = d["conversation_map"]["total"]
+    if cmap:
+        span = (f"all {cmap_total}" if len(cmap) == cmap_total
+                else f"most recent {len(cmap)} of {cmap_total}")
+        print(f"conversation map ({span} turns):")
+        for line in cmap:
+            print(f"  {line}")
+    s = d["compression"]
+    if s:
+        trie_info = s.get("trie", {})
+        print(f"last compression: theme coverage "
+              f"{s.get('theme_coverage_pct', 0):.1%}, "
+              f"{trie_info.get('n_nodes', '?')} nodes / "
+              f"{trie_info.get('n_branches', '?')} branches")
+    fixed = d["prompt"]["fixed_tokens"]
+    if fixed is not None:
+        limit = d["prompt"]["input_budget"]
+        of = f" of {int(limit)} usable input tokens" if limit else ""
+        print(f"prompt fixed cost: ~{fixed} tokens ahead of the "
+              f"memory block{of}")
+    sw = d["switches"]
+    # reported from the switches, not last_stats: the setting is visible
+    # even before the first compress of a session
+    if sw["coverage_half_life"]:
+        keys = s.get("coverage_keys")
+        print(f"coverage decay: half-life "
+              f"{sw['coverage_half_life']:g} turns"
+              + (", attached files included" if sw["coverage_decay_docs"]
+                 else "")
+              + (f", {keys} theme keys tracked" if keys is not None
+                 else ""))
+    if sw["tail_exclude"]:
+        n = s.get("excluded_sent")
+        print("tail exclusion: on"
+              + (f" - {n} tail-resident sentences left out last turn"
+                 if n is not None else ""))
+    else:
+        print("tail exclusion: off this launch (--no-tail-exclude)")
+    if sw["shift_damping"]:
+        print(f"shift damping: x{sw['shift_damping']:g} stale-seed "
+              f"scale on shift turns, query boost "
+              f"x{sw['shift_query_boost']:g}")
+    if s.get("coverage_seed_keys") is not None:
+        print(f"coverage seed: {s['coverage_seed_matched']} of "
+              f"{s['coverage_seed_keys']} carried-over keys matched "
+              f"this turn's memory tree, {s['coverage_orphan_keys']} "
+              f"orphaned (mass {s['coverage_orphan_mass']:g})")
+    if s.get("coverage_persisted_orphans") is not None:
+        print(f"coverage dict: {s['coverage_persisted_live']} live "
+              f"keys, {s['coverage_persisted_orphans']} orphaned "
+              f"({s['coverage_orphan_doc_keys']} from attachments, "
+              f"mass {s['coverage_persisted_orphan_mass']:g})")
+    if sw["per_source_themes"]:
+        note = ""
+        if s.get("theme_scope") == "source":
+            note = (f" - last turn profiled {s.get('theme_sources')} "
+                    f"sources, {s.get('theme_keywords_conv')} "
+                    f"conversation theme keywords")
+        print(f"theme scope: per-source (--per-source-themes){note}")
+    # count read from the trie, not last_stats: suppression happens at
+    # ingest, and a resumed session carries its count even when the
+    # gate is off this launch
+    n_near_dups = d["memory"]["n_near_dups"]
+    if sw["dedup_cos"]:
+        print(f"near-dup gate: skip conversation sentences at cos >= "
+              f"{sw['dedup_cos']:g}; {n_near_dups} suppressed so far "
+              f"(near_dups.jsonl has each one)")
+    elif n_near_dups:
+        print(f"near-dup gate: off this launch; {n_near_dups} "
+              f"sentences suppressed earlier in this session")
+    # same reason as the near-dup counter: masking happens at ingest,
+    # so a resumed session reports its state even with the flag off
+    n_masked = d["memory"]["n_masked"]
+    if sw["max_sentences"]:
+        note = ("" if sw["coverage_bounded"] else
+                " - no coverage bound is on, so the theme keys those "
+                "sentences left behind stay in the dictionary")
+        print(f"session cap: {sw['max_sentences']} conversation "
+              f"sentences kept, {n_masked} masked out of memory so "
+              f"far{note}")
+    elif n_masked:
+        print(f"session cap: off this launch; {n_masked} sentences "
+              f"masked earlier in this session")
+    print_delegation_stats(state, d["delegations"])
+    ing = d["ingest"]
+    fail_note = (f", {ing['failures']} failed (ingest_failures.jsonl)"
+                 if ing["failures"] else "")
+    if ing["sync"]:
+        print(f"ingest: synchronous (--sync-ingest) - {ing['jobs']} "
+              f"jobs, {ing['busy_s']:.1f}s inline{fail_note}")
+    else:
+        print(f"ingest: background - {ing['jobs']} jobs, "
+              f"{ing['busy_s']:.1f}s of encode kept off the prompt "
+              f"path{fail_note}"
+              + (f", {ing['pending']} in flight" if ing["pending"] else ""))
+    if s.get("drift_cos") is not None:
+        base = s.get("drift_ema")
+        base_str = (f"{base:.3f}" if base is not None
+                    else "n/a (first measure)")
+        mark = ""
+        if s.get("topic_shift"):
+            mark = " - TOPIC SHIFT"
+            if s.get("shift_damped"):
+                mark += (f" ({s.get('shift_damped_keys', 0)} stale keys "
+                         f"damped)")
+        # margin always shown: detection runs even with damping off,
+        # precisely so the margin can be tuned before trusting it
+        print(f"topic drift: cos {s['drift_cos']:.3f} vs ema {base_str} "
+              f"(margin {sw['shift_margin']:g}){mark}")
+    last, totals = d["kv"]["last_event"], d["kv"]["totals"]
+    if last:
+        u, tot = last["usage"], totals
+        print(f"kv ledger: turn {last['turn']} - "
+              f"read {u['input_cached_tokens']}, write {u['input']}, "
+              f"output {u['output']} tok | session totals "
+              f"read {tot['input_cached_tokens']}, write {tot['input']}, "
+              f"output {tot['output']}")
+    apc = (last or {}).get("apc_cached_tokens")
+    if apc is not None:
+        n = (last or {}).get("apc_prompt_tokens") or 0
+        print(f"APC: {apc}/{n} prompt tokens served from the engine's "
+              f"prefix cache" + (f" ({apc / n:.0%})" if n else ""))
+    elif (last or {}).get("engine_backend") == "vllm-serve":
+        print("APC: the server reported no cache stats this turn - if "
+              "this persists, start it with "
+              "--enable-prompt-tokens-details (saltServe passes it)")
+    if d["workers"] is not None:
+        # reports what is already known: /roster probe and /worker probe
+        # are what contact an endpoint, never /stats
+        told = [f"{w['name']} {w['state']}"
+                + (f" ({w['calls']} calls, {w['mean_latency']:.1f}s mean)"
+                   if w["calls"] else "")
+                for w in d["workers"]]
+        print(f"workers: {len(told)} in the roster - {', '.join(told)}")
+    if torch.cuda.is_available():
+        dev = d["device"] if d["device"].startswith("cuda") else None
+        print(f"GPU memory allocated ({d['device']}): "
+              f"{torch.cuda.memory_allocated(dev) / 2**30:.2f} GiB")
 
 
 def offload_status_line(result):
@@ -1531,160 +1783,7 @@ def handle_command(line, state):
         state.budget = val
         print(f"Memory budget set to {val:.0%}.")
     elif cmd == "/stats":
-        t = state.trie
-        counted = (f"{t.n_sentences} sentences" if not t.n_masked
-                   else f"{t.n_alive} of {t.n_sentences} sentences live")
-        print(f"session {t.conversation_id!r}: {counted} over "
-              f"{t.n_turns} turns, budget {state.budget:.0%}, "
-              f"model {state.runner.alias if state.runner else 'none'}")
-        files = t.attached_sources
-        if files:
-            print(f"trie attachments ({len(files)}): {', '.join(files)}")
-        if state.full_attachments:
-            parts = []
-            for name, text in state.full_attachments.items():
-                n_tok = state.count_tokens(text)
-                parts.append(f"{name} (~{n_tok} tok)" if n_tok else name)
-            print(f"full-context attachments ({len(parts)}): {', '.join(parts)}")
-        cmap, cmap_total = conversation_map(t)
-        if cmap:
-            span = (f"all {cmap_total}" if len(cmap) == cmap_total
-                    else f"most recent {len(cmap)} of {cmap_total}")
-            print(f"conversation map ({span} turns):")
-            for line in cmap:
-                print(f"  {line}")
-        s = state.last_stats or {}
-        if s:
-            trie_info = s.get("trie", {})
-            print(f"last compression: theme coverage "
-                  f"{s.get('theme_coverage_pct', 0):.1%}, "
-                  f"{trie_info.get('n_nodes', '?')} nodes / "
-                  f"{trie_info.get('n_branches', '?')} branches")
-        fixed = prompt_fixed_tokens(state)
-        if fixed is not None:
-            limit = state.runner.input_budget()
-            of = f" of {int(limit)} usable input tokens" if limit else ""
-            print(f"prompt fixed cost: ~{fixed} tokens ahead of the "
-                  f"memory block{of}")
-        # reported from ChatState, not last_stats: the setting is visible
-        # even before the first compress of a session
-        if state.coverage_half_life:
-            keys = s.get("coverage_keys")
-            print(f"coverage decay: half-life "
-                  f"{state.coverage_half_life:g} turns"
-                  + (", attached files included" if state.coverage_decay_docs
-                     else "")
-                  + (f", {keys} theme keys tracked" if keys is not None
-                     else ""))
-        if state.tail_exclude:
-            n = s.get("excluded_sent")
-            print("tail exclusion: on"
-                  + (f" - {n} tail-resident sentences left out last turn"
-                     if n is not None else ""))
-        else:
-            print("tail exclusion: off this launch (--no-tail-exclude)")
-        if state.shift_damping:
-            print(f"shift damping: x{state.shift_damping:g} stale-seed "
-                  f"scale on shift turns, query boost "
-                  f"x{state.shift_query_boost:g}")
-        if s.get("coverage_seed_keys") is not None:
-            print(f"coverage seed: {s['coverage_seed_matched']} of "
-                  f"{s['coverage_seed_keys']} carried-over keys matched "
-                  f"this turn's memory tree, {s['coverage_orphan_keys']} "
-                  f"orphaned (mass {s['coverage_orphan_mass']:g})")
-        if s.get("coverage_persisted_orphans") is not None:
-            print(f"coverage dict: {s['coverage_persisted_live']} live "
-                  f"keys, {s['coverage_persisted_orphans']} orphaned "
-                  f"({s['coverage_orphan_doc_keys']} from attachments, "
-                  f"mass {s['coverage_persisted_orphan_mass']:g})")
-        if state.per_source_themes:
-            note = ""
-            if s.get("theme_scope") == "source":
-                note = (f" - last turn profiled {s.get('theme_sources')} "
-                        f"sources, {s.get('theme_keywords_conv')} "
-                        f"conversation theme keywords")
-            print(f"theme scope: per-source (--per-source-themes){note}")
-        # count read from the trie, not last_stats: suppression happens at
-        # ingest, and a resumed session carries its count even when the
-        # gate is off this launch
-        if state.dedup_cos:
-            print(f"near-dup gate: skip conversation sentences at cos >= "
-                  f"{state.dedup_cos:g}; {t.n_near_dups} suppressed so far "
-                  f"(near_dups.jsonl has each one)")
-        elif t.n_near_dups:
-            print(f"near-dup gate: off this launch; {t.n_near_dups} "
-                  f"sentences suppressed earlier in this session")
-        # same reason as the near-dup counter: masking happens at ingest,
-        # so a resumed session reports its state even with the flag off
-        if state.max_sentences:
-            bounded = (state.coverage_gc or state.coverage_max_keys
-                       or state.coverage_half_life
-                       or state.stable_coverage_keys)
-            note = ("" if bounded else
-                    " - no coverage bound is on, so the theme keys those "
-                    "sentences left behind stay in the dictionary")
-            print(f"session cap: {state.max_sentences} conversation "
-                  f"sentences kept, {t.n_masked} masked out of memory so "
-                  f"far{note}")
-        elif t.n_masked:
-            print(f"session cap: off this launch; {t.n_masked} sentences "
-                  f"masked earlier in this session")
-        print_delegation_stats(state)
-        ing = state.ingest.stats
-        fail_note = (f", {ing['failures']} failed (ingest_failures.jsonl)"
-                     if ing["failures"] else "")
-        if state.sync_ingest:
-            print(f"ingest: synchronous (--sync-ingest) - {ing['jobs']} "
-                  f"jobs, {ing['busy_s']:.1f}s inline{fail_note}")
-        else:
-            print(f"ingest: background - {ing['jobs']} jobs, "
-                  f"{ing['busy_s']:.1f}s of encode kept off the prompt "
-                  f"path{fail_note}"
-                  + (f", {state.ingest.pending} in flight"
-                     if state.ingest.pending else ""))
-        if s.get("drift_cos") is not None:
-            base = s.get("drift_ema")
-            base_str = (f"{base:.3f}" if base is not None
-                        else "n/a (first measure)")
-            mark = ""
-            if s.get("topic_shift"):
-                mark = " - TOPIC SHIFT"
-                if s.get("shift_damped"):
-                    mark += (f" ({s.get('shift_damped_keys', 0)} stale keys "
-                             f"damped)")
-            # margin always shown: detection runs even with damping off,
-            # precisely so the margin can be tuned before trusting it
-            print(f"topic drift: cos {s['drift_cos']:.3f} vs ema {base_str} "
-                  f"(margin {state.shift_margin:g}){mark}")
-        kv = state.kvtrace
-        if kv.last_event:
-            u, tot = kv.last_event["usage"], kv.totals
-            print(f"kv ledger: turn {kv.last_event['turn']} - "
-                  f"read {u['input_cached_tokens']}, write {u['input']}, "
-                  f"output {u['output']} tok | session totals "
-                  f"read {tot['input_cached_tokens']}, write {tot['input']}, "
-                  f"output {tot['output']}")
-        apc = (kv.last_event or {}).get("apc_cached_tokens")
-        if apc is not None:
-            n = (kv.last_event or {}).get("apc_prompt_tokens") or 0
-            print(f"APC: {apc}/{n} prompt tokens served from the engine's "
-                  f"prefix cache" + (f" ({apc / n:.0%})" if n else ""))
-        elif (kv.last_event or {}).get("engine_backend") == "vllm-serve":
-            print("APC: the server reported no cache stats this turn - if "
-                  "this persists, start it with "
-                  "--enable-prompt-tokens-details (saltServe passes it)")
-        if state.roster is not None:
-            # reports what is already known: /roster probe and /worker probe
-            # are what contact an endpoint, never /stats
-            told = [f"{h.name} {h.state}"
-                    + (f" ({h.calls} calls, {h.mean_latency:.1f}s mean)"
-                       if h.calls else "")
-                    for h in state.worker_handles()]
-            print(f"workers: {len(told)} in the roster - {', '.join(told)}")
-        if torch.cuda.is_available():
-            dev = state.device if str(state.device).startswith("cuda") else None
-            print(f"GPU memory allocated ({state.device}): "
-                  f"{torch.cuda.memory_allocated(dev) / 2**30:.2f} GiB")
+        print_stats(state)
     elif cmd == "/new":
         cid = rest[0] if rest else fresh_conversation_id()
         if not valid_session_id(cid):
