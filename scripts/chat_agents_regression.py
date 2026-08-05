@@ -50,14 +50,16 @@ runs on CPU with no vLLM, no GPU and no second process.
  23. Delegation budgets: what bounds the context handed over, the
      reply asked for, a prompt too big for the worker, and how long a
      quiet one is waited for.
- 24. Resuming a session: what carries over, what is retired as a
+ 24. Scripted delegations: an offload item in a --turns file, what it
+     writes to --turns-out, and the item shapes that are refused.
+ 25. Resuming a session: what carries over, what is retired as a
      claim nobody can honour, and what is deliberately not restarted.
- 25. Identity: a scripted conversation runs byte-identically with and
+ 26. Identity: a scripted conversation runs byte-identically with and
      without a roster loaded, prompts and coverage included.
- 26. Import purity: importing the agent layer costs nothing, and no
+ 27. Import purity: importing the agent layer costs nothing, and no
      entry point reaches the serve client or an MCP server on import.
- 27. Frozen core: the agent work has not touched the eval files.
- 28. Command surfaces: HELP, TAB completion and the docs
+ 28. Frozen core: the agent work has not touched the eval files.
+ 29. Command surfaces: HELP, TAB completion and the docs
      command table agree on what the REPL accepts.
 
 Groups 7 to 14 spawn stub servers instead of saltServe, through the
@@ -2429,6 +2431,103 @@ def check_delegation_budgets(tmp, tok, mdl):
           f"session's limit")
 
 
+def turns_file(tmp, name, items):
+    path = Path(tmp) / name
+    path.write_text(json.dumps(items), encoding="utf-8")
+    return str(path)
+
+
+def refused_turns(tmp, name, items, fragment):
+    try:
+        cli.load_turns(turns_file(tmp, name, items))
+    except ValueError as exc:
+        assert fragment in str(exc), f"{items} raised {exc}"
+        return
+    raise AssertionError(f"{items} was accepted")
+
+
+def check_scripted_offload(tmp, tok, mdl):
+    # a plain item is read exactly as it was before delegations existed
+    plain = cli.load_turns(turns_file(tmp, "plain.json", [
+        "bare string", {"id": "x", "question": "an object"}]))
+    assert [(t.id, t.text, t.offload) for t in plain] == [
+        (None, "bare string", None), ("x", "an object", None)], plain
+
+    spec = cli.load_turns(turns_file(tmp, "spec.json", [
+        {"offload": "just the task"},
+        {"id": "d1", "offload": {"task": "T", "target": "w",
+                                 "ingest": True}}]))
+    assert spec[0].text == "just the task" and spec[0].offload == {
+        "task": "just the task"}, spec[0]
+    assert spec[1].id == "d1" and spec[1].text == "T", spec[1]
+    refused_turns(tmp, "bad1.json", [{"offload": {"task": "T", "worker": "w"}}],
+                  "unknown keys ['worker']")
+    refused_turns(tmp, "bad2.json", [{"offload": {"target": "w"}}],
+                  "names no task")
+    refused_turns(tmp, "bad3.json", [{"offload": ["T"]}],
+                  "neither a task string nor an object")
+    # an item with no text and no offload is still the old ambiguity error
+    refused_turns(tmp, "bad4.json", [{"a": "1", "b": "2"}], "no obvious message")
+
+    with Stub(cards=CARDS, pieces=("A battery of about 9 kWh ",
+                                   "covers the evening draw.")) as s:
+        roster = delegation_roster(s.url, tmp)
+        state = replayed_state(tmp, "scripted", tok, mdl, turns=(),
+                               roster=roster)
+        out_path = Path(tmp) / "turns_out.jsonl"
+        script = turns_file(tmp, "mixed.json", [
+            {"id": "c1", "question": "The evening draw is 6 kWh."},
+            {"id": "d1", "offload": {"task": "size the bank",
+                                     "ingest": True}},
+            {"id": "c2", "question": "And the inverter is 5 kW."},
+            {"offload": {"task": "name the risk", "target": "w"}},
+            {"id": "d3", "offload": {"task": "anything", "target": "nope"}}])
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.run_turns(state, cli.load_turns(script), str(out_path))
+            out = buf.getvalue()
+            assert out.count("offload> ") == 3, out
+            assert out.count("you> ") == 2, out
+            assert "[turn d3 failed:" in out and "nope" in out, (
+                f"an unknown worker did not fail its item alone: {out}")
+
+            rows = [json.loads(l) for l in
+                    out_path.read_text(encoding="utf-8").splitlines()]
+            assert len(rows) == 5, rows
+            chat = [r for r in rows if "kind" not in r]
+            assert [r["id"] for r in chat] == ["c1", "c2"], chat
+            assert set(chat[0]) == {"id", "turn", "question", "answer"}, (
+                f"a chat row changed shape: {sorted(chat[0])}")
+            assert chat[0]["answer"] == REPLIES[0], chat[0]
+            done = [r for r in rows if r.get("kind") == "offload"]
+            assert [r["turn"] for r in done] == [1, 3, 4], done
+            assert [r["status"] for r in done] == ["ok", "ok", "error"], done
+            assert [r["worker"] for r in done] == ["w", "w", "nope"], done
+            assert done[0]["question"] == "size the bank", done[0]
+            assert done[0]["answer"] == ("A battery of about 9 kWh covers "
+                                         "the evening draw."), done[0]
+            assert done[2]["answer"] is None, done[2]
+
+            assert s.httpd.posts == 2, (
+                f"the failed item still reached a worker: {s.httpd.posts}")
+            assert state.delegation_seq == 2, state.delegation_seq
+            recs = ledger_lines(state.trie.cache_dir)
+            assert [r["ingest"] for r in recs] == [True, False], (
+                f"the item's ingest flag did not decide: {recs}")
+            # the session was launched WITHOUT --offload-ingest, so only the
+            # item that asked for it is remembered, and as a worker row
+            assert state.trie.roles.count("worker") == 1, state.trie.roles
+            assert "w" in state.trie.origins, state.trie.origins
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("24. scripted delegations: an offload item goes to a worker "
+          "instead of the chat model, its --turns-out row names the worker "
+          "and how it ended, a plain row keeps the shape it always had, "
+          "and a misspelled key is refused before the model loads")
+
+
 def dead_pid():
     """A pid that named a process and no longer does."""
     proc = subprocess.Popen([sys.executable, "-c", "pass"])
@@ -2532,7 +2631,7 @@ def check_resume(tmp, tok, mdl):
     finally:
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
-    print("24. resuming a session: ids, totals and origins all continue "
+    print("25. resuming a session: ids, totals and origins all continue "
           "where they stopped, a dead worker record is archived rather "
           "than believed, and nothing is restarted unasked")
 
@@ -2562,7 +2661,7 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
-    print(f"25. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
+    print(f"26. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
           f"({len(off_trace)} prompts compared in full)")
 
@@ -2603,7 +2702,7 @@ def check_import_purity():
                                 ("vllm", "salt.mcp",
                                  "salt.chat.runner_serve"))
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
-    print("26. import purity: the agent layer pulls none of "
+    print("27. import purity: the agent layer pulls none of "
           f"{len(heavy)} heavy imports, and saltChat still reaches neither "
           f"the serve client nor an MCP server")
 
@@ -2617,7 +2716,7 @@ def check_frozen_core():
                            "-q", LADDER_BASE + "^{commit}"],
                           capture_output=True, text=True)
     if base.returncode != 0:
-        print(f"27. frozen core: {LADDER_BASE} is not resolvable here, so the "
+        print(f"28. frozen core: {LADDER_BASE} is not resolvable here, so the "
               f"{len(FROZEN)} eval files were checked for existence only")
         return
     # against the working tree, not just HEAD, so an uncommitted edit to a
@@ -2629,7 +2728,7 @@ def check_frozen_core():
     assert not touched, (
         f"the agent work changed frozen eval files {touched} - the eval "
         f"path must stay byte-identical across this ladder")
-    print(f"27. frozen core: all {len(FROZEN)} eval files untouched since "
+    print(f"28. frozen core: all {len(FROZEN)} eval files untouched since "
           f"the agent layer began")
 
 
@@ -2648,7 +2747,7 @@ def check_command_surfaces():
         assert cmd in helped, f"{cmd} left HELP"
         assert f"| `{cmd}" in doc, (
             f"{cmd} is not in the docs/chatbot.md command table")
-    print(f"28. command surfaces: all {len(helped)} REPL commands are in "
+    print(f"29. command surfaces: all {len(helped)} REPL commands are in "
           f"HELP and TAB completion, agent commands documented too")
 
 
@@ -2687,6 +2786,7 @@ def main():
         check_delegation_stats(tmp, tok, mdl)
         check_tail_integrity(tmp, tok, mdl)
         check_delegation_budgets(tmp, tok, mdl)
+        check_scripted_offload(tmp, tok, mdl)
         check_resume(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
         check_import_purity()

@@ -98,6 +98,24 @@ turn prints its id and the model's reply. Add `--turns-out results.jsonl`
 to also append `{id, turn, question, answer}` per turn, so the run can be
 reviewed or scored afterward.
 
+An item can also hand its work to a worker instead of the chat model, which
+puts a delegation in the middle of a scripted conversation:
+
+```json
+[
+  "What did we decide about the inverter?",
+  {"offload": {"task": "Size the battery bank from that decision",
+               "target": "qwen05", "ingest": true}}
+]
+```
+
+The task goes to that worker with this session's memory as its context, the
+same way `/offload` does at the prompt. `target` picks the worker and can be
+left out when the roster has only one, and `ingest` decides whether the
+answer is remembered, defaulting to whatever the session was launched with.
+Delegated rows in `--turns-out` carry `{kind, status, worker}` as well, so a
+run can be told apart from the turns the chat model answered.
+
 ## Attachments
 
 A `salt@` file becomes **its own branch** of the session trie, hanging off the

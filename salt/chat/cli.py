@@ -28,7 +28,7 @@ import re
 import shutil
 import sys
 import time
-from collections import Counter
+from collections import Counter, namedtuple
 from datetime import datetime
 from itertools import groupby
 from pathlib import Path
@@ -913,22 +913,18 @@ def session_timeout(state, handle):
     return state.offload_timeout
 
 
-def offload_command(state, rest):
-    """Hand one task to a worker and print what came back."""
-    target = None
-    if rest and rest[0].startswith("@"):
-        target, rest = rest[0][1:], rest[1:]
-    task = " ".join(rest).strip()
-    if not task:
-        print("Usage: /offload <task>   or   /offload @NAME <task>")
-        return
-    try:
-        handle = offload_handle(state, target)
-    except RosterError as exc:
-        print(exc)
-        return
+def run_offload(state, task, target=None, ingest=None):
+    """Hand one task to a worker, print what came back and file it.
+
+    The single path behind both the prompt and a scripted run, so a
+    delegation costs the session the same thing either way. Returns the
+    result; a worker that could not be found raises RosterError, which
+    is a question about the roster rather than about this task.
+    """
+    handle = offload_handle(state, target)
     req = DelegationRequest(task=task, target=handle.name,
-                            ingest=state.offload_ingest,
+                            ingest=state.offload_ingest if ingest is None
+                            else bool(ingest),
                             budget_pct=state.offload_budget_pct,
                             timeout_s=session_timeout(state, handle))
     context = build_context(state, req)
@@ -941,6 +937,22 @@ def offload_command(state, rest):
         print(result.text if result.text.endswith("\n") else result.text)
     print(offload_status_line(result))
     record_delegation(state, result, ingest_result(state, req, result))
+    return result
+
+
+def offload_command(state, rest):
+    """Hand one task to a worker and print what came back."""
+    target = None
+    if rest and rest[0].startswith("@"):
+        target, rest = rest[0][1:], rest[1:]
+    task = " ".join(rest).strip()
+    if not task:
+        print("Usage: /offload <task>   or   /offload @NAME <task>")
+        return
+    try:
+        run_offload(state, task, target)
+    except RosterError as exc:
+        print(exc)
 
 
 def ingest_result(state, req, result):
@@ -1725,6 +1737,10 @@ def chat_turn(state, line):
 
 _TURN_TEXT_KEYS = ("prompt", "question", "puzzle", "text", "content",
                    "message", "user", "turn")
+_OFFLOAD_KEYS = ("task", "target", "ingest")
+# a scripted item is one of two things: a message for the chat model, or a
+# task for a worker. offload is None for the first and the spec for the second
+ScriptedTurn = namedtuple("ScriptedTurn", "id text offload")
 
 
 def _parse_turns_file(raw):
@@ -1763,13 +1779,41 @@ def _turn_text(item, field, i):
         f"key that holds it")
 
 
+def _turn_offload(item, i):
+    """The delegation an item asks for, None when it is an ordinary turn.
+
+    Named keys only: a scripted run is read long after it was written, so
+    a misspelled key has to be refused rather than quietly ignored, the
+    same way the roster refuses one.
+    """
+    if not isinstance(item, dict) or "offload" not in item:
+        return None
+    spec = item["offload"]
+    if isinstance(spec, str):
+        spec = {"task": spec}
+    if not isinstance(spec, dict):
+        raise ValueError(f"turn {i}: offload is neither a task string nor "
+                         f"an object")
+    unknown = [k for k in spec if k not in _OFFLOAD_KEYS]
+    if unknown:
+        raise ValueError(f"turn {i}: offload has unknown keys "
+                         f"{sorted(unknown)} - known: "
+                         f"{', '.join(_OFFLOAD_KEYS)}")
+    if not str(spec.get("task", "")).strip():
+        raise ValueError(f"turn {i}: offload names no task")
+    return spec
+
+
 def load_turns(path, field=None):
-    """Read a --turns file into an ordered list of (id, text) user turns."""
+    """Read a --turns file into an ordered list of scripted items: a user
+    turn for the chat model, or a task for a worker."""
     items = _parse_turns_file(Path(path).read_text(encoding="utf-8"))
     turns = []
     for i, item in enumerate(items):
         turn_id = item.get("id") if isinstance(item, dict) else None
-        turns.append((turn_id, _turn_text(item, field, i)))
+        spec = _turn_offload(item, i)
+        text = str(spec["task"]) if spec else _turn_text(item, field, i)
+        turns.append(ScriptedTurn(turn_id, text, spec))
     return turns
 
 
@@ -1780,24 +1824,41 @@ def run_turns(state, turns, out_path=None):
     out_path, each answer is appended to a JSONL file."""
     out = open(out_path, "w", encoding="utf-8") if out_path else None
     try:
-        for i, (turn_id, text) in enumerate(turns):
-            label = turn_id if turn_id is not None else i
+        for i, item in enumerate(turns):
+            label = item.id if item.id is not None else i
             print(f"\n=== turn {i + 1}/{len(turns)} [{label}] ===")
-            print(f"you> {text}")
+            print(f"{'offload>' if item.offload else 'you>'} {item.text}")
             report_ingest_failures(state.ingest.drain())
-            reply = None
+            answer, result, stop = None, None, False
             try:
-                reply = chat_turn(state, text)
+                if item.offload:
+                    result = run_offload(state, item.text,
+                                         item.offload.get("target"),
+                                         item.offload.get("ingest"))
+                    answer = result.text
+                    # delegate() answers an interrupt with a status rather
+                    # than an exception, so the run has to read it as the
+                    # stop it was and still record the delegation below
+                    stop = result.status == "aborted"
+                else:
+                    answer = chat_turn(state, item.text)
             except KeyboardInterrupt:
-                print("\n[interrupted - stopping the run]")
-                break
+                stop = True
             except Exception as exc:
                 print(f"[turn {label} failed: {exc}]")
             if out is not None:
-                out.write(json.dumps(
-                    {"id": turn_id, "turn": i, "question": text,
-                     "answer": reply}, ensure_ascii=False) + "\n")
+                row = {"id": item.id, "turn": i, "question": item.text,
+                       "answer": answer}
+                if item.offload:
+                    row["kind"] = "offload"
+                    row["status"] = result.status if result else "error"
+                    row["worker"] = (result.target if result
+                                     else item.offload.get("target"))
+                out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 out.flush()
+            if stop:
+                print("\n[interrupted - stopping the run]")
+                break
     finally:
         if out is not None:
             out.close()
@@ -2089,14 +2150,18 @@ def build_parser():
                         "session so SALT's memory builds across them. A "
                         "string item is the message; an object item takes "
                         "its message from --turns-field (default: a common "
-                        "key such as question/puzzle/prompt). Works with "
-                        "every backend, including --backend vllm-serve.")
+                        "key such as question/puzzle/prompt). An item "
+                        "{\"offload\": {\"task\": ..., \"target\": ..., "
+                        "\"ingest\": ...}} goes to a worker instead of the "
+                        "chat model. Works with every backend, including "
+                        "--backend vllm-serve.")
     p.add_argument("--turns-field", metavar="KEY", default=None,
                    help="for object items in --turns, the key holding the "
                         "user message (default: auto-detect)")
     p.add_argument("--turns-out", metavar="FILE", default=None,
                    help="append each --turns answer to this JSONL file as "
-                        "{id, turn, question, answer}")
+                        "{id, turn, question, answer}, plus {kind, status, "
+                        "worker} on a delegated one")
     return p
 
 
