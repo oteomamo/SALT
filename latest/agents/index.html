@@ -1356,7 +1356,8 @@ resolves to, and <code>role</code> is <code>worker</code> or <code>orchestrator<
 one orchestrator at most. Loading validates every entry up front, so a
 bad port, an unknown alias or a model whose weights are missing stops
 the launch instead of failing later. This file ships as
-<code>salt/agents/roster_sample.json</code>, ready to copy.</p>
+<code>salt/agents/roster_sample.json</code>, ready to copy, with one entry of each
+mode in it.</p>
 <h2 id="attach-or-spawn">Attach or spawn</h2>
 <p>Each entry either attaches to a server that is already running or
 describes one to start. An attach entry carries <code>server_url</code> and points
@@ -1370,7 +1371,7 @@ required, so an entry is never ambiguous about who owns the process.</p>
 <span class="w">  </span><span class="nt">&quot;role&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;worker&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;spawn&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nt">&quot;port&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;gpu&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;gpu&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="nt">&quot;gpu_mem_util&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.3</span><span class="p">,</span>
 <span class="w">    </span><span class="nt">&quot;max_model_len&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8192</span><span class="p">,</span>
 <span class="w">    </span><span class="nt">&quot;ready_timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">180</span>
@@ -1508,6 +1509,12 @@ left out when the roster has only one, and <code>ingest</code> decides whether t
 answer is remembered, defaulting to whatever the session was launched
 with. See <a href="../chatbot/#scripted-turns">scripted turns</a> for the file
 format and what <code>--turns-out</code> writes for a delegated row.</p>
+<p>A short mixed conversation ships as <code>salt/agents/demo_turns.json</code>, three
+questions to the chat model and two tasks to the worker the sample
+roster names. With a worker up, it runs end to end:</p>
+<div class="highlight"><pre><span></span><code>saltChat --roster salt/agents/roster_sample.json \
+         --turns salt/agents/demo_turns.json --conversation-id demo
+</code></pre></div>
 <p><code>/stats</code> adds a delegation line once a session has handed something over:
 how many went out in all, and per worker the calls, how many came back,
 the tokens each way and the mean time one took. The totals are read back
