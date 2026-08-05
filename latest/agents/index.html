@@ -786,6 +786,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#delegating-from-a-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delegating from a script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#coming-back-to-a-session" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1266,6 +1277,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#delegating-from-a-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delegating from a script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#coming-back-to-a-session" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1462,6 +1484,30 @@ result still will not fit the worker's window, the front of the context
 is dropped until it does and a note says how much was kept. The task
 itself is never trimmed, because a worker that lost its task would
 answer the wrong question with confidence.</p>
+<p>Two more knobs bound the same exchange from the other side.
+<code>--offload-budget-pct</code> sets the memory budget a delegation selects
+under, so a worker can be handed more or less of the conversation than a
+chat turn gets, and <code>--offload-timeout</code> says how long to wait on a
+worker that goes quiet. A roster entry that names a timeout of its own
+keeps it, because how long a model takes is a fact about that model
+rather than about the session asking.</p>
+<h2 id="delegating-from-a-script">Delegating from a script</h2>
+<p>A scripted run can delegate as well as talk. An item in a <code>--turns</code> file
+shaped like this goes to a worker instead of the chat model, in the
+middle of the same conversation:</p>
+<div class="highlight"><pre><span></span><code><span class="p">[</span>
+<span class="w">  </span><span class="s2">&quot;What did we decide about the inverter?&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">&quot;offload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;task&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Size the battery bank from that decision&quot;</span><span class="p">,</span>
+<span class="w">               </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ingest&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}}</span>
+<span class="p">]</span>
+</code></pre></div>
+<p>The task is handed over exactly as <code>/offload</code> hands it over, so the
+memory it is given, the ledger line it leaves and the labels on a
+remembered answer are all the same. <code>target</code> picks the worker and can be
+left out when the roster has only one, and <code>ingest</code> decides whether the
+answer is remembered, defaulting to whatever the session was launched
+with. See <a href="../chatbot/#scripted-turns">scripted turns</a> for the file
+format and what <code>--turns-out</code> writes for a delegated row.</p>
 <p><code>/stats</code> adds a delegation line once a session has handed something over:
 how many went out in all, and per worker the calls, how many came back,
 the tokens each way and the mean time one took. The totals are read back

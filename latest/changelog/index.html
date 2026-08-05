@@ -1020,10 +1020,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-2100" class="md-nav__link">
+  <a href="#2100-21034" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.0
+        2.10.0 - 2.10.34
       
     </span>
   </a>
@@ -1222,10 +1222,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-2100" class="md-nav__link">
+  <a href="#2100-21034" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.0
+        2.10.0 - 2.10.34
       
     </span>
   </a>
@@ -1376,7 +1376,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2100-2100">2.10.0 - 2.10.0</h2>
+<h2 id="2100-21034">2.10.0 - 2.10.34</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
 releases, hand parts of its work to them with SALT memory in the loop.</p>
@@ -1386,6 +1386,33 @@ releases, hand parts of its work to them with SALT memory in the loop.</p>
   validated roster file naming helper models and how to reach them,
   with a sample at <code>salt/agents/roster_sample.json</code>. Groundwork only,
   nothing in the chat changes yet.</li>
+<li><strong>2.10.1 - 2.10.9</strong> Workers in a session. <code>--roster FILE</code> loads the
+  roster at launch, <code>/roster</code> and <code>/worker</code> list what is there and probe
+  it for the model each endpoint is actually serving, and <code>/stats</code> names
+  the workers. A session with a roster loaded chats exactly as one
+  without.</li>
+<li><strong>2.10.10 - 2.10.17</strong> Starting and stopping workers. <code>/worker start</code>
+  launches a <code>saltServe</code> worker as a child of the session, <code>/worker
+  stop</code> takes it down, and <code>--workers-autostart</code> starts the roster with
+  the session. A worker is refused onto a card another server already
+  claims unless both sides declare their share. A worker that goes quiet
+  mid-reply is given up on, a refused connection is retried once, and
+  one that fails twice in a row is left alone until a probe revives it.</li>
+<li><strong>2.10.18 - 2.10.26</strong> Offload. <code>/offload &lt;task&gt;</code> hands one task to a
+  worker together with this conversation's memory, selected for the task
+  the way a chat turn selects it and committing nothing, so the session
+  is the same after a delegation as before it. Every delegation is
+  recorded in <code>delegations.jsonl</code>. With <code>--offload-ingest</code> the answer is
+  remembered as a turn of its own, headed with the worker it came from
+  rather than shown as something you or the model said.</li>
+<li><strong>2.10.27 - 2.10.34</strong> Bounds, resume and scripted delegations.
+  <code>--offload-context-cap</code>, <code>--offload-budget-pct</code> and
+  <code>--offload-timeout</code> bound what a delegation is handed, selects under
+  and waits for. <code>/stats</code> reports per-worker totals, and a reopened
+  session carries its numbering and totals on while retiring a worker
+  record no live process backs. A <code>--turns</code> file can carry an
+  <code>{"offload": ...}</code> item, so a scripted conversation delegates where it
+  needs to.</li>
 </ul>
 <h2 id="290-29123">2.9.0 - 2.9.123</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
