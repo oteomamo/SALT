@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.34
+## 2.10.0 - 2.10.41
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -42,6 +42,14 @@ Patch releases, grouped where several versions shipped one thing:
   record no live process backs. A `--turns` file can carry an
   `{"offload": ...}` item, so a scripted conversation delegates where it
   needs to.
+- **2.10.35 - 2.10.41** Delegating with fewer keystrokes. TAB completes
+  `@NAME` from the roster, `/offload! @NAME` puts the last task to a
+  second worker so two models answer one question from the same memory,
+  and asking with no roster loaded prints the recipe for having one. A
+  mixed chat and delegation conversation ships as
+  `salt/agents/demo_turns.json`, and the sample roster now shows both an
+  attach and a spawn entry. A delegation runs on the session's own
+  thread, and interrupting one twice still leaves its record behind.
 
 ## 2.9.0 - 2.9.123
 
