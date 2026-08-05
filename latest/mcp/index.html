@@ -797,6 +797,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversations
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1239,6 +1250,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversations
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1310,6 +1332,14 @@ client that connects and asks for nothing pays nothing.</p>
 <td><code>--bge-device</code></td>
 <td>device for the encoder, winning over <code>--device</code></td>
 </tr>
+<tr>
+<td><code>--sessions-dir</code></td>
+<td>where conversations live (default: the folder saltChat uses)</td>
+</tr>
+<tr>
+<td><code>--max-open-sessions</code></td>
+<td>how many conversations stay open at once (default: 8)</td>
+</tr>
 </tbody>
 </table>
 <p>There is no GPU requirement. On a machine without one the encoder runs
@@ -1327,6 +1357,22 @@ the package.</p>
 <tr>
 <td><code>salt_compress</code></td>
 <td>compress one text to a fraction of its words</td>
+</tr>
+<tr>
+<td><code>session_create</code></td>
+<td>start a conversation whose memory this server keeps</td>
+</tr>
+<tr>
+<td><code>session_resume</code></td>
+<td>open one that already exists, with the memory it had</td>
+</tr>
+<tr>
+<td><code>session_list</code></td>
+<td>every conversation on disk, most recently written first</td>
+</tr>
+<tr>
+<td><code>session_stats</code></td>
+<td>what one conversation holds</td>
 </tr>
 </tbody>
 </table>
@@ -1364,6 +1410,26 @@ is the same thing a saltChat turn does with its memory.</p>
 filtered, then selected under the budget. That is the same path the
 <code>salt</code> command runs, with the same defaults, so a tool call and a
 command line give the same answer for the same text.</p>
+<h2 id="conversations">Conversations</h2>
+<p><code>salt_compress</code> is a single shot: text in, shorter text out, nothing
+remembered. A session is the other way of working. <code>session_create</code>
+starts one, <code>session_resume</code> opens one again later, and what the
+conversation has accumulated is memory the server keeps between calls.</p>
+<p><code>session_list</code> shows what is on disk, newest first, with the turn and
+sentence counts each one recorded. <code>session_stats</code> opens one and reports
+what it holds now: turns, sentences, how many are still live after any
+cap, attached files and the budget it compresses under.</p>
+<p>These are the same conversations <code>saltChat</code> keeps, in the same folder
+and under the same naming rule, so a session started here can be
+resumed at the prompt and the other way round.</p>
+<p>Open sessions are held warm, up to <code>--max-open-sessions</code> of them. Past
+that the one used longest ago is closed, and closing writes it first,
+so a conversation is never dropped with unsaved turns in it.</p>
+<p>One server per set of conversations. Nothing locks a session folder, so
+two servers on the same folder would each save over the other. A server
+that notices another one holding a session says so in its reply rather
+than refusing, since a leftover marker from a crashed server must not
+be what stops the next one from working.</p>
 
 
 
