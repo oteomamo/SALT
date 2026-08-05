@@ -137,6 +137,7 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /worker stop <name>  stop a server this session started
 /offload <task>    hand one task to a worker with this conversation's
                    memory as its context (/offload @NAME <task> picks one)
+/offload! @NAME    put the last delegated task to another worker too
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
 /stats             session, attachments, compression, and GPU memory stats
@@ -146,7 +147,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 
 # what TAB offers: every command HELP lists, so the two cannot drift
 COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/offload",
-            "/doc", "/budget", "/stats", "/new", "/clear", "/exit"]
+            "/offload!", "/doc", "/budget", "/stats", "/new", "/clear",
+            "/exit"]
 
 
 def cuda_index(device):
@@ -263,6 +265,9 @@ class ChatState:
         # into that turn's kvtrace entry: /offload happens between turns,
         # so the next turn is the first place they can be attributed
         self.pending_delegations = []
+        # the last task handed over, so it can be put to another worker
+        # without typing it twice
+        self.last_task = None
         self.offload_ingest = args.offload_ingest
         self.offload_context_cap = args.offload_context_cap
         self.offload_timeout = args.offload_timeout
@@ -884,12 +889,25 @@ def worker_command(state, rest):
     print_workers(state.worker_handles())
 
 
+OFFLOAD_RECIPE = """\
+To delegate, run a second model as a server and name it in a roster file:
+
+  saltServe qwen05 --port 8081
+
+  {"version": "salt-roster/1",
+   "models": [{"name": "qwen05", "alias": "qwen05", "role": "worker",
+               "server_url": "http://127.0.0.1:8081"}]}
+
+then start the session with --roster FILE. A copy of that file ships as
+salt/agents/roster_sample.json."""
+
+
 def offload_handle(state, name=None):
     """The worker a task goes to. With one worker in the roster it needs
     no naming, and with several the caller has to say which."""
     if state.roster is None:
-        raise RosterError("No roster loaded - start saltChat with "
-                          "--roster FILE.")
+        raise RosterError(f"No roster loaded - this session reaches no "
+                          f"worker.\n{OFFLOAD_RECIPE}")
     if name:
         return state.worker(name)
     workers = state.roster.workers
@@ -897,7 +915,7 @@ def offload_handle(state, name=None):
         return state.worker(workers[0].name)
     if not workers:
         raise RosterError(f"{state.roster.path} names no worker to "
-                          f"delegate to.")
+                          f"delegate to.\n{OFFLOAD_RECIPE}")
     known = ", ".join(e.name for e in workers)
     raise RosterError(f"This roster has {len(workers)} workers, so name "
                       f"one: /offload @NAME <task>. Known: {known}")
@@ -922,6 +940,7 @@ def run_offload(state, task, target=None, ingest=None):
     is a question about the roster rather than about this task.
     """
     handle = offload_handle(state, target)
+    state.last_task = task
     req = DelegationRequest(task=task, target=handle.name,
                             ingest=state.offload_ingest if ingest is None
                             else bool(ingest),
@@ -947,12 +966,33 @@ def run_offload(state, task, target=None, ingest=None):
     return result
 
 
-def offload_command(state, rest):
-    """Hand one task to a worker and print what came back."""
+def offload_command(state, rest, again=False):
+    """Hand one task to a worker and print what came back.
+
+    With ``again`` the task is the last one this session delegated, put
+    to another worker: comparing two models on one question is the thing
+    a roster makes easy, and retyping the question is what stops people
+    doing it.
+    """
     target = None
     if rest and rest[0].startswith("@"):
         target, rest = rest[0][1:], rest[1:]
     task = " ".join(rest).strip()
+    if again:
+        if not target:
+            print("Usage: /offload! @NAME   (which worker gets the task "
+                  "again)")
+            return
+        if task:
+            print("/offload! repeats the last task, so it takes no text of "
+                  "its own.")
+            return
+        if not state.last_task:
+            print("Nothing has been delegated yet, so there is no task to "
+                  "repeat.")
+            return
+        task = state.last_task
+        print(f"  again: {task}")
     if not task:
         print("Usage: /offload <task>   or   /offload @NAME <task>")
         return
@@ -1422,8 +1462,8 @@ def handle_command(line, state):
                          {h.name: h.probe_result for h in handles})
     elif cmd == "/worker":
         worker_command(state, rest)
-    elif cmd == "/offload":
-        offload_command(state, rest)
+    elif cmd in ("/offload", "/offload!"):
+        offload_command(state, rest, again=cmd.endswith("!"))
     elif cmd == "/doc":
         if not rest:
             print("Usage: /doc <path>")
@@ -1871,8 +1911,16 @@ def run_turns(state, turns, out_path=None):
             out.close()
 
 
-def _setup_completion():
-    """TAB completes /commands and salt@<staged file> where readline exists."""
+def worker_completions(state, text):
+    """The @NAME options a roster offers for the word being typed."""
+    names = [e.name for e in state.roster.workers] if state and getattr(
+        state, "roster", None) else []
+    return [f"@{n}" for n in names if f"@{n}".startswith(text)]
+
+
+def _setup_completion(state=None):
+    """TAB completes /commands, @worker and salt@<staged file> where
+    readline exists."""
     try:
         import readline
     except ImportError:
@@ -1883,6 +1931,8 @@ def _setup_completion():
             prefix = text[at:]
             opts = [text[:at] + f.name for f in staged_files()
                     if f.name.startswith(prefix)]
+        elif text.startswith("@"):
+            opts = worker_completions(state, text)
         elif text.startswith("/"):
             opts = [c for c in COMMANDS if c.startswith(text)]
         else:
@@ -1895,7 +1945,7 @@ def _setup_completion():
 
 
 def repl(state):
-    _setup_completion()
+    _setup_completion(state)
     print("saltChat ready - /help lists commands, salt@ lists attachable "
           "files, /exit leaves.\n")
     while True:

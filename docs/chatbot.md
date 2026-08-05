@@ -73,6 +73,7 @@ them. It has its own page: [Agents](agents.md).
 | `/worker start <name>` | launch a spawn entry's server, `start --all` does them all |
 | `/worker stop <name>` | stop a server this session started |
 | `/offload <task>` | hand a task to a worker, `/offload @NAME <task>` picks one |
+| `/offload! @NAME` | put the last delegated task to another worker as well |
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
 | `/exit` | leave (the session is saved and resumable by id) |
 

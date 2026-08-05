@@ -2853,6 +2853,55 @@ def check_command_surfaces():
           f"HELP and TAB completion, agent commands documented too")
 
 
+def offload_again(state, line):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.offload_command(state, line.split(), again=True)
+    return buf.getvalue()
+
+
+def check_offload_ergonomics(tmp, tok, mdl):
+    with Stub(cards=CARDS, pieces=("nine ", "kWh")) as first, \
+            Stub(cards=CARDS, pieces=("about ", "ten kWh")) as second:
+        roster = two_worker_roster(tmp, first.url, second.url)
+        state = replayed_state(tmp, "ergonomics", tok, mdl, roster=roster)
+        try:
+            assert cli.worker_completions(state, "@") == ["@a", "@b"], (
+                cli.worker_completions(state, "@"))
+            assert cli.worker_completions(state, "@b") == ["@b"]
+            assert cli.worker_completions(state, "@z") == []
+
+            assert "Usage: /offload!" in offload_again(state, ""), (
+                "repeating without a name did not say so")
+            assert "takes no text" in offload_again(state, "@b a new task")
+            assert "Nothing has been delegated" in offload_again(state, "@b"), (
+                "repeating before any delegation invented a task")
+            assert state.delegation_seq == 0, "a usage error spent an id"
+
+            offload_line(state, "@a what size battery")
+            out = offload_again(state, "@b")
+            assert "again: what size battery" in out, out
+            assert "delegating to b" in out and "ten kWh" in out, out
+            tasks = [r["task"] for r in ledger_lines(state.trie.cache_dir)]
+            assert tasks == ["what size battery"] * 2, tasks
+            assert [r["target"] for r in
+                    ledger_lines(state.trie.cache_dir)] == ["a", "b"]
+            assert first.httpd.posts == second.httpd.posts == 1, (
+                "the repeat went to the wrong worker")
+
+            state.roster = None
+            recipe = offload_line(state, "anything")
+            for fragment in ("saltServe", "salt-roster/1", "--roster"):
+                assert fragment in recipe, (
+                    f"the enable recipe never mentions {fragment}: {recipe}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("31. offload ergonomics: @NAME completes from the roster, "
+          "/offload! puts the same task to a second worker, and asking "
+          "with no roster prints the recipe for having one")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -2895,6 +2944,7 @@ def main():
         check_import_purity()
         check_frozen_core()
         check_command_surfaces()
+        check_offload_ergonomics(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
