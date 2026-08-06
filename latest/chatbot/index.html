@@ -686,6 +686,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#conversations-without-the-repl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversations without the REPL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repl-commands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1316,6 +1327,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#conversations-without-the-repl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversations without the REPL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repl-commands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1507,6 +1529,12 @@ it has. A roster names other models a session can reach without giving
 up its own, each one a server of its own that stays loaded. <code>--roster</code>
 declares them and the <code>/roster</code> and <code>/worker</code> commands below inspect
 them. It has its own page: <a href="../agents/">Agents</a>.</p>
+<h2 id="conversations-without-the-repl">Conversations without the REPL</h2>
+<p>These conversations are files, and the prompt is not the only way to
+reach them. <code>salt-mcp</code> serves the same folder over the Model Context
+Protocol, so an editor or an agent runtime can add turns to a
+conversation and read what it remembers, and a session started there
+can be resumed here. The <a href="../mcp/">MCP server</a> page has the setup.</p>
 <h2 id="repl-commands">REPL commands</h2>
 <table>
 <thead>

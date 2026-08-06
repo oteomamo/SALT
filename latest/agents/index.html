@@ -1640,6 +1640,11 @@ and how slow it was, and <code>/worker probe &lt;name&gt;</code> reconnects one 
 <p>The commands sit alongside the rest on the
 <a href="../chatbot/">Chatbot mode</a> page, and every flag is on the
 <a href="../options/">Options</a> page.</p>
+<p>The same helpers are reachable without the REPL. A server started with
+<code>salt-mcp --roster FILE</code> offers <code>roster_list</code> and <code>salt_delegate</code> to
+whatever client it is speaking to, so an editor or an agent runtime can
+hand a task to one of these models with a conversation's memory behind
+it. The <a href="../mcp/">MCP server</a> page covers that side.</p>
 
 
 
