@@ -1241,15 +1241,17 @@ their cache still warm.</p>
 <li>
 <p>🤝 <strong>Agents</strong></p>
 <hr />
-<p>Name smaller models beside the chat model, so a session can reach
-one without giving up its own model or warm cache.</p>
+<p>Name smaller models beside the chat model and hand them work, with
+this conversation's memory selected for the task and nothing
+committed. One can answer a turn outright.</p>
 <p><a href="agents/">Agents</a></p>
 </li>
 <li>
 <p>🔌 <strong>MCP server</strong></p>
 <hr />
-<p><code>salt-mcp</code> puts compression and conversation memory behind the
-Model Context Protocol, for editors and agent runtimes.</p>
+<p><code>salt-mcp</code> puts compression, conversation memory and the helper
+models behind the Model Context Protocol, for editors and agent
+runtimes, and reads only when told to.</p>
 <p><a href="mcp/">MCP server</a></p>
 </li>
 <li>
