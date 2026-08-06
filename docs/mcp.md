@@ -35,8 +35,52 @@ entry for SALT is the command and its flags:
 }
 ```
 
-The server loads the encoder on the first call that needs it, so a
-client that connects and asks for nothing pays nothing.
+Where that file lives depends on the client.
+
+**Claude Code** takes it from the command line:
+
+```bash
+claude mcp add salt -- salt-mcp --gpu 0
+```
+
+Add `--scope project` to write it into a `.mcp.json` beside the code,
+which is what you want when the conversations belong to the project
+rather than to you.
+
+**Claude Desktop** reads `claude_desktop_config.json`. Open its
+settings, edit the config, and put the block above in it. The app
+starts the server when it starts and stops it when it quits.
+
+**Cursor** reads `~/.cursor/mcp.json` for every project, or
+`.cursor/mcp.json` inside one project. Same block either way.
+
+Anything else that speaks MCP works the same way: it needs a command to
+run, and `salt-mcp` is on the path once the extra is installed. Use the
+full path to the `salt-mcp` in your environment if the client does not
+inherit your shell.
+
+## How the server runs
+
+One process, started by the client and living as long as it does. It
+holds the encoder in memory once loaded, and loads it on the first call
+that needs it, so a client that connects and asks for nothing pays
+nothing.
+
+Conversations are opened on demand and kept warm, because a client that
+adds a turn is usually about to read memory. Past
+`--max-open-sessions` the one used longest ago is closed, and closing
+means finishing what it was still encoding, writing it if it changed,
+and then letting go.
+
+One client per server, and one server per folder of conversations.
+Nothing locks a session folder, so two servers over the same folder
+would each save over the other. A server that sees signs of another one
+holding a conversation says so in the reply rather than refusing.
+
+No GPU is required. On a machine without one the encoder runs on the
+CPU, which is slower per call and needs nothing installed beyond the
+package. `--gpu`, `--device` and `--bge-device` put it on a card when
+there is one.
 
 ## Server flags
 
@@ -51,10 +95,6 @@ client that connects and asks for nothing pays nothing.
 | `--max-ingest-chars` | longest text one call may carry (default: 400000) |
 | `--roster` | roster of helper models this server may delegate to |
 | `--read-only` | answer reads and refuse every write |
-
-There is no GPU requirement. On a machine without one the encoder runs
-on the CPU, which is slower per call but needs nothing installed beyond
-the package.
 
 ## Tools
 
@@ -296,6 +336,24 @@ server leaves to notice a second one.
 
 This is what to point a shared or automated client at when it should
 be able to look at conversations without being able to change them.
+
+A useful pair: run your own work through `saltChat` or a normal server,
+and give anything automated a read-only one over the same folder.
+
+```json
+{
+  "mcpServers": {
+    "salt-readonly": {
+      "command": "salt-mcp",
+      "args": ["--read-only", "--sessions-dir", "/path/to/conversations"]
+    }
+  }
+}
+```
+
+It can list the conversations, read what any of them remembers about a
+question, report their numbers and ask a helper model something, and it
+cannot add a turn, ingest a document or leave a mark on the folder.
 
 ## What is not here
 
