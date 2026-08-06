@@ -377,11 +377,13 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
             "attachments": list(trie.attached_sources)}
 
 
-def build_server(engine, pool=None):
+def build_server(engine, pool=None, roster=None):
     """The MCP server and its tools, with the engine they compress on."""
     from mcp.server import MCPServer
+    from salt.mcp.agents import AgentRuntime, roster_payload, run_delegation
 
     read_only = bool(pool is not None and pool.read_only)
+    runtime = AgentRuntime(engine, pool=pool, roster=roster)
     server = MCPServer(name=SERVER_NAME, version=salt_version(),
                        instructions="SALT compresses long text down to the "
                                     "part that answers a question."
@@ -398,6 +400,33 @@ def build_server(engine, pool=None):
     def salt_compress(text: str, budget_pct: float = DEFAULT_BUDGET_PCT,
                       query: str = "") -> dict[str, Any]:
         return compress_text(engine, text, budget_pct, query or None)
+
+    # the handles the delegation tools open outlive the calls that opened
+    # them, so shutdown needs a way back to them
+    server.runtime = runtime
+
+    @server.tool(name="roster_list",
+                 description="The helper models this server can reach, "
+                             "with what each one is and where it lives. "
+                             "Probe to find out which are answering.",
+                 structured_output=True)
+    def roster_list(probe: bool = False) -> dict[str, Any]:
+        return roster_payload(runtime, probe=probe)
+
+    @server.tool(name="salt_delegate",
+                 description="Hand one task to a helper model. With a "
+                             "conversation, that conversation's memory "
+                             "is selected for the task and sent with it.",
+                 structured_output=True)
+    def salt_delegate(task: str, conversation_id: str = "",
+                      target: str = "", context_query: str = "",
+                      budget_pct: float = None,
+                      ingest: bool = False) -> dict[str, Any]:
+        return run_delegation(runtime, task,
+                              conversation_id=conversation_id,
+                              target=target or None,
+                              context_query=context_query or None,
+                              budget_pct=budget_pct, ingest=ingest)
 
     if pool is None:
         return server
@@ -485,6 +514,19 @@ def build_server(engine, pool=None):
     return server
 
 
+def load_roster(path):
+    """The roster this server delegates to. A roster that will not load
+    stops the server here, where the reason can be read, rather than at
+    the first delegation where it looks like the task's fault."""
+    from salt.agents.roster import RosterError
+    from salt.agents.roster import load_roster as read_roster
+    try:
+        return read_roster(path)
+    except (RosterError, OSError) as exc:
+        print(f"salt-mcp: {exc}", file=sys.stderr)
+        raise SystemExit(2)
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="salt-mcp", description=__doc__.splitlines()[0])
@@ -504,6 +546,9 @@ def build_parser():
     p.add_argument("--max-open-sessions", type=int, default=8,
                    help="how many conversations stay open at once "
                         "(default: 8)")
+    p.add_argument("--roster", default=None, metavar="FILE",
+                   help="roster of helper models this server may delegate "
+                        "to (e.g. salt/agents/roster_sample.json)")
     p.add_argument("--read-only", action="store_true",
                    help="answer reads and refuse every write, leaving "
                         "every conversation exactly as it was found")
@@ -520,12 +565,15 @@ def main(argv=None):
     pool = SessionPool(args.sessions_dir or sessions_root(),
                        capacity=args.max_open_sessions,
                        read_only=args.read_only)
+    roster = load_roster(args.roster) if args.roster else None
+    server = build_server(Engine(resolve_device(args)), pool, roster)
     try:
-        build_server(Engine(resolve_device(args)), pool).run("stdio")
+        server.run("stdio")
     finally:
         # the client hanging up is how this server ends, so the last
         # word a session gets is written here or not at all
         pool.close_all()
+        server.runtime.close()
     return 0
 
 

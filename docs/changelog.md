@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.53
+## 2.10.0 - 2.10.54
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -74,6 +74,13 @@ Patch releases, grouped where several versions shipped one thing:
   conversations it was pointed at exactly as it found them. The
   [MCP server](mcp.md) page covers the install, the client entry and
   every tool.
+- **2.10.54** Helper models over MCP. Started with `--roster FILE`, the
+  server can reach the smaller models that file names: `roster_list`
+  returns what is in the roster and, on request, which endpoints are
+  actually answering, and `salt_delegate` hands one task over with a
+  conversation's memory selected for it. Selecting it commits nothing,
+  so a conversation is the same after a delegation as before it, and
+  every delegation is filed beside the conversation it ran under.
 
 ## 2.9.0 - 2.9.123
 

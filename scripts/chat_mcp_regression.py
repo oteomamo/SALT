@@ -29,6 +29,10 @@ client does, and covers the surface a client depends on:
      the conversation it read is byte for byte as it was left.
   9. Off-path: importing saltChat still imports neither the server nor
      the MCP SDK.
+ 10. Delegation: a task handed to a stub worker comes back with the
+     conversation's memory selected for it, leaves a ledger line under
+     the session, remembers the answer as a worker row when asked to,
+     and commits nothing to the conversation either way.
 
 Skips with exit 0 when the mcp extra is not installed, so a plain
 install stays green. CPU only, no GPU and no model.
@@ -37,6 +41,7 @@ Assert-based: refuses to run under python -O.
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -48,6 +53,8 @@ if not __debug__:
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+BGE_MODEL = "BAAI/bge-small-en-v1.5"
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -57,6 +64,7 @@ except ImportError:
           "(pip install 'salt[mcp]') - nothing to drive")
     sys.exit(0)
 
+from _agent_stub import Stub                                    # noqa: E402
 from salt.mcp.server import salt_version                        # noqa: E402
 
 # eight sentences, one of which is the only place December is discussed:
@@ -84,7 +92,10 @@ TOOLS = {"salt_compress": ["budget_pct", "query", "text"],
                               "text"],
          "session_memory": ["budget_pct", "conversation_id", "query"],
          "salt_ingest_document": ["conversation_id", "path", "source_name",
-                                  "text"]}
+                                  "text"],
+         "roster_list": ["probe"],
+         "salt_delegate": ["budget_pct", "context_query", "conversation_id",
+                           "ingest", "target", "task"]}
 STAT_KEYS = {"orig_words", "kept_words", "n_sentences", "n_sentences_raw",
              "n_selected", "word_budget", "actual_tokens",
              "theme_coverage_pct", "compression_ratio", "budget_pct",
@@ -420,8 +431,13 @@ def check_off_path():
     code = ("import salt.chat.cli, sys; "
             "print([m for m in ('salt.mcp', 'salt.mcp.server', 'mcp') "
             "if m in sys.modules])")
+    # the delegation group loads the encoder here, and importing torch pins
+    # MKL_THREADING_LAYER for the whole process: a child that inherits it
+    # dies against libgomp before it can import anything
+    env = dict(os.environ)
+    env.pop("MKL_THREADING_LAYER", None)
     out = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                         text=True, cwd=REPO)
+                         text=True, cwd=REPO, env=env)
     assert out.returncode == 0, out.stderr[-400:]
     assert out.stdout.strip() == "[]", (
         f"saltChat now imports the MCP layer: {out.stdout.strip()}")
@@ -429,14 +445,140 @@ def check_off_path():
           "nor the MCP SDK")
 
 
+TALK = [("user", "The house has 9 kW of solar panels and a 5 kW inverter."),
+        ("assistant", "In December the panels produce almost nothing, so "
+                      "the battery carries the evening on its own."),
+        ("user", "The utility charges more for power between five and nine "
+                 "in the evening.")]
+ANSWER = ("The panels are idle in December", ", so the battery pays for "
+                                             "the evening peak.")
+
+
+def worker_roster(url):
+    """One attached worker, resolved by hand. A roster file would have to
+    resolve its alias against the model registry, and this harness runs
+    where nothing is registered."""
+    from salt.agents.roster import Roster, RosterEntry
+    return Roster(path="<test>", entries=(
+        RosterEntry(name="w", alias="stub", role="worker", server_url=url,
+                    model={"alias": "stub", "hf_id": "some/model",
+                           "path": BGE_MODEL}, timeout_s=10),))
+
+
+def trie_digest(session_dir):
+    """Everything the conversation saved about itself. The delegation
+    ledger is left out on purpose: it is a record of what happened, not
+    part of what the conversation remembers."""
+    return {k: v for k, v in digest(session_dir).items()
+            if k != "delegations.jsonl"}
+
+
+def sent_prompt(runtime, stub):
+    """What the worker was actually asked, read back through its own
+    tokenizer: the serve client sends token ids, not text."""
+    tokenizer = runtime.worker("w").runner.tokenizer
+    return tokenizer.decode(stub.httpd.last_payload["prompt"]).lower()
+
+
+def check_delegation(root):
+    from salt.agents.roster import RosterError
+    from salt.mcp.agents import AgentRuntime, roster_payload, run_delegation
+    from salt.mcp.pool import SessionPool
+    from salt.mcp.server import Engine, add_turns
+
+    engine = Engine("cpu").ready()
+    pool = SessionPool(root)
+    bare = AgentRuntime(engine, pool=pool)
+    empty = roster_payload(bare)
+    assert empty["workers"] == [] and "--roster" in empty["note"], empty
+    try:
+        run_delegation(bare, "anything at all")
+        raise AssertionError("a server with no roster delegated")
+    except RosterError as exc:
+        assert "--roster" in str(exc), exc
+
+    with Stub(cards=[{"id": "some/model", "max_model_len": 4096}],
+              pieces=ANSWER) as stub:
+        runtime = AgentRuntime(engine, pool=pool, roster=worker_roster(stub.url))
+        table = roster_payload(runtime)
+        row = table["workers"][0]
+        assert (row["name"], row["role"], row["mode"]) == ("w", "worker",
+                                                           "attach"), row
+        assert row["endpoint"] == stub.url and row["state"] == "DECLARED", row
+
+        cid = "mcp-delegate"
+        add_turns(engine, pool, cid,
+                  [{"role": r, "text": t} for r, t in TALK], sync=True)
+        session = pool.get(cid)
+        session.trie.save()
+        before = trie_digest(session.trie.cache_dir)
+        sentences = session.trie.n_sentences
+
+        out = run_delegation(runtime, "what carries the evening in winter",
+                             conversation_id=cid, budget_pct=0.6)
+        assert out["status"] == "ok", out
+        assert out["answer"] == "".join(ANSWER), out
+        assert out["target"] == "w" and out["id"] == 1, out
+        assert out["context"]["n_selected"] > 0, (
+            f"the worker was sent no memory at all: {out}")
+        assert out["recorded"] and not out["remembered"], out
+        sent = sent_prompt(runtime, stub)
+        assert "december" in sent and "what carries the evening" in sent, (
+            f"the worker did not get the conversation under the task: "
+            f"{sent!r}")
+
+        # a delegation is a read the conversation never learns about
+        if session.trie.dirty:
+            session.trie.save()
+        assert trie_digest(session.trie.cache_dir) == before, (
+            "a delegation changed what the conversation remembers")
+        assert session.trie.n_sentences == sentences, session.trie.n_sentences
+
+        lines = [json.loads(x) for x in
+                 (session.trie.cache_dir / "delegations.jsonl")
+                 .read_text().splitlines() if x.strip()]
+        assert len(lines) == 1, lines
+        rec = lines[0]
+        assert rec["target"] == "w" and rec["status"] == "ok", rec
+        assert rec["ingest"] is False and rec["id"] == 1, rec
+        assert rec["context_stats"]["n_selected"] == out["context"][
+            "n_selected"], rec
+
+        kept = run_delegation(runtime, "say that again",
+                              conversation_id=cid, ingest=True)
+        assert kept["remembered"] and kept["id"] == 2, kept
+        session.drain()
+        assert session.trie.n_sentences > sentences, (
+            "an ingested answer added nothing to the conversation")
+        assert session.trie.roles[-1] == "worker", session.trie.roles[-3:]
+        assert session.trie.origins[-1] == "w", session.trie.origins[-3:]
+
+        # context-free: the worker gets the task and nothing else
+        alone = run_delegation(runtime, "name three colours")
+        assert alone["status"] == "ok" and alone["context"][
+            "n_selected"] == 0, alone
+        assert not alone["recorded"] and alone["conversation_id"] == "", alone
+        assert "december" not in sent_prompt(runtime, stub), (
+            "a context-free delegation carried a conversation with it")
+        pool.close_all()
+        runtime.close()
+    print("10. delegation: a task goes to the worker under the "
+          "conversation's own memory, the ledger records it, an ingested "
+          "answer lands as a worker row, and the conversation itself is "
+          "byte for byte unchanged by either")
+
+
 def main():
     sessions = Path(tempfile.mkdtemp(prefix="salt_mcp_regression_"))
     try:
         asyncio.run(drive(sessions))
         asyncio.run(drive_read_only(sessions, digest(sessions)))
+        # before the delegation group, which loads the encoder into this
+        # process and makes the off-path claim harder to state honestly
+        check_off_path()
+        check_delegation(sessions)
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
-    check_off_path()
     print("PASS")
 
 

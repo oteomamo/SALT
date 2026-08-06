@@ -48,6 +48,7 @@ client that connects and asks for nothing pays nothing.
 | `--bge-device` | device for the encoder, winning over `--device` |
 | `--sessions-dir` | where conversations live (default: the folder saltChat uses) |
 | `--max-open-sessions` | how many conversations stay open at once (default: 8) |
+| `--roster` | roster of helper models this server may delegate to |
 | `--read-only` | answer reads and refuse every write |
 
 There is no GPU requirement. On a machine without one the encoder runs
@@ -66,6 +67,8 @@ the package.
 | `session_add_turn` | remember a message, or a whole exchange at once |
 | `session_memory` | what the conversation remembers about a question |
 | `salt_ingest_document` | read a document into a conversation's memory |
+| `roster_list` | the helper models this server can reach |
+| `salt_delegate` | hand one task to a helper model |
 
 ### salt_compress
 
@@ -148,20 +151,65 @@ whatever is passed is kept, so a name can never point somewhere on
 disk. Ingesting twice under one name merges into that same branch, the
 way attaching a file twice does at the prompt.
 
+## Helper models
+
+Start the server with `--roster FILE` and it can hand work to the
+smaller models that file names. The roster is the same one `saltChat`
+takes, described on the [agents](agents.md) page, and the models in it
+are servers of their own that are already running.
+
+`roster_list` returns what is in the roster: each model's name, role,
+alias, whether it is attached or spawned, where it lives and how many
+calls it has taken. Pass `probe` and each endpoint is contacted for the
+model it is actually serving, which is the only way to find out that a
+declared helper is not there.
+
+`salt_delegate` hands one task over and waits for the whole answer.
+
+| Argument | Meaning |
+|---|---|
+| `task` | what the helper is asked to do (required) |
+| `conversation_id` | whose memory to send with it, optional |
+| `target` | which helper, needed only when the roster names several |
+| `context_query` | what to select the memory for, when the task itself is a poor search line |
+| `budget_pct` | how much of the conversation the context may spend |
+| `ingest` | keep the answer as a turn of the conversation |
+
+With a `conversation_id` the task travels with that conversation's
+memory, selected for the task the way a chat turn selects it. Selecting
+it changes nothing: the conversation is the same after a delegation as
+before it, which is what makes it safe to ask several helpers the same
+question. Without one it is a task on its own, and the helper gets no
+context at all.
+
+The answer comes back with what it cost and how much context it went
+out with. Every delegation under a conversation is also filed in
+`delegations.jsonl` beside that conversation, so what was asked, of
+whom, and how it ended is a record rather than something only the
+client saw.
+
+`ingest` is the exception to changing nothing. With it, an answer is
+remembered as a turn of its own, headed with the helper it came from
+rather than as something the conversation said. It is off by default:
+a helper's prose in memory is a decision, not a side effect.
+
 ## A server that only reads
 
 `--read-only` starts a server that answers questions about
 conversations and changes none of them. Reads all work:
-`salt_compress`, `session_list`, `session_resume`, `session_stats` and
-`session_memory`. Writes refuse: `session_create`, `session_add_turn`
-and `salt_ingest_document` come back as an error beginning
+`salt_compress`, `session_list`, `session_resume`, `session_stats`,
+`session_memory`, `roster_list` and `salt_delegate` itself. Writes
+refuse: `session_create`, `session_add_turn`, `salt_ingest_document`
+and a delegation asking for `ingest` come back as an error beginning
 `read-only server:`, naming the tool and saying why, so a client can
 tell a server that will not from a call that was wrong.
 
-The tool list is the same either way. A read-only server offers all
-eight and refuses three of them when called, rather than hiding them,
+The tool list is the same either way. A read-only server offers every
+tool and refuses the writing ones when called, rather than hiding them,
 so what a client discovers does not depend on how the server was
-started.
+started. A delegation still runs, since asking a helper a question
+reads the conversation without moving it, but nothing about it is
+written down.
 
 A memory read normally counts as a turn: the selection is committed, so
 what has already surfaced shapes what surfaces next. Read-only drops
