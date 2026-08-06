@@ -54,8 +54,9 @@ survive. Any model, plain text out, less compute in.
 
     ---
 
-    Name smaller models beside the chat model, so a session can reach
-    one without giving up its own model or warm cache.
+    Name smaller models beside the chat model and hand them work, with
+    this conversation's memory selected for the task and nothing
+    committed. One can answer a turn outright.
 
     [Agents](agents.md)
 
@@ -63,8 +64,9 @@ survive. Any model, plain text out, less compute in.
 
     ---
 
-    `salt-mcp` puts compression and conversation memory behind the
-    Model Context Protocol, for editors and agent runtimes.
+    `salt-mcp` puts compression, conversation memory and the helper
+    models behind the Model Context Protocol, for editors and agent
+    runtimes, and reads only when told to.
 
     [MCP server](mcp.md)
 
