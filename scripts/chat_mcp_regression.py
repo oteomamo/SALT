@@ -44,6 +44,11 @@ client does, and covers the surface a client depends on:
      loses nothing, a conversation damaged between two file writes opens
      repaired and says so, and a server killed mid-session closes down
      rather than being killed.
+ 13. Acceptance: one whole client session over the wire - a document, a
+     six exchange conversation, a query, stats - and then a second
+     server, cold, resuming the same conversation and answering the
+     same question from it. The delegation leg is refused here, since
+     reaching a helper needs a roster and group 11 covers it.
 
 Skips with exit 0 when the mcp extra is not installed, so a plain
 install stays green. CPU only, no GPU and no model.
@@ -466,6 +471,107 @@ async def check_bad_calls(session, sessions):
           f"that survived garbage on its pipe")
 
 
+SCENARIO = [
+    ("we are sizing a battery for the house, not a new inverter",
+     "then the question is how many kilowatt hours the evening draw "
+     "needs, not how much more the panels could push"),
+    ("the evening draw is about four hours at two kilowatts",
+     "that is eight kilowatt hours a night before any losses"),
+    ("the utility charges more between five and nine in the evening",
+     "so the battery pays for itself fastest if it covers exactly that "
+     "window"),
+    ("what happens in december when the panels do nothing",
+     "then the battery is charging off the grid overnight and the saving "
+     "is only the difference between the night rate and the peak rate"),
+    ("the installer quoted eleven thousand for the nine kilowatt hour "
+     "pack", "against an evening saving of roughly two pounds a day, "
+     "that is a long payback"),
+    ("let us go with the nine kilowatt hour pack anyway",
+     "noted, the nine kilowatt hour pack is the decision"),
+]
+
+
+async def run_scenario(sessions, cid):
+    """One client session end to end, over a real server on a pipe."""
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "salt.mcp.server", "--device", "cpu",
+              "--sessions-dir", str(sessions)])
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            made = payload(await session.call_tool(
+                "session_create", {"conversation_id": cid}))
+            assert made["created"], made
+            payload(await session.call_tool("salt_ingest_document", {
+                "conversation_id": cid, "text": DOC,
+                "source_name": "survey.txt"}))
+            for i, (asked, answered) in enumerate(SCENARIO):
+                out = payload(await session.call_tool("session_add_turn", {
+                    "conversation_id": cid,
+                    "exchange": [{"role": "user", "text": asked},
+                                 {"role": "assistant", "text": answered}],
+                    "sync": i == len(SCENARIO) - 1}))
+                assert out["added"] == 2, out
+            mem = payload(await session.call_tool("session_memory", {
+                "conversation_id": cid,
+                "query": "which battery did we decide on",
+                "budget_pct": 0.5}))
+            assert "nine kilowatt hour pack" in mem["memory"], (
+                f"the decision is not in the memory of the conversation "
+                f"that made it: {mem['memory'][:400]}")
+            assert mem["stats"]["committed"] is True, mem["stats"]
+            refused = await session.call_tool(
+                "salt_delegate", {"task": "summarise the decision"})
+            assert refused.is_error and "no roster:" in \
+                refused.content[0].text, refused.content[0].text
+            stats = payload(await session.call_tool(
+                "session_stats", {"conversation_id": cid}))
+            return mem, stats
+
+
+async def resume_scenario(sessions, cid, before):
+    """A second server, cold, over the same folder."""
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "salt.mcp.server", "--device", "cpu",
+              "--sessions-dir", str(sessions)])
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            back = payload(await session.call_tool(
+                "session_resume", {"conversation_id": cid}))
+            assert not back["created"], back
+            assert back["n_turns"] == before["n_turns"], (
+                f"a cold resume found {back['n_turns']} turns where the "
+                f"server before it left {before['n_turns']}")
+            assert back["n_sentences"] == before["n_sentences"], back
+            again = payload(await session.call_tool("session_memory", {
+                "conversation_id": cid,
+                "query": "which battery did we decide on",
+                "budget_pct": 0.5}))
+            assert "nine kilowatt hour pack" in again["memory"], (
+                f"the decision did not survive the server that heard it: "
+                f"{again['memory'][:400]}")
+            stats = payload(await session.call_tool(
+                "session_stats", {"conversation_id": cid}))
+            assert stats["attachments"] == before["attachments"], stats
+            return again, stats
+
+
+def check_scenario(sessions):
+    cid = "mcp-acceptance"
+    mem, stats = asyncio.run(run_scenario(sessions, cid))
+    again, after = asyncio.run(resume_scenario(sessions, cid, stats))
+    snap = after["snapshot"]
+    assert snap["n_turns"] == stats["snapshot"]["n_turns"], snap
+    assert snap["n_attachments"] == 1 and snap["live_words"] > 0, snap
+    print(f"13. acceptance: a document, {len(SCENARIO)} exchanges and a "
+          f"query through one server, then a second one, cold, resumed "
+          f"{after['n_sentences']} sentences over {after['n_turns']} turns "
+          f"and answered the same question from them")
+
+
 def break_session(root, cid):
     """Damage one conversation the way a crash between two file writes
     does: the corpus holds a sentence the embedding matrix does not."""
@@ -795,6 +901,7 @@ def main():
         check_off_path()
         check_delegation(sessions)
         check_hardening(sessions)
+        check_scenario(sessions)
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
     print("PASS")
