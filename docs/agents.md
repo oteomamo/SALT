@@ -258,6 +258,40 @@ worker that goes quiet. A roster entry that names a timeout of its own
 keeps it, because how long a model takes is a fact about that model
 rather than about the session asking.
 
+## How a planning model talks back
+
+Handing work out by hand is one thing. A model deciding what to hand
+out is another, and it has to say what it decided in a form the session
+can act on rather than read. That form is one JSON object: either an
+answer, or a list of pieces with the helper each piece goes to.
+
+Reading it is forgiving at the front and strict inside. A local model
+puts its reasoning above the object, fences it as markdown, or opens
+with a sentence about what it is about to do, and none of that is worth
+a failed round. What is inside the object is held to the letter: a task
+with no helper named, a key nobody declared, a plan wider than eight
+pieces, all refuse.
+
+A refusal is normal, not exceptional. The model is asked again once,
+with the actual fault quoted back to it, since a model told to try
+harder makes the same mistake and a model told what was wrong usually
+does not. If the second reply is no better, the round stops asking and
+keeps what the model said as the answer. That is the whole failure
+mode: a session loses the delegation, never the reply.
+
+Two things help before any of that. A helper's server is asked once
+whether it will hold a model to a schema at all, because a version
+number does not answer that question and only the wire does. A model
+whose server will is told to fill the schema. One whose server will not
+is shown the object to copy instead, which is worth more to it than a
+paragraph about JSON. And `/roster probe --deep NAME` will tell you which of the
+two a given helper is before you rely on it.
+
+Reasoning stays out of memory throughout. Text between `<think>` tags
+is the model's working, and it is cut before an answer is remembered
+and before any of this is read, so a plan is judged by what the model
+decided rather than by what it considered.
+
 ## Delegating from a script
 
 A scripted run can delegate as well as talk. An item in a `--turns` file

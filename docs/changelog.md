@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.67
+## 2.10.0 - 2.10.71
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -112,6 +112,13 @@ Patch releases, grouped where several versions shipped one thing:
   since a version string does not answer that. Reasoning between
   `<think>` tags is cut before an answer is remembered, and
   `--agent-keep-think` keeps it.
+- **2.10.68 - 2.10.71** Knowing what a helper can be asked for.
+  `/roster probe --deep NAME` asks one helper to return three small
+  objects exactly as given and reports whether it is schema-native,
+  plain or flaky, remembering the answer beside the session. A planning
+  model is then given instructions matched to that: fill the schema, or
+  copy this object. The [agents](agents.md) page describes how a
+  planning model talks back.
 
 ## 2.9.0 - 2.9.123
 
