@@ -14,6 +14,9 @@ line compress a text the same way.
 """
 
 import argparse
+import atexit
+import os
+import signal
 import sys
 from typing import Any
 
@@ -186,8 +189,8 @@ def session_payload(pool, conversation_id, created=False):
            "n_turns": trie.n_turns,
            "n_sentences": trie.n_sentences,
            "path": str(trie.cache_dir)}
-    if session.warning:
-        out["warning"] = session.warning
+    if session.warnings:
+        out["warnings"] = list(session.warnings)
     return out
 
 
@@ -238,6 +241,7 @@ def session_stats_payload(pool, conversation_id):
     session.drain()
     trie = session.trie
     return {"conversation_id": trie.conversation_id,
+            "warnings": list(session.warnings),
             "snapshot": snapshot(session, session.last_stats),
             "snapshot_schema": SCHEMA,
             "n_turns": trie.n_turns,
@@ -609,6 +613,28 @@ def build_parser():
     return p
 
 
+def shutdown_once(pool, runtime):
+    """One way to end, however the end arrives.
+
+    A client hanging up, a Ctrl-C and a kill all mean the same thing:
+    every open conversation drained and written, every worker connection
+    let go. Idempotent because more than one of those paths can fire,
+    and a second close must not undo the first one's work.
+    """
+    state = {"done": False}
+
+    def close(*_args):
+        if state["done"]:
+            return
+        state["done"] = True
+        try:
+            pool.close_all()
+        finally:
+            runtime.close()
+
+    return close
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.version:
@@ -622,13 +648,26 @@ def main(argv=None):
     roster = load_roster(args.roster) if args.roster else None
     server = build_server(Engine(resolve_device(args)), pool, roster,
                           max_chars=args.max_ingest_chars)
+    # the last word a session gets is written when this server ends, so
+    # every way of ending has to reach the same close
+    closing = shutdown_once(pool, server.runtime)
+    atexit.register(closing)
+
+    def on_signal(*_args):
+        # the close is the part that matters and it has already happened
+        # by the time this exits. The stop is hard on purpose: the
+        # transport reads stdin on a thread of its own that will not
+        # return until the client hangs up, and waiting for it would
+        # turn a kill into a hang
+        closing()
+        os._exit(0)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, on_signal)
     try:
         server.run("stdio")
     finally:
-        # the client hanging up is how this server ends, so the last
-        # word a session gets is written here or not at all
-        pool.close_all()
-        server.runtime.close()
+        closing()
     return 0
 
 

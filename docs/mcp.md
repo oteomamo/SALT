@@ -140,6 +140,17 @@ that notices another one holding a session says so in its reply rather
 than refusing, since a leftover marker from a crashed server must not
 be what stops the next one from working.
 
+Anything a client should know about a conversation that is not a
+refusal comes back in a `warnings` list on the reply: another server
+looking like it holds this one, or a repair the open had to make. A
+conversation whose files disagree after a crash is rolled back to its
+last complete state as it opens, the dropped text is kept in
+`load_repairs.jsonl` beside it, and the reply says what was dropped.
+
+However the server ends, it ends the same way. A client hanging up, a
+Ctrl-C or a kill all drain every open conversation and write the ones
+that changed before the process stops.
+
 ## Documents in a conversation
 
 `salt_ingest_document` puts a file into a session's memory. Give it a

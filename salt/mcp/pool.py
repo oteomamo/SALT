@@ -32,12 +32,15 @@ class SessionError(Exception):
 
 
 class OpenSession:
-    """One open conversation: its trie, its ingest worker, its warning."""
+    """One open conversation: its trie, its ingest worker, its warnings."""
 
-    def __init__(self, trie, ingest, warning="", read_only=False):
+    def __init__(self, trie, ingest, warnings=(), read_only=False):
         self.trie = trie
         self.ingest = ingest
-        self.warning = warning
+        # everything the client should be told about this conversation
+        # that is not a refusal: another server holding it, a repair the
+        # open had to make. Reported, never raised
+        self.warnings = list(warnings)
         self.read_only = read_only
         self.touched = time.monotonic()
         # what the last read of this conversation measured, kept so the
@@ -56,12 +59,33 @@ class OpenSession:
     def close(self):
         """Drain, save what changed, then let go. A read-only server
         saves nothing at all: its whole promise is that opening a
-        conversation leaves it exactly as it was found."""
+        conversation leaves it exactly as it was found.
+
+        The drain comes first and its failure cannot skip the save: a
+        session being closed under a queue still holding jobs is exactly
+        when the rows are worth the most, and dropping them because the
+        last one failed would lose the ones that did not.
+        """
         try:
-            self.ingest.close()
+            return self.ingest.close()
         finally:
             if self.trie.dirty and not self.read_only:
                 self.trie.save()
+
+
+def repair_note(trie):
+    """What opening this conversation had to put right. A session whose
+    files disagreed after a crash is rolled back to its last complete
+    state as it loads, and the client is told rather than left to notice
+    that a sentence is gone."""
+    repair = getattr(trie, "load_repair", None)
+    if not repair:
+        return ""
+    return (f"this conversation was repaired as it opened: "
+            f"{repair.get('dropped_sentences', 0)} sentence(s) and "
+            f"{repair.get('orphan_rows', 0)} embedding row(s) were dropped "
+            f"as incomplete, leaving {repair.get('kept', 0)}. The full "
+            f"record is in load_repairs.jsonl beside the conversation.")
 
 
 def sentinel_path(cache_dir, conversation_id):
@@ -113,19 +137,31 @@ class SessionPool:
         from salt.chat.cli import BGE_MODEL
         from salt.chat.ingest import IngestWorker
         from salt.engine.session_trie import SessionTrie
+        from salt.mcp.errors import ToolError
         # both halves are built before anything is published, so a failed
         # constructor leaves the pool exactly as it was
-        trie = SessionTrie(conversation_id, cache_dir=self.cache_dir,
-                           model_name=BGE_MODEL,
-                           budget_pct_default=self.budget_pct)
+        try:
+            trie = SessionTrie(conversation_id, cache_dir=self.cache_dir,
+                               model_name=BGE_MODEL,
+                               budget_pct_default=self.budget_pct)
+        except Exception as exc:
+            # a session whose files cannot be read at all. The reason and
+            # the folder are what a person needs; the traceback is not
+            raise ToolError(
+                "failed",
+                f"conversation {conversation_id!r} could not be opened "
+                f"({type(exc).__name__}: {exc}). Its files are under "
+                f"{self.cache_dir / conversation_id}") from exc
         ingest = IngestWorker(
             journal_path=trie.cache_dir / "ingest_failures.jsonl",
             synchronous=self.synchronous)
+        warnings = []
         # no sentinel on a read-only server: marking the directory is
         # itself a write, and this server promises not to make any
-        warning = ("" if self.read_only
-                   else claim(self.cache_dir, conversation_id))
-        return OpenSession(trie, ingest, warning=warning,
+        if not self.read_only:
+            warnings.append(claim(self.cache_dir, conversation_id))
+        warnings.append(repair_note(trie))
+        return OpenSession(trie, ingest, warnings=[w for w in warnings if w],
                            read_only=self.read_only)
 
     def get(self, conversation_id):

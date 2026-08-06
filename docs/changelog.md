@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.56
+## 2.10.0 - 2.10.57
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -92,6 +92,11 @@ Patch releases, grouped where several versions shipped one thing:
   argument to a conversation nobody made, and an unexpected fault is
   reported as one rather than as a traceback over the wire.
   `--max-ingest-chars` bounds how long a text one call may carry.
+- **2.10.57** Closing down safely. A conversation closed to make room
+  finishes what it was still encoding before it is let go, a
+  conversation whose files disagree after a crash opens repaired and
+  says so in a `warnings` list on the reply, and a server told to stop
+  writes every open conversation before it goes.
 
 ## 2.9.0 - 2.9.123
 

@@ -40,6 +40,10 @@ client does, and covers the surface a client depends on:
      conversation's memory selected for it, leaves a ledger line under
      the session, remembers the answer as a worker row when asked to,
      and commits nothing to the conversation either way.
+ 12. Hardening: a session evicted while its ingest queue is still full
+     loses nothing, a conversation damaged between two file writes opens
+     repaired and says so, and a server killed mid-session closes down
+     rather than being killed.
 
 Skips with exit 0 when the mcp extra is not installed, so a plain
 install stays green. CPU only, no GPU and no model.
@@ -462,6 +466,75 @@ async def check_bad_calls(session, sessions):
           f"that survived garbage on its pipe")
 
 
+def break_session(root, cid):
+    """Damage one conversation the way a crash between two file writes
+    does: the corpus holds a sentence the embedding matrix does not."""
+    import numpy as np
+    path = Path(root) / cid / "embeddings.npy"
+    rows = np.load(path)
+    np.save(path, rows[:-1])
+    return rows.shape[0]
+
+
+def check_hardening(root):
+    """Closing under load, opening after damage, and dying on a signal."""
+    import select
+    from salt.mcp.pool import SessionPool
+    from salt.mcp.server import Engine, add_turns, session_payload
+
+    engine = Engine("cpu").ready()
+    pool = SessionPool(root, capacity=1)
+    # a session closed with its queue still full: eviction has to drain
+    # before it drops, or the rows nobody waited for are simply lost
+    add_turns(engine, pool, "mcp-evicted",
+              [{"role": r, "text": t} for r, t in TALK], sync=False)
+    pending = pool.open["mcp-evicted"].ingest.pending
+    pool.get("mcp-other")
+    assert "mcp-evicted" not in pool.open, "the cap did not evict"
+    reopened = SessionPool(root).get("mcp-evicted")
+    assert reopened.trie.n_sentences >= 3, (
+        f"an eviction under load lost rows: "
+        f"{reopened.trie.n_sentences} sentences survived")
+    assert not reopened.warnings, reopened.warnings
+    pool.close_all()
+
+    # a conversation damaged between two file writes opens, repairs
+    # itself, and says so
+    rows = break_session(root, "mcp-evicted")
+    damaged = SessionPool(root)
+    payload_out = session_payload(damaged, "mcp-evicted")
+    notes = payload_out.get("warnings") or []
+    assert any("repaired as it opened" in n for n in notes), (
+        f"a repaired conversation reported nothing: {payload_out}")
+    assert damaged.open["mcp-evicted"].trie.n_sentences == rows - 1, (
+        "the repair did not roll the conversation back")
+    damaged.close_all()
+
+    env = dict(os.environ)
+    env.pop("MKL_THREADING_LAYER", None)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "salt.mcp.server", "--device", "cpu",
+         "--sessions-dir", str(root)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, text=True, cwd=REPO, env=env)
+    proc.stdin.write(json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                   "clientInfo": {"name": "term", "version": "0"}}}) + "\n")
+    proc.stdin.flush()
+    assert select.select([proc.stdout], [], [], 60)[0], "no handshake"
+    proc.stdout.readline()
+    proc.terminate()
+    code = proc.wait(timeout=30)
+    assert code == 0, (
+        f"a server killed mid-session left with status {code} rather than "
+        f"closing down")
+    print(f"12. hardening: a session evicted with {pending} jobs still "
+          f"queued kept every row, a conversation damaged between two "
+          f"writes opened repaired and said so, and a server told to stop "
+          f"mid-session shut down cleanly")
+
+
 def check_pipe_garbage(sessions):
     """Nonsense on the pipe, then a real request. A server that dies on
     the first malformed line is a server one bad client can end."""
@@ -721,6 +794,7 @@ def main():
         # process and makes the off-path claim harder to state honestly
         check_off_path()
         check_delegation(sessions)
+        check_hardening(sessions)
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
     print("PASS")
