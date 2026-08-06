@@ -859,6 +859,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#when-a-call-is-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a call is refused
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-server-that-only-reads" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1384,6 +1395,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#when-a-call-is-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a call is refused
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-server-that-only-reads" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1483,6 +1505,10 @@ client that connects and asks for nothing pays nothing.</p>
 <tr>
 <td><code>--max-open-sessions</code></td>
 <td>how many conversations stay open at once (default: 8)</td>
+</tr>
+<tr>
+<td><code>--max-ingest-chars</code></td>
+<td>longest text one call may carry (default: 400000)</td>
 </tr>
 <tr>
 <td><code>--roster</code></td>
@@ -1714,15 +1740,74 @@ client saw.</p>
 remembered as a turn of its own, headed with the helper it came from
 rather than as something the conversation said. It is off by default:
 a helper's prose in memory is a decision, not a side effect.</p>
+<h2 id="when-a-call-is-refused">When a call is refused</h2>
+<p>Every refusal opens with a fixed phrase saying what kind it is, so a
+client can branch on the kind and a person can still read the sentence.</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>The reason begins</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>invalid argument</td>
+<td><code>invalid argument:</code></td>
+<td>an argument is missing, empty or out of range</td>
+</tr>
+<tr>
+<td>invalid session id</td>
+<td><code>invalid session id:</code></td>
+<td>the id is not one a conversation may be called</td>
+</tr>
+<tr>
+<td>not found</td>
+<td><code>no such conversation:</code></td>
+<td>the conversation, or a file, is not there</td>
+</tr>
+<tr>
+<td>too large</td>
+<td><code>too large:</code></td>
+<td>a text is past <code>--max-ingest-chars</code></td>
+</tr>
+<tr>
+<td>read only</td>
+<td><code>read-only server:</code></td>
+<td>the call would write and the server may not</td>
+</tr>
+<tr>
+<td>no roster</td>
+<td><code>no roster:</code></td>
+<td>a helper was asked for and none is loaded</td>
+</tr>
+<tr>
+<td>worker failed</td>
+<td><code>worker failed:</code></td>
+<td>the delegation could not be sent at all</td>
+</tr>
+<tr>
+<td>failed</td>
+<td><code>the call failed:</code></td>
+<td>anything else, with the fault named</td>
+</tr>
+</tbody>
+</table>
+<p>A helper that answers badly is not a refusal. A delegation that timed
+out or reached a model that is not there comes back as a normal result
+with its status saying so, because the call itself was fine.</p>
+<p>Nothing else reaches the client. An unexpected fault is reported as the
+last kind with its type named, never as a traceback.</p>
 <h2 id="a-server-that-only-reads">A server that only reads</h2>
 <p><code>--read-only</code> starts a server that answers questions about
 conversations and changes none of them. Reads all work:
 <code>salt_compress</code>, <code>session_list</code>, <code>session_resume</code>, <code>session_stats</code>,
 <code>session_memory</code>, <code>roster_list</code> and <code>salt_delegate</code> itself. Writes
 refuse: <code>session_create</code>, <code>session_add_turn</code>, <code>salt_ingest_document</code>
-and a delegation asking for <code>ingest</code> come back as an error beginning
-<code>read-only server:</code>, naming the tool and saying why, so a client can
-tell a server that will not from a call that was wrong.</p>
+and a delegation asking for <code>ingest</code> come back as a refusal whose
+reason begins <code>read-only server:</code>, naming the tool and saying why, so a
+client can tell a server that will not from a call that was wrong.</p>
 <p>The tool list is the same either way. A read-only server offers every
 tool and refuses the writing ones when called, rather than hiding them,
 so what a client discovers does not depend on how the server was
