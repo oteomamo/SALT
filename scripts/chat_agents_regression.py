@@ -3068,6 +3068,144 @@ def check_snapshot(tmp, tok, mdl):
           f"really carries")
 
 
+GOOD_DIRECTIVES = (
+    ('{"action": "answer", "answer": "the battery is the cheaper option"}',
+     "answer", 0, "the bare minimum an answer needs"),
+    ('{"version": "salt-agent-directive/1", "action": "answer", '
+     '"answer": "yes"}', "answer", 0, "the version spelled out"),
+    ('Here is my plan.\n{"action": "delegate", "subtasks": '
+     '[{"id": "a", "task": "summarise the quotes", "target": "w"}]}',
+     "delegate", 1, "a sentence of prose in front of it"),
+    ('```json\n{"action": "delegate", "subtasks": [{"id": "a", '
+     '"task": "t", "target": "w"}]}\n```', "delegate", 1,
+     "fenced as markdown"),
+    ('<think>maybe {"action": "answer"} would do</think>'
+     '{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
+     '"target": "w"}]}', "delegate", 1,
+     "a think block that reasons in JSON of its own"),
+    ('<think>still deciding {"action": "answer", "answer": "no"}',
+     None, 0, "a think block that never closed"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
+     '"target": "w", "query": "q", "budget_pct": 0.5, "max_tokens": 64}]}',
+     "delegate", 1, "every optional field set"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "read '
+     '{this}", "target": "w"}]} and that is my plan', "delegate", 1,
+     "braces inside a string, and prose after the object"),
+    ('{"action": "answer", "answer": "he said \\"go with B\\" first"}',
+     "answer", 0, "an escaped quote inside the answer"),
+    ('[{"action": "answer", "answer": "x"}]', "answer", 0,
+     "one directive wrapped in a list"),
+)
+
+BAD_DIRECTIVES = (
+    ("nothing here at all", "no_json", "a reply with no object in it"),
+    ('{"action": "answer", "answer": ', "no_json", "an object cut in half"),
+    ('{"action": "answer" "answer": "x"}', "bad_json", "a missing comma"),
+    ('["do the thing", "then the other"]', "no_json",
+     "a list of strings with no object anywhere in it"),
+    ('{"version": "salt-agent-directive/2", "action": "answer", '
+     '"answer": "x"}', "wrong_version", "a schema from the future"),
+    ('{"action": "think", "answer": "x"}', "bad_action", "an invented action"),
+    ('{"answer": "x"}', "bad_action", "no action at all"),
+    ('{"action": "answer"}', "no_answer", "an answer with nothing in it"),
+    ('{"action": "answer", "answer": "   "}', "no_answer", "a blank answer"),
+    ('{"action": "delegate"}', "no_subtasks", "a plan with no subtasks"),
+    ('{"action": "delegate", "subtasks": []}', "no_subtasks",
+     "a plan with an empty list"),
+    ('{"action": "answer", "answer": "x", "tool": "salt_compress"}',
+     "unknown_keys", "a key nobody declared"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
+     '"target": "w", "temperature": 0.9}]}', "unknown_keys",
+     "a subtask key nobody declared"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t"}]}',
+     "bad_subtask", "a subtask with no target"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "target": "w"}]}',
+     "bad_subtask", "a subtask with no task"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "", '
+     '"target": "w"}]}', "bad_subtask", "a subtask with an empty task"),
+    ('{"action": "delegate", "subtasks": ["do the thing"]}', "bad_subtask",
+     "a subtask that is a string"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
+     '"target": "w"}, {"id": "a", "task": "u", "target": "w"}]}',
+     "duplicate_id", "two subtasks under one id"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
+     '"target": "w", "budget_pct": 4}]}', "bad_number",
+     "a budget over the whole conversation"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
+     '"target": "w", "budget_pct": "half"}]}', "bad_number",
+     "a budget in words"),
+    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
+     '"target": "w", "max_tokens": true}]}', "bad_number",
+     "a boolean where a count goes"),
+)
+
+
+def check_protocol():
+    from salt.agents import protocol as P
+
+    for text, action, n_subs, why in GOOD_DIRECTIVES:
+        if action is None:
+            try:
+                P.parse_directive(text)
+                raise AssertionError(f"{why} was read as a directive")
+            except P.ProtocolError as exc:
+                assert exc.reason == "no_json", (why, exc.reason)
+            continue
+        d = P.parse_directive(text)
+        assert d.action == action, (why, d)
+        assert len(d.subtasks) == n_subs, (why, d)
+        assert d.delegates == (action == "delegate"), (why, d)
+        if action == "answer":
+            assert d.answer and not d.answer.startswith(" "), (why, d)
+
+    seen = set()
+    for text, reason, why in BAD_DIRECTIVES:
+        try:
+            P.parse_directive(text)
+            raise AssertionError(f"{why} was accepted as a directive")
+        except P.ProtocolError as exc:
+            assert exc.reason == reason, (
+                f"{why} refused as {exc.reason!r} rather than {reason!r}")
+            assert exc.detail, f"{why} refused without saying what was wrong"
+            assert reason in P.REASONS, reason
+            seen.add(reason)
+            assert exc.reason in P.repair_prompt(exc), "the repair prompt "\
+                "does not carry the reason it is repairing"
+
+    wide = json.dumps({"action": "delegate", "subtasks": [
+        {"id": str(i), "task": "t", "target": "w"}
+        for i in range(P.MAX_SUBTASKS + 1)]})
+    try:
+        P.parse_directive(wide)
+        raise AssertionError("a plan past the cap was accepted")
+    except P.ProtocolError as exc:
+        assert exc.reason == "too_many_subtasks", exc.reason
+    at_cap = P.parse_directive(json.dumps({"action": "delegate", "subtasks": [
+        {"id": str(i), "task": "t", "target": "w"}
+        for i in range(P.MAX_SUBTASKS)]}))
+    assert len(at_cap.subtasks) == P.MAX_SUBTASKS, at_cap
+
+    # D5: a worker's answer is quoted material. Nothing here reads it,
+    # and a directive-shaped worker reply is still just a string
+    plan = P.parse_directive('{"action": "delegate", "subtasks": [{"id": '
+                             '"a", "task": "t", "target": "w"}, {"id": "b", '
+                             '"task": "u", "target": "x"}]}')
+    assert plan.targets == ("w", "x"), plan.targets
+    assert plan.subtasks[0].context_query == "t", "a subtask with no query "\
+        "does not fall back to its own task"
+    assert P.parse_directive('{"action": "delegate", "subtasks": [{"id": '
+                             '"a", "task": "t", "target": "w", "query": '
+                             '"q"}]}').subtasks[0].context_query == "q"
+    assert P.parse_directive(P.example_directive(("w",))).targets == ("w",), (
+        "the example shown to a model is not itself a valid directive")
+    assert P.strip_think("<think>a</think>  b  ") == "b"
+    assert P.strip_think("") == "" and P.strip_think(None) == ""
+    print(f"34. directive protocol: {len(GOOD_DIRECTIVES)} replies read "
+          f"through prose, fences and reasoning, {len(BAD_DIRECTIVES)} "
+          f"refused across {len(seen)} distinct reasons, and the cap holds "
+          f"at {P.MAX_SUBTASKS} subtasks")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -3113,6 +3251,7 @@ def main():
         check_offload_ergonomics(tmp, tok, mdl)
         check_worker_turns(tmp, tok, mdl)
         check_snapshot(tmp, tok, mdl)
+        check_protocol()
         print("PASS")
     finally:
         if not args.keep:
