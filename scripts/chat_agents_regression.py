@@ -3140,6 +3140,51 @@ BAD_DIRECTIVES = (
 )
 
 
+def check_guided_probe(tok_path):
+    """Whether a worker can be held to a schema is asked of the wire."""
+    import salt.agents.roster as RR
+
+    cfg = {"alias": "stub", "hf_id": "some/model", "path": tok_path}
+    cards = [{"id": "some/model", "max_model_len": 4096}]
+    with Stub(cards=cards, guided=True) as yes:
+        h = WorkerHandle(entry(yes.url, model=cfg))
+        assert h.guided == RR.GUIDED_UNKNOWN, "a fresh handle claims to know"
+        assert h.probe_capabilities() == RR.GUIDED_CAPABLE, h.guided_detail
+        sent = yes.httpd.last_payload
+        assert sent["guided_json"] == RR.GUIDED_SCHEMA, sent
+        assert sent["max_tokens"] == 1, (
+            f"the capability probe generated {sent['max_tokens']} tokens "
+            f"when one is enough")
+        posts = yes.posts
+        assert h.probe_capabilities() == RR.GUIDED_CAPABLE
+        assert yes.posts == posts, "the answer was not cached"
+
+    with Stub(cards=cards, guided=False) as no:
+        h = WorkerHandle(entry(no.url, model=cfg))
+        assert h.probe_capabilities() == RR.GUIDED_PLAIN, h.guided_detail
+        assert "400" in h.guided_detail, h.guided_detail
+        # the same server still answers ordinary calls
+        with redirect_stdout(io.StringIO()):
+            assert "".join(h.call([{"role": "user", "content": "hi"}])) == \
+                "hello", "a server without schemas stopped answering"
+
+    # an endpoint that is not there is unknown, never capable, and a
+    # worker that died forgets what it learned
+    gone = WorkerHandle(entry(f"http://127.0.0.1:{closed_port()}", model=cfg))
+    assert gone.probe_capabilities(timeout=2) == RR.GUIDED_UNKNOWN
+    with Stub(cards=cards, guided=True) as revived:
+        h = WorkerHandle(entry(revived.url, model=cfg))
+        h.probe_capabilities()
+        assert h.guided == RR.GUIDED_CAPABLE
+        h.probe(url=f"http://127.0.0.1:{closed_port()}", timeout=2)
+        assert h.state == DEAD and h.guided == RR.GUIDED_UNKNOWN, (
+            "a worker that died kept a capability its process took with it")
+    print("35. guided decoding: asked of the wire and cached, a server "
+          "that refuses a schema keeps answering plainly, an endpoint "
+          "nobody is on stays unknown, and a worker that died forgets "
+          "what its process could do")
+
+
 def check_protocol():
     from salt.agents import protocol as P
 
@@ -3252,6 +3297,7 @@ def main():
         check_worker_turns(tmp, tok, mdl)
         check_snapshot(tmp, tok, mdl)
         check_protocol()
+        check_guided_probe(tok_path)
         print("PASS")
     finally:
         if not args.keep:

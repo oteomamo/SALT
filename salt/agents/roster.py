@@ -301,6 +301,44 @@ def probe(entry, url=None, timeout=5):
                        max_model_len=_card_window(card))
 
 
+# what a capability probe sends: the smallest request that can carry a
+# schema at all. One token back is all the answer that is needed
+GUIDED_SCHEMA = {"type": "object"}
+GUIDED_CAPABLE = "guided"
+GUIDED_PLAIN = "plain"
+GUIDED_UNKNOWN = "unknown"
+
+
+def probe_guided(entry, url=None, timeout=10):
+    """Whether this endpoint can be made to answer in a schema.
+
+    Asked of the wire, never inferred from a version string: a server
+    that says it is new enough and rejects the parameter anyway is the
+    case this exists for. A tiny completion carrying vLLM's guided_json
+    is sent, and the server's own answer decides. Anything other than
+    an accepted request means the plain protocol, since a capability
+    that cannot be demonstrated is one to plan without.
+    """
+    import requests
+
+    url = (url or entry.server_url or "").rstrip("/")
+    if not url:
+        return GUIDED_UNKNOWN, "nothing to probe: no endpoint yet"
+    cfg = entry.model or {}
+    body = {"model": cfg.get("hf_id") or entry.alias, "prompt": "{",
+            "max_tokens": 1, "temperature": 0,
+            "guided_json": GUIDED_SCHEMA}
+    try:
+        resp = requests.post(f"{url}/v1/completions", json=body,
+                             timeout=timeout)
+    except requests.RequestException as exc:
+        return GUIDED_UNKNOWN, f"{type(exc).__name__}: {exc}"
+    if resp.status_code == 200:
+        return GUIDED_CAPABLE, "the endpoint accepted a schema"
+    detail = (resp.text or "").strip().replace("\n", " ")[:200]
+    return GUIDED_PLAIN, f"the endpoint refused a schema ({resp.status_code}): {detail}"
+
+
 PLACEMENT_CEILING = 0.95
 BGE_CARD_MB = 130
 

@@ -83,6 +83,19 @@ class _StubHandler(BaseHTTPRequestHandler):
             self.server.peak = max(self.server.peak, self.server.inflight)
             self.server.posts += 1
         try:
+            if (not self.server.guided
+                    and "guided_json" in self.server.last_payload):
+                # what a server that never heard of guided decoding says:
+                # the parameter itself is the complaint
+                body = json.dumps({"error": {
+                    "message": "unknown parameter: guided_json",
+                    "type": "BadRequestError"}}).encode()
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.server.post_status != 200:
                 body = b"no model is loaded on this server"
                 self.send_response(self.server.post_status)
@@ -132,10 +145,10 @@ class Stub:
 
     def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
                  status=200, raw=None, port=0, stall=0.0, drop=False,
-                 serving=True, post_status=200, usage=False):
+                 serving=True, post_status=200, usage=False, guided=True):
         self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
                         status=status, raw=raw, stall=stall, drop=drop,
-                        post_status=post_status, usage=usage)
+                        post_status=post_status, usage=usage, guided=guided)
         self.port = port
         self.httpd = None
         self.aborted = threading.Event()

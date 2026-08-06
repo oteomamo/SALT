@@ -33,7 +33,8 @@ import threading
 import time
 from pathlib import Path
 
-from salt.agents.roster import UNPROBED, probe as probe_endpoint
+from salt.agents.roster import (GUIDED_UNKNOWN, UNPROBED,
+                                probe as probe_endpoint, probe_guided)
 
 DECLARED = "DECLARED"
 STARTING = "STARTING"
@@ -205,6 +206,11 @@ class WorkerHandle:
         self.cfg = entry.model if cfg is None else cfg
         self.state = DECLARED
         self.probe_result = UNPROBED
+        # whether this endpoint will answer in a schema, learned by asking
+        # it once. Per server process, so a worker that died and came back
+        # is asked again rather than remembered
+        self.guided = GUIDED_UNKNOWN
+        self.guided_detail = ""
         self.runner = None
         self.calls = 0
         self.busy_s = 0.0
@@ -448,7 +454,21 @@ class WorkerHandle:
         elif result.state == DEAD:
             self.state = DEAD
             self.last_error = result.detail
+            # a dead endpoint's capability is a fact about a process that
+            # is gone. Whatever comes back on that port answers for itself
+            self.guided = GUIDED_UNKNOWN
+            self.guided_detail = ""
         return result
+
+    def probe_capabilities(self, timeout=10, url=None):
+        """Ask this endpoint whether it can be held to a schema, once.
+        Cached until the worker dies. Never raises: an endpoint that
+        cannot be asked is one to plan around, not one to fail on."""
+        if self.guided != GUIDED_UNKNOWN:
+            return self.guided
+        self.guided, self.guided_detail = probe_guided(
+            self.entry, url=url or self.url, timeout=timeout)
+        return self.guided
 
     def ready(self):
         """Open the client if it is not open yet and return the runner."""
