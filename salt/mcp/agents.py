@@ -208,16 +208,26 @@ def remember_answer(state, result, target):
     the client said, and never part of any verbatim tail: a delegated
     answer is memory the next read can select, not something the
     conversation claims to have said.
+
+    A reasoning model's working is cut first, the same cut the prompt
+    makes: a conversation must not be able to recall something a helper
+    considered and rejected, and which side asked for the delegation
+    cannot be what decides that. The answer goes back to the client in
+    full either way.
     """
+    from salt.agents.protocol import reply_text
+    text = reply_text(result.text)
+    if not text.strip():
+        return False
     session = state.session
     engine = state.runtime.engine
     session.ingest.submit(
         lambda: session.trie.add_turn(
-            result.text, role="worker", origin=target,
+            text, role="worker", origin=target,
             tokenizer=engine.tokenizer, model=engine.model,
             device=engine.device, dedup_cos=state.dedup_cos,
             max_sentences=state.max_sentences, save=False),
-        label="worker-message ingest", payload=result.text)
+        label="worker-message ingest", payload=text)
     session.ingest.submit(
         lambda: session.trie.save() if session.trie.dirty else None,
         label="session save")

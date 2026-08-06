@@ -38,8 +38,9 @@ client does, and covers the surface a client depends on:
      the MCP SDK.
  11. Delegation: a task handed to a stub worker comes back with the
      conversation's memory selected for it, leaves a ledger line under
-     the session, remembers the answer as a worker row when asked to,
-     and commits nothing to the conversation either way.
+     the session, remembers the answer as a worker row when asked to
+     with the model's working cut out of it, and commits nothing to the
+     conversation either way.
  12. Hardening: a session evicted while its ingest queue is still full
      loses nothing, a conversation damaged between two file writes opens
      repaired and says so, and a server killed mid-session closes down
@@ -881,14 +882,37 @@ def check_delegation(root):
         assert rec["context_stats"]["n_selected"] == out["context"][
             "n_selected"], rec
 
+        # an answer with reasoning in front of it: the answer is
+        # remembered, the working is not, and the client gets both
+        stub.httpd.pieces = ["<think>the user asked about winter</think>",
+                             "The battery carries the December evening."]
         kept = run_delegation(runtime, "say that again",
                               conversation_id=cid, ingest=True)
         assert kept["remembered"] and kept["id"] == 2, kept
+        assert kept["answer"].startswith("<think>"), (
+            "the client was handed a trimmed answer rather than the reply")
         session.drain()
         assert session.trie.n_sentences > sentences, (
             "an ingested answer added nothing to the conversation")
         assert session.trie.roles[-1] == "worker", session.trie.roles[-3:]
         assert session.trie.origins[-1] == "w", session.trie.origins[-3:]
+        assert not any("<think>" in t or "the user asked" in t
+                       for t in session.trie.texts), (
+            "a worker's working reached the conversation over MCP")
+        assert any("December evening" in t for t in session.trie.texts[-2:]), (
+            f"the answer itself was not remembered: "
+            f"{session.trie.texts[-2:]}")
+
+        # a reply that is nothing but working is nothing to remember
+        stub.httpd.pieces = ["<think>no idea at all</think>"]
+        n_before = session.trie.n_sentences
+        empty = run_delegation(runtime, "and again", conversation_id=cid,
+                               ingest=True)
+        session.drain()
+        assert not empty["remembered"], empty
+        assert session.trie.n_sentences == n_before, (
+            "a reply with nothing but working in it was remembered anyway")
+        stub.httpd.pieces = list(ANSWER)
 
         # context-free: the worker gets the task and nothing else
         alone = run_delegation(runtime, "name three colours")
@@ -901,8 +925,8 @@ def check_delegation(root):
         runtime.close()
     print("11. delegation: a task goes to the worker under the "
           "conversation's own memory, the ledger records it, an ingested "
-          "answer lands as a worker row, and the conversation itself is "
-          "byte for byte unchanged by either")
+          "answer lands as a worker row with its reasoning cut, and the "
+          "conversation itself is byte for byte unchanged by either")
 
 
 def main():

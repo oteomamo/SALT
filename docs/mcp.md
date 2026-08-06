@@ -288,6 +288,11 @@ remembered as a turn of its own, headed with the helper it came from
 rather than as something the conversation said. It is off by default:
 a helper's prose in memory is a decision, not a side effect.
 
+A reasoning model's working is cut before that. Text between `<think>`
+tags is what the model considered, and a conversation should not be
+able to recall it as though it had been said. The reply always comes
+back in full, so nothing is hidden from the client.
+
 ## When a call is refused
 
 Every refusal opens with a fixed phrase saying what kind it is, so a
