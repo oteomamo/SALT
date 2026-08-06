@@ -26,12 +26,17 @@ client does, and covers the surface a client depends on:
   7. Documents: a file and a bare text each land under their own
      source name, a name that looks like a path keeps only its last
      part, and an unreadable file is refused rather than half read.
-  8. Read-only: a second server on the same folder reads everything
+  8. Bad calls: a malformed argument, an oversized text, an unknown
+     conversation and an unknown tool each come back as a typed refusal
+     naming its kind, never as a traceback, and the server answers the
+     next call as if nothing happened. Garbage on the pipe does not end
+     it either.
+  9. Read-only: a second server on the same folder reads everything
      and refuses every write with one stable, recognisable error, and
      the conversation it read is byte for byte as it was left.
-  9. Off-path: importing saltChat still imports neither the server nor
+ 10. Off-path: importing saltChat still imports neither the server nor
      the MCP SDK.
- 10. Delegation: a task handed to a stub worker comes back with the
+ 11. Delegation: a task handed to a stub worker comes back with the
      conversation's memory selected for it, leaves a ledger line under
      the session, remembers the answer as a worker row when asked to,
      and commits nothing to the conversation either way.
@@ -152,7 +157,8 @@ async def drive(sessions):
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "salt.mcp.server", "--device", "cpu",
-              "--sessions-dir", str(sessions), "--max-open-sessions", "2"])
+              "--sessions-dir", str(sessions), "--max-open-sessions", "2",
+              "--max-ingest-chars", "4000"])
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             init = await session.initialize()
@@ -399,6 +405,98 @@ async def drive(sessions):
                   f"calls refused, and the excerpts labeled with the file "
                   f"they came from")
 
+            await check_bad_calls(session, sessions)
+
+
+BAD_CALLS = (
+    ("session_memory", {"conversation_id": "mcp-turns", "query": "  "},
+     "invalid_argument", "a blank query"),
+    ("session_memory", {"conversation_id": "mcp-turns", "query": "x",
+                        "budget_pct": 9}, "invalid_argument",
+     "a budget over one"),
+    ("session_memory", {"conversation_id": "no-such-thing", "query": "x"},
+     "not_found", "a conversation nobody made"),
+    ("session_stats", {"conversation_id": "no/such/thing"},
+     "invalid_session", "an id the REPL would refuse"),
+    ("session_add_turn", {"conversation_id": "mcp-turns",
+                          "exchange": [{"role": "nobody", "text": "hi"}]},
+     "invalid_argument", "a role nobody speaks"),
+    ("session_add_turn", {"conversation_id": "mcp-turns",
+                          "text": "x" * 4001}, "too_large",
+     "a message past the character bound"),
+    ("salt_compress", {"text": "x" * 4001}, "too_large",
+     "a text past the character bound"),
+    ("salt_delegate", {"task": "think about it"}, "no_roster",
+     "a delegation with no roster loaded"),
+    ("salt_ingest_document", {"conversation_id": "mcp-turns",
+                              "path": "/nowhere/at/all.txt"}, "not_found",
+     "a file that is not there"),
+)
+
+
+async def check_bad_calls(session, sessions):
+    """Every way a call can be wrong, and the server still standing."""
+    from salt.mcp.errors import PREFIXES
+    for tool, args, code, why in BAD_CALLS:
+        refused = await session.call_tool(tool, args)
+        assert refused.is_error, f"{why} was accepted by {tool}"
+        said = refused.content[0].text
+        assert PREFIXES[code] in said, (
+            f"{why} came back as {said!r}, which is not a {code} refusal")
+        assert "Traceback" not in said and "File \"" not in said, (
+            f"{tool} sent a traceback over the wire: {said}")
+    unknown = await session.call_tool("no_such_tool", {})
+    assert unknown.is_error, "an unknown tool was accepted"
+    wrong_type = await session.call_tool("session_stats",
+                                         {"conversation_id": 17})
+    assert wrong_type.is_error, "session_stats accepted a number as an id"
+
+    # the whole point: after all of that, the next call works
+    alive = payload(await session.call_tool(
+        "session_stats", {"conversation_id": "mcp-turns"}))
+    assert alive["n_sentences"] > 0, alive
+    check_pipe_garbage(sessions)
+    print(f"8. bad calls: {len(BAD_CALLS)} refusals each typed by kind, an "
+          f"unknown tool and a wrongly typed argument refused, no traceback "
+          f"on the wire, a server that answered the next call, and another "
+          f"that survived garbage on its pipe")
+
+
+def check_pipe_garbage(sessions):
+    """Nonsense on the pipe, then a real request. A server that dies on
+    the first malformed line is a server one bad client can end."""
+    import select
+    env = dict(os.environ)
+    env.pop("MKL_THREADING_LAYER", None)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "salt.mcp.server", "--device", "cpu",
+         "--sessions-dir", str(sessions)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, text=True, cwd=REPO, env=env)
+    try:
+        proc.stdin.write("this is not json at all\n")
+        proc.stdin.write("{\"jsonrpc\": \"2.0\", \"id\": 1}\n")
+        proc.stdin.write(json.dumps({
+            "jsonrpc": "2.0", "id": 2, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                       "clientInfo": {"name": "fuzz", "version": "0"}}}) + "\n")
+        proc.stdin.flush()
+        ready = select.select([proc.stdout], [], [], 60)[0]
+        assert ready, "the server never answered after garbage on the pipe"
+        line = proc.stdout.readline()
+        answer = json.loads(line)
+        assert answer.get("id") == 2, (
+            f"the server answered something other than the real request: "
+            f"{line.strip()}")
+        assert proc.poll() is None, "the server exited on a malformed line"
+    finally:
+        proc.stdin.close()
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    return True
+
 
 def digest(root):
     """Every byte of every session file, so a read-only run can be shown
@@ -468,7 +566,7 @@ async def drive_read_only(sessions, before):
     changed = [k for k in set(before) | set(after)
                if before.get(k) != after.get(k)]
     assert not changed, f"a read-only server changed {changed}"
-    print(f"8. read-only: reads answer and the memory block comes back "
+    print(f"9. read-only: reads answer and the memory block comes back "
           f"uncommitted, 3 writes refuse with one stable error, and all "
           f"{len(after)} session files are byte for byte unchanged")
 
@@ -487,7 +585,7 @@ def check_off_path():
     assert out.returncode == 0, out.stderr[-400:]
     assert out.stdout.strip() == "[]", (
         f"saltChat now imports the MCP layer: {out.stdout.strip()}")
-    print("9. off-path: importing saltChat pulls in neither the server "
+    print("10. off-path: importing saltChat pulls in neither the server "
           "nor the MCP SDK")
 
 
@@ -608,7 +706,7 @@ def check_delegation(root):
             "a context-free delegation carried a conversation with it")
         pool.close_all()
         runtime.close()
-    print("10. delegation: a task goes to the worker under the "
+    print("11. delegation: a task goes to the worker under the "
           "conversation's own memory, the ledger records it, an ingested "
           "answer lands as a worker row, and the conversation itself is "
           "byte for byte unchanged by either")

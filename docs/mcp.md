@@ -48,6 +48,7 @@ client that connects and asks for nothing pays nothing.
 | `--bge-device` | device for the encoder, winning over `--device` |
 | `--sessions-dir` | where conversations live (default: the folder saltChat uses) |
 | `--max-open-sessions` | how many conversations stay open at once (default: 8) |
+| `--max-ingest-chars` | longest text one call may carry (default: 400000) |
 | `--roster` | roster of helper models this server may delegate to |
 | `--read-only` | answer reads and refuse every write |
 
@@ -221,6 +222,29 @@ remembered as a turn of its own, headed with the helper it came from
 rather than as something the conversation said. It is off by default:
 a helper's prose in memory is a decision, not a side effect.
 
+## When a call is refused
+
+Every refusal opens with a fixed phrase saying what kind it is, so a
+client can branch on the kind and a person can still read the sentence.
+
+| Kind | The reason begins | When |
+|---|---|---|
+| invalid argument | `invalid argument:` | an argument is missing, empty or out of range |
+| invalid session id | `invalid session id:` | the id is not one a conversation may be called |
+| not found | `no such conversation:` | the conversation, or a file, is not there |
+| too large | `too large:` | a text is past `--max-ingest-chars` |
+| read only | `read-only server:` | the call would write and the server may not |
+| no roster | `no roster:` | a helper was asked for and none is loaded |
+| worker failed | `worker failed:` | the delegation could not be sent at all |
+| failed | `the call failed:` | anything else, with the fault named |
+
+A helper that answers badly is not a refusal. A delegation that timed
+out or reached a model that is not there comes back as a normal result
+with its status saying so, because the call itself was fine.
+
+Nothing else reaches the client. An unexpected fault is reported as the
+last kind with its type named, never as a traceback.
+
 ## A server that only reads
 
 `--read-only` starts a server that answers questions about
@@ -228,9 +252,9 @@ conversations and changes none of them. Reads all work:
 `salt_compress`, `session_list`, `session_resume`, `session_stats`,
 `session_memory`, `roster_list` and `salt_delegate` itself. Writes
 refuse: `session_create`, `session_add_turn`, `salt_ingest_document`
-and a delegation asking for `ingest` come back as an error beginning
-`read-only server:`, naming the tool and saying why, so a client can
-tell a server that will not from a call that was wrong.
+and a delegation asking for `ingest` come back as a refusal whose
+reason begins `read-only server:`, naming the tool and saying why, so a
+client can tell a server that will not from a call that was wrong.
 
 The tool list is the same either way. A read-only server offers every
 tool and refuses the writing ones when called, rather than hiding them,

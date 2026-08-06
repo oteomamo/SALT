@@ -17,6 +17,9 @@ import argparse
 import sys
 from typing import Any
 
+from salt.mcp.errors import (DEFAULT_MAX_CHARS, ToolError, guarded,
+                             need_budget, need_text)
+
 SERVER_NAME = "salt"
 DEFAULT_BUDGET_PCT = 0.20
 # every refusal a read-only server makes starts with this, so a client
@@ -27,8 +30,8 @@ READ_ONLY_PREFIX = "read-only server:"
 def refuse_write(tool, what):
     """The one shape a read-only refusal takes. Stable wording: clients
     match on it, so it is part of the contract rather than a message."""
-    raise ValueError(f"{READ_ONLY_PREFIX} {tool} would {what}, and this "
-                     f"server was started with --read-only")
+    raise ToolError("read_only", f"{tool} would {what}, and this server "
+                                 f"was started with --read-only")
 
 
 def salt_version():
@@ -103,18 +106,15 @@ class Engine:
         return self
 
 
-def compress_text(engine, text, budget_pct=None, query=None):
+def compress_text(engine, text, budget_pct=None, query=None,
+                  max_chars=DEFAULT_MAX_CHARS):
     """One text compressed under a token budget, optionally biased to a
     query. Returns {"compressed": str, "stats": dict}."""
     from salt.engine import compressor
     from salt.engine.celf import coverage_select
 
-    if not isinstance(text, str) or not text.strip():
-        raise ValueError("salt_compress needs a non-empty text")
-    budget = DEFAULT_BUDGET_PCT if budget_pct is None else float(budget_pct)
-    if not 0 < budget <= 1:
-        raise ValueError(f"budget_pct must be over 0 and at most 1, "
-                         f"got {budget_pct!r}")
+    text = need_text("salt_compress", text, max_chars)
+    budget = need_budget(budget_pct, DEFAULT_BUDGET_PCT)
     engine = engine.ready()
     args, tok, model, device = (engine.args, engine.tokenizer, engine.model,
                                 engine.device)
@@ -191,6 +191,40 @@ def session_payload(pool, conversation_id, created=False):
     return out
 
 
+def known(pool, conversation_id):
+    """The conversation exists, on disk or in this server's hands. The
+    id itself is checked first, so a malformed one is a bad argument
+    rather than a conversation nobody made."""
+    if not pool.exists(conversation_id) and (
+            conversation_id not in pool.open):
+        raise ToolError("not_found",
+                        f"no session named {conversation_id!r} - "
+                        f"session_list shows what is there")
+    return conversation_id
+
+
+def create_session(pool, conversation_id=""):
+    from salt.chat.cli import fresh_conversation_id
+    if pool.read_only:
+        refuse_write("session_create", "make a conversation on disk")
+    cid = conversation_id or fresh_conversation_id()
+    if pool.exists(cid):
+        raise ToolError("invalid_argument",
+                        f"session {cid!r} already exists - resume it with "
+                        f"session_resume")
+    return session_payload(pool, cid, created=True)
+
+
+def resume_session(pool, conversation_id):
+    return session_payload(pool, known(pool, conversation_id))
+
+
+def list_payload(pool):
+    from salt.chat.cli import list_sessions
+    found = list_sessions(pool.cache_dir)
+    return {"sessions": found, "n": len(found), "open": sorted(pool.open)}
+
+
 def session_stats_payload(pool, conversation_id):
     """The session's own numbers, drained first so a turn submitted a
     moment ago is counted rather than missed.
@@ -200,7 +234,7 @@ def session_stats_payload(pool, conversation_id):
     process reads exactly what one inside it would.
     """
     from salt.agents.snapshot import SCHEMA, snapshot
-    session = pool.get(conversation_id)
+    session = pool.get(known(pool, conversation_id))
     session.drain()
     trie = session.trie
     return {"conversation_id": trie.conversation_id,
@@ -220,7 +254,8 @@ def session_stats_payload(pool, conversation_id):
 TURN_ROLES = ("user", "assistant")
 
 
-def add_turns(engine, pool, conversation_id, exchange, sync=False):
+def add_turns(engine, pool, conversation_id, exchange, sync=False,
+              max_chars=DEFAULT_MAX_CHARS):
     """Add one side of a conversation, or a whole exchange at once.
 
     The rows go through the session's ingest worker, the same FIFO the
@@ -233,18 +268,19 @@ def add_turns(engine, pool, conversation_id, exchange, sync=False):
     rows = []
     for i, item in enumerate(exchange):
         if not isinstance(item, dict):
-            raise ValueError(f"turn {i} is not an object with a role and "
-                             f"a text")
+            raise ToolError("invalid_argument",
+                            f"turn {i} is not an object with a role and "
+                            f"a text")
         role = item.get("role", "user")
-        text = item.get("text", "")
         if role not in TURN_ROLES:
-            raise ValueError(f"turn {i}: role must be one of "
-                             f"{list(TURN_ROLES)}, got {role!r}")
-        if not isinstance(text, str) or not text.strip():
-            raise ValueError(f"turn {i}: no text to remember")
-        rows.append((role, text))
+            raise ToolError("invalid_argument",
+                            f"turn {i}: role must be one of "
+                            f"{list(TURN_ROLES)}, got {role!r}")
+        rows.append((role, need_text(f"turn {i}", item.get("text", ""),
+                                     max_chars)))
     if not rows:
-        raise ValueError("session_add_turn needs a text or an exchange")
+        raise ToolError("invalid_argument",
+                        "session_add_turn needs a text or an exchange")
 
     engine = engine.ready()
     session = pool.get(conversation_id)
@@ -281,8 +317,9 @@ def session_memory(engine, pool, conversation_id, query,
     exactly as a chat turn would.
     """
     from salt.chat.cli import format_memory_block
-    if not isinstance(query, str) or not query.strip():
-        raise ValueError("session_memory needs a query to select for")
+    query = need_text("session_memory's query", query)
+    budget_pct = need_budget(budget_pct)
+    known(pool, conversation_id)
     engine = engine.ready()
     session = pool.get(conversation_id)
     # the drain is the barrier: a turn submitted a moment ago has to be
@@ -328,7 +365,7 @@ def safe_source_name(name, fallback="document"):
 
 
 def ingest_document(engine, pool, conversation_id, path=None, text=None,
-                    source_name=""):
+                    source_name="", max_chars=DEFAULT_MAX_CHARS):
     """Put a document into a conversation's memory, from a file or from
     text that was already read.
 
@@ -345,23 +382,25 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
         refuse_write("salt_ingest_document",
                      "put a document into a conversation's memory")
     if bool(path) == bool(text):
-        raise ValueError("salt_ingest_document takes exactly one of path "
-                         "or text")
+        raise ToolError("invalid_argument",
+                        "salt_ingest_document takes exactly one of path "
+                        "or text")
     n_pages = None
     if path:
         target = Path(str(path)).expanduser().resolve()
         if not target.is_file():
-            raise ValueError(f"no such file: {target}")
+            raise ToolError("not_found", f"no such file: {target}")
         try:
             body, n_pages = read_document(target)
         except (ExtractionError, OSError) as exc:
-            raise ValueError(str(exc)) from exc
+            raise ToolError("invalid_argument", exc) from exc
         name = safe_source_name(source_name or target.name, target.name)
     else:
-        body = text
+        body = need_text("salt_ingest_document's text", text, max_chars)
         name = safe_source_name(source_name)
     if not body or not body.strip():
-        raise ValueError("there is no text in that document to remember")
+        raise ToolError("invalid_argument",
+                        "there is no text in that document to remember")
 
     engine = engine.ready()
     session = pool.get(conversation_id)
@@ -385,7 +424,8 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
             "attachments": list(trie.attached_sources)}
 
 
-def build_server(engine, pool=None, roster=None):
+def build_server(engine, pool=None, roster=None,
+                 max_chars=DEFAULT_MAX_CHARS):
     """The MCP server and its tools, with the engine they compress on."""
     from mcp.server import MCPServer
     from salt.mcp.agents import AgentRuntime, roster_payload, run_delegation
@@ -407,7 +447,8 @@ def build_server(engine, pool=None, roster=None):
                  structured_output=True)
     def salt_compress(text: str, budget_pct: float = DEFAULT_BUDGET_PCT,
                       query: str = "") -> dict[str, Any]:
-        return compress_text(engine, text, budget_pct, query or None)
+        return guarded(compress_text, engine, text, budget_pct,
+                       query or None, max_chars=max_chars)
 
     # the handles the delegation tools open outlive the calls that opened
     # them, so shutdown needs a way back to them
@@ -419,7 +460,7 @@ def build_server(engine, pool=None, roster=None):
                              "Probe to find out which are answering.",
                  structured_output=True)
     def roster_list(probe: bool = False) -> dict[str, Any]:
-        return roster_payload(runtime, probe=probe)
+        return guarded(roster_payload, runtime, probe=probe)
 
     @server.tool(name="salt_switches",
                  description="The memory switches, what this server has "
@@ -445,11 +486,12 @@ def build_server(engine, pool=None, roster=None):
                       target: str = "", context_query: str = "",
                       budget_pct: float = None,
                       ingest: bool = False) -> dict[str, Any]:
-        return run_delegation(runtime, task,
-                              conversation_id=conversation_id,
-                              target=target or None,
-                              context_query=context_query or None,
-                              budget_pct=budget_pct, ingest=ingest)
+        return guarded(run_delegation, runtime, task,
+                       conversation_id=conversation_id,
+                       target=target or None,
+                       context_query=context_query or None,
+                       budget_pct=budget_pct, ingest=ingest,
+                       max_chars=max_chars)
 
     if pool is None:
         return server
@@ -460,14 +502,7 @@ def build_server(engine, pool=None, roster=None):
                              "from the date and time.",
                  structured_output=True)
     def session_create(conversation_id: str = "") -> dict[str, Any]:
-        from salt.chat.cli import fresh_conversation_id
-        if pool.read_only:
-            refuse_write("session_create", "make a conversation on disk")
-        cid = conversation_id or fresh_conversation_id()
-        if pool.exists(cid):
-            raise ValueError(f"session {cid!r} already exists - resume it "
-                             f"with session_resume")
-        return session_payload(pool, cid, created=True)
+        return guarded(create_session, pool, conversation_id)
 
     @server.tool(name="session_resume",
                  description="Open a conversation that already exists, "
@@ -475,20 +510,14 @@ def build_server(engine, pool=None, roster=None):
                              "written.",
                  structured_output=True)
     def session_resume(conversation_id: str) -> dict[str, Any]:
-        if not pool.exists(conversation_id):
-            raise ValueError(f"no session named {conversation_id!r} - "
-                             f"session_list shows what is there")
-        return session_payload(pool, conversation_id)
+        return guarded(resume_session, pool, conversation_id)
 
     @server.tool(name="session_list",
                  description="Every conversation on disk, most recently "
                              "written first.",
                  structured_output=True)
     def session_list() -> dict[str, Any]:
-        from salt.chat.cli import list_sessions
-        found = list_sessions(pool.cache_dir)
-        return {"sessions": found, "n": len(found),
-                "open": sorted(pool.open)}
+        return guarded(list_payload, pool)
 
     @server.tool(name="session_add_turn",
                  description="Remember something said in a conversation: "
@@ -500,7 +529,8 @@ def build_server(engine, pool=None, roster=None):
                          sync: bool = False) -> dict[str, Any]:
         rows = list(exchange) if exchange else (
             [{"role": role, "text": text}] if text else [])
-        return add_turns(engine, pool, conversation_id, rows, sync=sync)
+        return guarded(add_turns, engine, pool, conversation_id, rows,
+                       sync=sync, max_chars=max_chars)
 
     @server.tool(name="session_memory",
                  description="What this conversation remembers about a "
@@ -509,8 +539,8 @@ def build_server(engine, pool=None, roster=None):
                  structured_output=True)
     def session_memory_tool(conversation_id: str, query: str,
                             budget_pct: float = None) -> dict[str, Any]:
-        return session_memory(engine, pool, conversation_id, query,
-                              budget_pct)
+        return guarded(session_memory, engine, pool, conversation_id,
+                       query, budget_pct)
 
     @server.tool(name="salt_ingest_document",
                  description="Read a document into a conversation's "
@@ -520,19 +550,16 @@ def build_server(engine, pool=None, roster=None):
     def salt_ingest_document(conversation_id: str, path: str = "",
                              text: str = "",
                              source_name: str = "") -> dict[str, Any]:
-        return ingest_document(engine, pool, conversation_id,
-                               path=path or None, text=text or None,
-                               source_name=source_name)
+        return guarded(ingest_document, engine, pool, conversation_id,
+                       path=path or None, text=text or None,
+                       source_name=source_name, max_chars=max_chars)
 
     @server.tool(name="session_stats",
                  description="What one conversation holds: turns, "
                              "sentences, attachments and its budget.",
                  structured_output=True)
     def session_stats(conversation_id: str) -> dict[str, Any]:
-        if not pool.exists(conversation_id) and (
-                conversation_id not in pool.open):
-            raise ValueError(f"no session named {conversation_id!r}")
-        return session_stats_payload(pool, conversation_id)
+        return guarded(session_stats_payload, pool, conversation_id)
 
     return server
 
@@ -572,6 +599,10 @@ def build_parser():
     p.add_argument("--roster", default=None, metavar="FILE",
                    help="roster of helper models this server may delegate "
                         "to (e.g. salt/agents/roster_sample.json)")
+    p.add_argument("--max-ingest-chars", type=int, default=DEFAULT_MAX_CHARS,
+                   metavar="N",
+                   help=f"longest text one call may carry "
+                        f"(default: {DEFAULT_MAX_CHARS})")
     p.add_argument("--read-only", action="store_true",
                    help="answer reads and refuse every write, leaving "
                         "every conversation exactly as it was found")
@@ -589,7 +620,8 @@ def main(argv=None):
                        capacity=args.max_open_sessions,
                        read_only=args.read_only)
     roster = load_roster(args.roster) if args.roster else None
-    server = build_server(Engine(resolve_device(args)), pool, roster)
+    server = build_server(Engine(resolve_device(args)), pool, roster,
+                          max_chars=args.max_ingest_chars)
     try:
         server.run("stdio")
     finally:

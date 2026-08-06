@@ -237,26 +237,32 @@ def file_record(state, result, remembered):
 
 
 def run_delegation(runtime, task, conversation_id="", target=None,
-                   context_query=None, budget_pct=None, ingest=False):
+                   context_query=None, budget_pct=None, ingest=False,
+                   max_chars=None):
     """Hand one task to a worker and wait for the whole answer.
 
     With a conversation the task is sent under that conversation's
     memory, selected for the task and committed to nothing. Without one
     it is a context-free delegation: the worker gets the task alone.
     """
-    from salt.mcp.server import refuse_write
-    if not isinstance(task, str) or not task.strip():
-        raise ValueError("salt_delegate needs a task to hand over")
+    from salt.mcp.errors import DEFAULT_MAX_CHARS, ToolError, need_budget, \
+        need_text
+    from salt.mcp.server import known, refuse_write
+    task = need_text("salt_delegate's task", task,
+                     DEFAULT_MAX_CHARS if max_chars is None else max_chars)
+    budget_pct = need_budget(budget_pct)
     if ingest and not conversation_id:
-        raise ValueError("ingest asks for the answer to be remembered, "
-                         "which needs a conversation_id to remember it in")
+        raise ToolError("invalid_argument",
+                        "ingest asks for the answer to be remembered, "
+                        "which needs a conversation_id to remember it in")
     if ingest and runtime.read_only:
         refuse_write("salt_delegate", "remember a worker's answer")
     session = None
     if conversation_id:
         if runtime.pool is None:
-            raise ValueError("this server keeps no conversations")
-        session = runtime.pool.get(conversation_id)
+            raise ToolError("invalid_argument",
+                            "this server keeps no conversations")
+        session = runtime.pool.get(known(runtime.pool, conversation_id))
     handle = runtime.target(target)
     state = DelegationState(runtime, session)
     req = DelegationRequest(task=task, target=handle.name,

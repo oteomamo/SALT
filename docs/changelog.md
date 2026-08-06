@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.55
+## 2.10.0 - 2.10.56
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -87,6 +87,11 @@ Patch releases, grouped where several versions shipped one thing:
   read measured, and `salt_switches` lists the memory switches, what
   the server has each one set to, and which measured number says
   whether it did anything.
+- **2.10.56** Refusals a client can act on. Every refused call now opens
+  with a fixed phrase naming what kind of refusal it is, from a bad
+  argument to a conversation nobody made, and an unexpected fault is
+  reported as one rather than as a traceback over the wire.
+  `--max-ingest-chars` bounds how long a text one call may carry.
 
 ## 2.9.0 - 2.9.123
 
