@@ -12,6 +12,7 @@ lives outside the package so a fake OpenAI endpoint never ships beside
 the real client. Import it from a script in this directory.
 """
 
+import hashlib
 import json
 import socket
 import sys
@@ -25,6 +26,47 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from salt.agents.worker import HOST                              # noqa: E402
+
+
+class CannedReplies:
+    """Scripted answers handed out by which prompt asked for them.
+
+    A queue with a memory. A prompt nobody has sent takes the next answer
+    off the front; a prompt that has been sent before gets back the same
+    answer it got the first time rather than eating the next one. A round
+    that repairs, retries or replays is deterministic that way, and a
+    check can say which answer went to which ask instead of counting
+    calls and hoping the order held.
+
+    Keyed on a hash of the prompt, so it does not care whether a prompt
+    is a message list or the token ids a serve client sends.
+    """
+
+    def __init__(self, answers=(), default=""):
+        self.queue = list(answers)
+        self.default = default
+        self.given = {}
+        self.asked = []
+
+    @staticmethod
+    def key(prompt):
+        return hashlib.sha1(json.dumps(prompt, sort_keys=True,
+                                       default=str).encode()).hexdigest()
+
+    def answer(self, prompt):
+        key = self.key(prompt)
+        self.asked.append(key)
+        if key not in self.given:
+            self.given[key] = self.queue.pop(0) if self.queue else self.default
+        return self.given[key]
+
+    @property
+    def n_asked(self):
+        return len(self.asked)
+
+    @property
+    def n_distinct(self):
+        return len(self.given)
 
 
 class _StubHandler(BaseHTTPRequestHandler):
@@ -52,7 +94,7 @@ class _StubHandler(BaseHTTPRequestHandler):
             {"choices": [{"text": text}]}).encode() + b"\n\n")
         self.wfile.flush()
 
-    def _usage_frame(self, prompt, kept):
+    def _usage_frame(self, prompt, kept, pieces):
         """What a server with a prefix cache reports about the prompt it
         was just sent: how long it was, and how much of it it already
         had. Exact here rather than block-aligned, so a check can name a
@@ -60,10 +102,18 @@ class _StubHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: " + json.dumps(
             {"choices": [], "usage": {
                 "prompt_tokens": len(prompt),
-                "completion_tokens": len(self.server.pieces),
+                "completion_tokens": len(pieces),
                 "prompt_tokens_details": {"cached_tokens": kept}}}).encode()
             + b"\n\n")
         self.wfile.flush()
+
+    def _pieces(self):
+        """What this request gets back: the scripted stream, or the one
+        answer this exact prompt was canned to receive."""
+        canned = getattr(self.server, "canned", None)
+        if canned is None:
+            return list(self.server.pieces or ())
+        return [canned.answer(self.server.last_payload.get("prompt"))]
 
     def _reuse(self, prompt):
         """How much of this prompt the previous one already covered."""
@@ -103,10 +153,11 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            pieces = self._pieces()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
-            for piece in self.server.pieces:
+            for piece in pieces:
                 self._frame(piece)
                 if self.server.delay:
                     time.sleep(self.server.delay)
@@ -116,7 +167,7 @@ class _StubHandler(BaseHTTPRequestHandler):
                 return
             if self.server.usage:
                 prompt = self.server.last_payload.get("prompt") or []
-                self._usage_frame(prompt, self._reuse(prompt))
+                self._usage_frame(prompt, self._reuse(prompt), pieces)
             if self.server.stall:
                 # quiet mid-reply without hanging up, then talking again:
                 # the second write is where a client that walked away
@@ -145,10 +196,12 @@ class Stub:
 
     def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
                  status=200, raw=None, port=0, stall=0.0, drop=False,
-                 serving=True, post_status=200, usage=False, guided=True):
+                 serving=True, post_status=200, usage=False, guided=True,
+                 canned=None):
         self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
                         status=status, raw=raw, stall=stall, drop=drop,
-                        post_status=post_status, usage=usage, guided=guided)
+                        post_status=post_status, usage=usage, guided=guided,
+                        canned=canned)
         self.port = port
         self.httpd = None
         self.aborted = threading.Event()

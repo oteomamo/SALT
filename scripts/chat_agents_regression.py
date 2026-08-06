@@ -127,7 +127,8 @@ from salt.engine.session_trie import (CONVERSATION_ROLES,        # noqa: E402
                                       VALID_ROLES, SessionTrie)
 
 import _agent_fixtures as F                                      # noqa: E402
-from _agent_stub import Stub, closed_port, stub_server            # noqa: E402
+from _agent_stub import (CannedReplies, Stub, closed_port,        # noqa: E402
+                         stub_server)
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 SAMPLE = REPO / "salt" / "agents" / "roster_sample.json"
@@ -162,7 +163,7 @@ class _FakeRunner:
 
     kind = "fake"
 
-    def __init__(self, tokenizer, replies):
+    def __init__(self, tokenizer, replies, canned=None):
         self.tokenizer = tokenizer
         self.alias = "fake"
         self.cfg = {"alias": "fake", "hf_id": "test/fake", "path": "-"}
@@ -171,12 +172,20 @@ class _FakeRunner:
         self.last_engine_stats = None
         self.replies = list(replies)
         self.prompts = []
+        self.overrides = []
+        # set instead of `replies` when a check needs the answer to depend
+        # on what was asked rather than on how many times it has answered
+        self.canned = canned
 
     def input_budget(self, max_new_tokens=None):
         return self.max_input_len
 
     def stream_chat(self, messages, **overrides):
         self.prompts.append(json.loads(json.dumps(messages)))
+        self.overrides.append(dict(overrides))
+        if self.canned is not None:
+            yield self.canned.answer(messages)
+            return
         yield self.replies[(len(self.prompts) - 1) % len(self.replies)]
 
     def unload(self):
@@ -2794,7 +2803,7 @@ def check_import_purity():
     heavy = ("torch", "transformers", "requests", "vllm", "salt.mcp",
              "salt.chat.runner_serve")
     for module in ("salt.agents", "salt.agents.roster", "salt.agents.worker",
-                   "salt.agents.delegate"):
+                   "salt.agents.delegate", "salt.agents.orchestrator"):
         pulled = imports_pulled(module, heavy)
         assert not pulled, (
             f"importing {module} pulled {pulled}: the agent layer must cost "
@@ -3507,6 +3516,147 @@ def check_protocol():
           f"{P.MAX_SUBTASKS} subtasks")
 
 
+def canned_state(tmp, cid, tok, mdl, answers, roster=None):
+    """A replayed session whose chat model answers a planning call with
+    whatever this round was scripted to hear, and which has forgotten the
+    turns that built its memory."""
+    state = replayed_state(tmp, cid, tok, mdl, roster=roster)
+    state.runner.canned = CannedReplies(answers)
+    state.runner.prompts.clear()
+    state.runner.overrides.clear()
+    return state
+
+
+def check_plan_call(tmp, tok, mdl):
+    """One ask, one plan, and nothing else moved."""
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+
+    ask = "what size battery does that argue for"
+    block = "SALT MEMORY\n- The inverter is rated at 5 kW continuous."
+    plan_json = json.dumps({"version": P.SCHEMA, "action": "delegate",
+                            "subtasks": [{"id": "1", "task": "size the bank",
+                                          "target": "w"}]})
+
+    with Stub(cards=CARDS) as s:
+        roster = delegation_roster(s.url, tmp, notes="the arithmetic one")
+        state = canned_state(tmp, "plan_one", tok, mdl, [plan_json], roster)
+        try:
+            end = O.orchestrator_endpoint(state)
+            assert end.capability == R.GUIDED_PLAIN, (
+                f"the chat seam carries no schema, so planning through it "
+                f"must not claim {end.capability!r}")
+            assert end.model_id == "test/fake" and end.label == "fake", end
+
+            before = trie_snapshot(state.trie)
+            tail_before = json.loads(json.dumps(state.tail))
+            stats_before = dict(state.last_stats or {})
+            seq_before = state.delegation_seq
+
+            out = O.plan(state, ask, block)
+            assert out.directive.action == "delegate", out.directive
+            assert out.directive.targets == ("w",), out.directive
+            assert (out.failures, out.fell_back, out.repaired) == (0, False,
+                                                                   False), out
+            assert len(state.runner.prompts) == 1, (
+                f"one ask cost {len(state.runner.prompts)} calls to the "
+                f"planning model")
+            assert state.runner.overrides[-1] == O.PLANNING_GEN, (
+                f"a plan was generated under {state.runner.overrides[-1]} "
+                f"rather than the settled planning ones")
+            assert s.httpd.posts == 0, "planning reached a worker"
+
+            system, user = state.runner.prompts[0]
+            assert system["role"] == "system" and user["role"] == "user"
+            assert "- w: the arithmetic one" in system["content"], (
+                f"the plan was asked for without naming the helper it may "
+                f"use: {system['content']}")
+            assert P.example_directive(("w",)) in system["content"], (
+                "a model that will not be held to a schema was not shown "
+                "the object instead")
+            assert user["content"] == f"{block}\n\n{O.ASK_HEADER}{ask}", (
+                f"the ask is not the last thing under the memory: "
+                f"{user['content']!r}")
+
+            assert trie_snapshot(state.trie) == before, (
+                "planning moved the session's memory")
+            assert state.tail == tail_before, "planning touched the tail"
+            assert dict(state.last_stats or {}) == stats_before, (
+                "planning overwrote the turn's own statistics")
+            assert state.delegation_seq == seq_before, state.delegation_seq
+            assert not L.ledger_path(state.trie.cache_dir).exists(), (
+                "planning filed a delegation")
+
+            # the same session asked the same thing decides the same way,
+            # and the head it decides under is byte-stable
+            again = O.plan(state, ask, block)
+            assert again.directive == out.directive, "the plan was not stable"
+            assert state.runner.canned.n_distinct == 1, (
+                "one prompt asked twice consumed two scripted answers")
+            assert state.runner.prompts[1][0] == system, (
+                "the planning head changes per call, so no prefix cache can "
+                "hold it")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # a reply that is not a directive costs one repair, quoting the fault
+    state = canned_state(tmp, "plan_repair", tok, mdl,
+                         ["I will ask w about that.", plan_json],
+                         delegation_roster("http://127.0.0.1:1", tmp))
+    try:
+        out = O.plan(state, ask, block)
+        assert out.directive.action == "delegate" and out.repaired, out
+        assert out.reasons == ("no_json",), out.reasons
+        assert len(state.runner.prompts) == 2, state.runner.prompts
+        repair = state.runner.prompts[1]
+        assert [m["role"] for m in repair] == ["system", "user", "assistant",
+                                               "user"], repair
+        assert repair[2]["content"] == "I will ask w about that."
+        assert "no_json" in repair[3]["content"], repair[3]
+
+        # two refusals and the round keeps what the model actually said,
+        # with its reasoning left out of it
+        state.runner.canned = CannedReplies(
+            ["<think>they want a number</think>about 9 kWh", "still not one"])
+        out = O.plan(state, ask, block)
+        assert out.fell_back and out.failures == 2, out
+        assert out.directive.action == "answer", out.directive
+        assert out.directive.answer == "still not one", out.directive
+        state.runner.canned = CannedReplies(
+            ["<think>hidden</think>" + plan_json])
+        out = O.plan(state, ask + " really", block)
+        assert out.directive.action == "delegate" and not out.failures, out
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # a session that reaches nobody still plans, and one with no model
+    # cannot be asked to
+    state = canned_state(tmp, "plan_alone", tok, mdl, [plan_json])
+    try:
+        assert O.targets_for(state) == ()
+        out = O.plan(state, ask, "")
+        assert "(none:" in state.runner.prompts[0][0]["content"], (
+            "a session with no roster was offered helpers anyway")
+        assert state.runner.prompts[0][1]["content"] == f"{O.ASK_HEADER}{ask}"
+        assert out.directive.delegates, out.directive
+        state.runner = None
+        assert O.orchestrator_endpoint(state) is None
+        try:
+            O.plan(state, ask, "")
+            raise AssertionError("a session with no model planned a turn")
+        except O.OrchestratorError:
+            pass
+    finally:
+        state.runner = _FakeRunner(tok, REPLIES)
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+    print("40. the plan call: one ask, one directive, repaired once and "
+          "then fallen back on, asked under a byte-stable head that names "
+          "the helpers, and the session unmoved by all of it")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -3558,6 +3708,7 @@ def main():
         check_templates()
         check_think_handling(tmp, tok, mdl)
         check_deep_probe(tmp, tok, mdl)
+        check_plan_call(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
