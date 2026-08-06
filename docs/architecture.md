@@ -98,6 +98,7 @@ so it is the fastest way to find where a change belongs:
 │ ┌────────────────────────────────────────────────────────────────────┐   │
 │ │                            Entry points                            │   │
 │ │ salt (one-shot: --data / --doc) · saltChat · saltServe · eval.py   │   │
+│ │ salt-mcp - SALT memory over MCP, for an editor or an agent runtime │   │
 │ │ salt@ trie attach · attach@ full text · /doc /model /budget /stats │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -284,6 +285,51 @@ with what memory has already surfaced. Per-file theme profiling
 (`--per-source-themes`) also keeps its own full recount, since its
 buckets shift as sentences are masked.
 
+## MCP server
+
+Conversation memory was reachable two ways, at the prompt and from a
+script, and both of them meant running SALT's own chat. Anything else
+holding a conversation, an editor or an agent runtime, had no way in.
+
+`salt-mcp` puts the memory behind the Model Context Protocol. A client
+starts it, speaks JSON-RPC over stdio, and discovers the tools at
+runtime: compress one text, or open a conversation and add turns to it,
+read what it remembers about a question, put a document into it, and
+ask what it holds. They are the same conversations the REPL keeps, in
+the same folder, so one started in an editor can be resumed at the
+prompt and the other way round.
+
+The process is the design. The encoder is loaded once, on the first
+call that needs it, and stays resident, because a client that connects
+and asks nothing should pay nothing and a client that asks twice should
+pay once. Conversations open on demand and stay warm behind a cap, and
+the one used longest ago is closed when the cap is reached: closing
+finishes what it was still encoding, writes it if it changed, then lets
+go. Every way of ending, a client hanging up, a Ctrl-C, a kill, runs
+that same close.
+
+Reading is a turn. The memory block a tool call returns is the block a
+chat turn would be given, labeled the same way, and the selection is
+committed the same way, so what a conversation has already surfaced
+shapes what it surfaces next no matter which side asked. A server
+started `--read-only` drops that commit and refuses every write, which
+is what an automated client can safely be pointed at.
+
+Two more tools belong to the agent layer rather than to memory:
+`roster_list` and `salt_delegate` reach the helper models a roster
+names, handing one task over with the conversation's memory selected
+for it and committing nothing. `session_stats` also carries a flat
+snapshot of the signals a decision about memory would be made on, and
+`salt_switches` lists the switches those signals correspond to. The
+switches are read-only from outside: a client can see how memory is
+being selected and measure the result, and the decision to change it
+stays where the session is run.
+
+The surface is meant to outlive its clients. Tool names are forever and
+schemas grow additively, the tool list is declared in the server so a
+rename fails at startup, and `salt_contract` reports which version of
+the contract a client has reached.
+
 ## Tail-aware memory selection
 
 The prompt already carries the last exchanges verbatim, and selection
@@ -327,5 +373,7 @@ Where each stage lives:
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
+| MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |
+| Helper models (roster, delegation) | `salt/agents/` |
 | Multi-GPU placement (`--gpu` list) | `salt/chat/runner.py`, `salt/chat/serve.py` |
-| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat`, `saltServe` |
+| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat`, `saltServe`, `salt-mcp` |

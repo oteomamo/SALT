@@ -171,6 +171,7 @@ so it is the fastest way to find where a change belongs:
 │ ┌────────────────────────────────────────────────────────────────────┐   │
 │ │                            Entry points                            │   │
 │ │ salt (one-shot: --data / --doc) · saltChat · saltServe · eval.py   │   │
+│ │ salt-mcp - SALT memory over MCP, for an editor or an agent runtime │   │
 │ │ salt@ trie attach · attach@ full text · /doc /model /budget /stats │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -192,8 +193,10 @@ Where each stage lives:
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
+| MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |
+| Helper models (roster, delegation) | `salt/agents/` |
 | Multi-GPU placement (`--gpu` list) | `salt/chat/runner.py`, `salt/chat/serve.py` |
-| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat`, `saltServe` |
+| CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat`, `saltServe`, `salt-mcp` |
 
 ## 📦 Installation
 
