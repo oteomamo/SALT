@@ -38,10 +38,11 @@ import torch
 from salt.agents import ledger, protocol
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   delegate)
-from salt.agents.roster import (UNPROBED, RosterError, check_placement,
-                                entry_cards, load_roster)
-from salt.agents.worker import (BUSY, WorkerError, WorkerHandle,
-                                check_records)
+from salt.agents.roster import (GUIDED_CAPABLE, UNPROBED, RosterError,
+                                check_placement, entry_cards, load_roster)
+from salt.agents.worker import (BUSY, DEAD, WorkerError, WorkerHandle,
+                                capability_line, check_records,
+                                schema_smoke)
 from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
@@ -130,6 +131,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /add <hf_id> [alias]  download + register a model by HuggingFace id
 /roster [probe]    list the worker models --roster names (probe contacts
                    each one and reports what it is serving)
+/roster probe --deep NAME  ask one worker whether it will answer in a
+                   given shape, and remember the answer
 /worker            show each worker's connection, calls and mean latency
 /worker probe <name>  reconnect one worker and report what it is serving
 /worker start <name>  launch a spawn entry's server and wait for it
@@ -796,6 +799,68 @@ def print_roster(roster, probes=None):
         if note:
             print(f"      {note}")
     print(f"  from {roster.path}")
+
+
+CAPS_FILE = "worker_caps.json"
+
+
+def read_caps(state):
+    """What this session has already learned about its workers."""
+    try:
+        found = json.loads((state.trie.cache_dir / CAPS_FILE).read_text(
+            encoding="utf-8"))
+        return found if isinstance(found, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_caps(state, name, record):
+    """Remember one worker's capability beside the session. Best effort:
+    a probe is cheap to repeat and losing the note must not end a
+    session."""
+    caps = read_caps(state)
+    caps[name] = record
+    try:
+        (state.trie.cache_dir / CAPS_FILE).write_text(
+            json.dumps(caps, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"  (the note could not be saved: {exc})")
+    return caps
+
+
+def deep_probe_command(state, rest):
+    """`/roster probe --deep NAME` - what this worker can actually be
+    asked to do, rather than what its version string implies."""
+    if state.roster is None:
+        print_roster(None)
+        return
+    if len(rest) != 1:
+        print("Usage: /roster probe --deep NAME   (one worker at a time, "
+              "since this sends it real requests)")
+        return
+    try:
+        handle = state.worker(rest[0])
+    except RosterError as exc:
+        print(exc)
+        return
+    print(f"Probing {handle.name} ({handle.entry.alias}) ...")
+    handle.probe()
+    if handle.state == DEAD:
+        print(f"  {handle.name}: {handle.last_error}")
+        return
+    guided = handle.probe_capabilities()
+    passes, total, notes = schema_smoke(handle)
+    line = capability_line(guided, passes, total)
+    print(f"  {handle.name}: {line} "
+          f"({'accepts a schema' if guided == GUIDED_CAPABLE else guided}, "
+          f"{passes}/{total} shapes returned exactly)")
+    for note in notes:
+        print(f"      {note}")
+    write_caps(state, handle.name,
+               {"capability": line, "guided": guided, "passes": passes,
+                "of": total, "alias": handle.entry.alias,
+                "served_model": handle.probe_result.served_model,
+                "at": time.time()})
 
 
 def print_workers(handles):
@@ -1760,8 +1825,11 @@ def handle_command(line, state):
             except RegistryError as exc:
                 print(exc)
     elif cmd == "/roster":
-        if rest and rest[0].lower() != "probe":
-            print("Usage: /roster [probe]")
+        if rest[1:2] == ["--deep"] or (rest[:1] == ["probe"]
+                                       and "--deep" in rest):
+            deep_probe_command(state, [a for a in rest[2:] if a != "--deep"])
+        elif rest and rest[0].lower() != "probe":
+            print("Usage: /roster [probe [--deep NAME]]")
         elif rest and state.roster is None:
             print_roster(None)
         else:

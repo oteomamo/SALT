@@ -3152,6 +3152,82 @@ def scripted_sender(replies):
     return send, calls
 
 
+def check_deep_probe(tmp, tok, mdl):
+    """What a worker can actually be asked to do, remembered."""
+    import salt.agents.roster as RR
+    from salt.agents.worker import SCHEMA_SMOKE, capability_line
+
+    assert capability_line(RR.GUIDED_CAPABLE, 3, 3) == "schema-native"
+    assert capability_line(RR.GUIDED_PLAIN, 3, 3) == "plain"
+    assert capability_line(RR.GUIDED_CAPABLE, 2, 3) == "flaky 2/3"
+    assert capability_line(RR.GUIDED_UNKNOWN, 0, 3) == "flaky 0/3"
+
+    cfg = {"alias": "stub", "hf_id": "some/model", "path": BGE_MODEL}
+    cards = [{"id": "some/model", "max_model_len": 4096}]
+    perfect = [json.dumps(want) for _, want in SCHEMA_SMOKE]
+    with Stub(cards=cards, guided=True) as s:
+        entry_ = R.RosterEntry(name="w", alias="stub", role="worker",
+                               server_url=s.url, model=cfg)
+        roster = R.Roster(path="<test>", entries=(entry_,))
+        state = replayed_state(tmp, "deep_probe", tok, mdl, roster=roster)
+        try:
+            # a model that returns exactly the object it was shown, with
+            # its reasoning in front of it
+            s.httpd.pieces = ["<think>ok</think>" + perfect[0]]
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cli.handle_command("/roster probe --deep w", state)
+            said = out.getvalue()
+            assert "flaky" in said, (
+                f"three different objects were all answered with one: "
+                f"{said}")
+            # every fixture answered correctly in turn
+            s.httpd.pieces = None
+            answers = list(perfect)
+
+            def next_answer(*_a, **_k):
+                return [answers.pop(0)] if answers else ["{}"]
+            real_call = W.WorkerHandle.call
+
+            def call(self, messages, **over):
+                self.entry  # keep the handle honest about being used
+                for piece in next_answer():
+                    yield piece
+            W.WorkerHandle.call = call
+            try:
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    cli.handle_command("/roster probe --deep w", state)
+                said = out.getvalue()
+            finally:
+                W.WorkerHandle.call = real_call
+            assert "schema-native" in said, (
+                f"a worker that answered all three under a schema was not "
+                f"called schema-native: {said}")
+            assert "3/3" in said, said
+
+            caps = json.loads((state.trie.cache_dir /
+                               cli.CAPS_FILE).read_text(encoding="utf-8"))
+            assert caps["w"]["capability"] == "schema-native", caps
+            assert caps["w"]["passes"] == 3 and caps["w"]["of"] == 3, caps
+            assert caps["w"]["guided"] == RR.GUIDED_CAPABLE, caps
+            assert caps["w"]["served_model"] == "some/model", caps
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cli.handle_command("/roster probe --deep", state)
+                cli.handle_command("/roster probe --deep nobody", state)
+            said = out.getvalue()
+            assert "one worker at a time" in said, said
+            assert "known:" in said, "an unknown name was not refused by "\
+                                     "the roster"
+        finally:
+            state.ingest.close()
+    print("38. deep probe: three known shapes asked of one worker, a "
+          "partial pass reported as flaky and a full one as schema-native, "
+          "and the answer kept beside the session")
+
+
 def check_think_handling(tmp, tok, mdl):
     """A model's working never becomes something the session said."""
     from salt.agents import protocol as P
@@ -3453,6 +3529,7 @@ def main():
         check_guided_probe(tok_path)
         check_repair_loop()
         check_think_handling(tmp, tok, mdl)
+        check_deep_probe(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

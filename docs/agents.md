@@ -321,7 +321,12 @@ you> /roster probe
 
 `/roster` lists what the file declared and `/roster probe` asks every
 endpoint what it is actually serving, so a typo or a server holding the
-wrong model shows up as `DEAD` with the reason. `/worker` reports the
+wrong model shows up as `DEAD` with the reason.
+`/roster probe --deep NAME` goes further and asks one worker to return
+three small objects exactly as given. It reports `schema-native` when
+the server will also hold the model to a schema, `plain` when the model
+returns the shape without being made to, and `flaky N/3` when it will
+not, and the answer is kept beside the session so it is asked once. `/worker` reports the
 live side of the same models, including how many calls each has taken
 and how slow it was, and `/worker probe <name>` reconnects one of them.
 

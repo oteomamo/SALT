@@ -198,6 +198,69 @@ def check_records(workers_dir):
     return live, archived
 
 
+# three tiny asks with a known right answer. Not a quality test: what is
+# being measured is whether this model will return the object it was
+# given and nothing else, which is the whole of what an orchestrator
+# needs from it
+SCHEMA_SMOKE = (
+    ('Reply with only this JSON object and nothing else: {"n": 3}',
+     {"n": 3}),
+    ('Reply with only this JSON object and nothing else: '
+     '{"action": "answer", "answer": "yes"}',
+     {"action": "answer", "answer": "yes"}),
+    ('Reply with only this JSON object and nothing else: '
+     '{"action": "delegate", "subtasks": [{"id": "1", "task": "count the '
+     'words", "target": "w"}]}',
+     {"action": "delegate",
+      "subtasks": [{"id": "1", "task": "count the words", "target": "w"}]}),
+)
+SMOKE_SYSTEM = ("You return JSON and nothing else. No prose, no markdown "
+                "fence, no explanation.")
+SMOKE_MAX_TOKENS = 120
+
+
+def schema_smoke(handle, fixtures=SCHEMA_SMOKE):
+    """How many of the fixtures this worker returns exactly.
+
+    Read through the same tolerance a directive gets, so a model that
+    puts its reasoning in front of a correct object counts as following
+    the shape: that is what the orchestrator will do with it too.
+    Returns (passes, total, notes).
+    """
+    import json as _json
+
+    from salt.agents.protocol import find_object, strip_think
+    passes, notes = 0, []
+    for ask, want in fixtures:
+        messages = [{"role": "system", "content": SMOKE_SYSTEM},
+                    {"role": "user", "content": ask}]
+        try:
+            text = "".join(handle.call(messages,
+                                       max_new_tokens=SMOKE_MAX_TOKENS))
+        except (WorkerError, OSError) as exc:
+            notes.append(f"{type(exc).__name__}: {exc}")
+            continue
+        body = find_object(strip_think(text))
+        try:
+            got = _json.loads(body) if body else None
+        except ValueError:
+            got = None
+        if got == want:
+            passes += 1
+        else:
+            notes.append(f"asked for {_json.dumps(want)}, got "
+                         f"{(text or '').strip()[:120]!r}")
+    return passes, len(fixtures), notes
+
+
+def capability_line(guided, passes, total):
+    """What this worker is, in one word a person can act on."""
+    from salt.agents.roster import GUIDED_CAPABLE
+    if passes < total:
+        return f"flaky {passes}/{total}"
+    return "schema-native" if guided == GUIDED_CAPABLE else "plain"
+
+
 class WorkerHandle:
     """One roster entry, its connection state, and its call counters."""
 
