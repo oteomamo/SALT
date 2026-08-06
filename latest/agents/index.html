@@ -1634,7 +1634,12 @@ way, so the reason it went is still on disk.</p>
 </code></pre></div>
 <p><code>/roster</code> lists what the file declared and <code>/roster probe</code> asks every
 endpoint what it is actually serving, so a typo or a server holding the
-wrong model shows up as <code>DEAD</code> with the reason. <code>/worker</code> reports the
+wrong model shows up as <code>DEAD</code> with the reason.
+<code>/roster probe --deep NAME</code> goes further and asks one worker to return
+three small objects exactly as given. It reports <code>schema-native</code> when
+the server will also hold the model to a schema, <code>plain</code> when the model
+returns the shape without being made to, and <code>flaky N/3</code> when it will
+not, and the answer is kept beside the session so it is asked once. <code>/worker</code> reports the
 live side of the same models, including how many calls each has taken
 and how slow it was, and <code>/worker probe &lt;name&gt;</code> reconnects one of them.</p>
 <p>The commands sit alongside the rest on the
