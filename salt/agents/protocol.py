@@ -243,6 +243,66 @@ def example_directive(targets=("worker",)):
         indent=2)
 
 
+@dataclass(frozen=True)
+class DirectiveOutcome:
+    """One ask for a directive, and what it took to get one.
+
+    `failures` is what a session counts: a round that needed repairing
+    cost one, a round that fell back cost two. `fell_back` says the
+    directive below was built here rather than returned by the model.
+    """
+
+    directive: Directive
+    raw: str = ""
+    failures: int = 0
+    reasons: tuple = field(default_factory=tuple)
+    fell_back: bool = False
+
+    @property
+    def repaired(self):
+        return self.failures == 1 and not self.fell_back
+
+
+def fallback(text):
+    """A model that would not produce a directive still said something,
+    and what it said is the answer. Failing closed keeps the turn: the
+    session loses the delegation, never the reply.
+
+    Reasoning is not an answer. A reply that is empty once the thinking
+    comes out falls back to nothing, and the caller sees a directive
+    with no answer in it rather than a private trace presented as one.
+    """
+    return Directive(action="answer", answer=strip_think(text))
+
+
+def ask_directive(send, messages, guided=False):
+    """Ask for a directive, repair once, then take what was said.
+
+    `send(messages, guided)` returns the model's text. Exactly two
+    attempts are possible, which is the point: a model that cannot
+    follow the schema must cost a bounded amount before the round goes
+    on without it. The repair quotes the actual fault, so the second
+    ask corrects something rather than asking harder.
+    """
+    reasons, raw = [], ""
+    for attempt in (1, 2):
+        raw = send(messages, guided=guided and attempt == 1) or ""
+        try:
+            return DirectiveOutcome(directive=parse_directive(raw), raw=raw,
+                                    failures=len(reasons),
+                                    reasons=tuple(reasons))
+        except ProtocolError as exc:
+            reasons.append(exc.reason)
+            if attempt == 2:
+                break
+            messages = list(messages) + [
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": repair_prompt(exc)}]
+    return DirectiveOutcome(directive=fallback(raw), raw=raw,
+                            failures=len(reasons), reasons=tuple(reasons),
+                            fell_back=True)
+
+
 def repair_prompt(error):
     """What to say to a model whose reply was not a directive. The
     reason is quoted so the model is corrected on the actual fault

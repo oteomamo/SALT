@@ -3140,6 +3140,84 @@ BAD_DIRECTIVES = (
 )
 
 
+def scripted_sender(replies):
+    """A stand-in orchestrator that says whatever it was told to say,
+    recording what it was asked and whether a schema was demanded."""
+    calls = []
+
+    def send(messages, guided=False):
+        calls.append({"messages": list(messages), "guided": guided})
+        return replies[min(len(calls), len(replies)) - 1]
+
+    return send, calls
+
+
+def check_repair_loop():
+    """One repair, then take what was said. Never a third attempt."""
+    from salt.agents import protocol as P
+
+    plan = '{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '\
+           '"target": "w"}]}'
+    send, calls = scripted_sender([plan])
+    out = P.ask_directive(send, [{"role": "user", "content": "ask"}],
+                          guided=True)
+    assert out.directive.delegates and not out.failures, out
+    assert not out.repaired and not out.fell_back, out
+    assert len(calls) == 1 and calls[0]["guided"] is True, calls
+
+    # one bad reply, then a good one: repaired, and the second ask
+    # carries the model's own words back with the reason they failed
+    send, calls = scripted_sender(["I will delegate this.", plan])
+    out = P.ask_directive(send, [{"role": "user", "content": "ask"}])
+    assert out.repaired and out.failures == 1, out
+    assert out.reasons == ("no_json",), out
+    assert len(calls) == 2, "the repair did not happen exactly once"
+    repair = calls[1]["messages"]
+    assert repair[-2]["content"] == "I will delegate this.", repair[-2]
+    assert "no_json" in repair[-1]["content"], repair[-1]
+    assert repair[:1] == calls[0]["messages"][:1], "the original ask was lost"
+
+    # twice bad: fail closed to what the model actually said, no third try
+    send, calls = scripted_sender(["<think>hm</think>The battery wins.",
+                                   "Still the battery."])
+    out = P.ask_directive(send, [{"role": "user", "content": "ask"}])
+    assert len(calls) == 2, f"a third attempt was made: {len(calls)}"
+    assert out.fell_back and out.failures == 2, out
+    assert out.directive.action == "answer", out
+    assert out.directive.answer == "Still the battery.", out.directive
+    assert out.reasons == ("no_json", "no_json"), out
+
+    # a reply that is nothing but reasoning still fails closed, with the
+    # reasoning stripped rather than handed back as an answer
+    send, _ = scripted_sender(["<think>only thinking</think>"])
+    out = P.ask_directive(send, [])
+    assert out.fell_back and out.directive.answer == "", out.directive
+
+    # guided is asked for once. A model that failed under a schema is
+    # not asked again under the same schema
+    send, calls = scripted_sender(["not json", plan])
+    P.ask_directive(send, [], guided=True)
+    assert [c["guided"] for c in calls] == [True, False], calls
+
+    # valid but hostile: an unknown worker parses, and the roster is what
+    # refuses it, typed, when the plan is executed
+    hostile = P.parse_directive('{"action": "delegate", "subtasks": [{"id": '
+                                '"a", "task": "t", "target": "nobody"}]}')
+    assert hostile.targets == ("nobody",), hostile
+    roster = R.Roster(path="<test>", entries=(
+        R.RosterEntry(name="w", alias="stub", role="worker",
+                      server_url="http://127.0.0.1:1"),))
+    try:
+        roster.get(hostile.subtasks[0].target)
+        raise AssertionError("the roster accepted a worker nobody declared")
+    except R.RosterError as exc:
+        assert "known:" in str(exc), exc
+    print("36. repair loop: a directive first time, a repair quoting the "
+          "actual fault second, and a fail closed to the model's own words "
+          "third, with no third ask ever made and an invented worker left "
+          "for the roster to refuse")
+
+
 def check_guided_probe(tok_path):
     """Whether a worker can be held to a schema is asked of the wire."""
     import salt.agents.roster as RR
@@ -3298,6 +3376,7 @@ def main():
         check_snapshot(tmp, tok, mdl)
         check_protocol()
         check_guided_probe(tok_path)
+        check_repair_loop()
         print("PASS")
     finally:
         if not args.keep:
