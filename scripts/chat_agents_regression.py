@@ -126,6 +126,7 @@ from salt.engine.compressor import load_bge                      # noqa: E402
 from salt.engine.session_trie import (CONVERSATION_ROLES,        # noqa: E402
                                       VALID_ROLES, SessionTrie)
 
+import _agent_fixtures as F                                      # noqa: E402
 from _agent_stub import Stub, closed_port, stub_server            # noqa: E402
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
@@ -3068,78 +3069,6 @@ def check_snapshot(tmp, tok, mdl):
           f"really carries")
 
 
-GOOD_DIRECTIVES = (
-    ('{"action": "answer", "answer": "the battery is the cheaper option"}',
-     "answer", 0, "the bare minimum an answer needs"),
-    ('{"version": "salt-agent-directive/1", "action": "answer", '
-     '"answer": "yes"}', "answer", 0, "the version spelled out"),
-    ('Here is my plan.\n{"action": "delegate", "subtasks": '
-     '[{"id": "a", "task": "summarise the quotes", "target": "w"}]}',
-     "delegate", 1, "a sentence of prose in front of it"),
-    ('```json\n{"action": "delegate", "subtasks": [{"id": "a", '
-     '"task": "t", "target": "w"}]}\n```', "delegate", 1,
-     "fenced as markdown"),
-    ('<think>maybe {"action": "answer"} would do</think>'
-     '{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
-     '"target": "w"}]}', "delegate", 1,
-     "a think block that reasons in JSON of its own"),
-    ('<think>still deciding {"action": "answer", "answer": "no"}',
-     None, 0, "a think block that never closed"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
-     '"target": "w", "query": "q", "budget_pct": 0.5, "max_tokens": 64}]}',
-     "delegate", 1, "every optional field set"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "read '
-     '{this}", "target": "w"}]} and that is my plan', "delegate", 1,
-     "braces inside a string, and prose after the object"),
-    ('{"action": "answer", "answer": "he said \\"go with B\\" first"}',
-     "answer", 0, "an escaped quote inside the answer"),
-    ('[{"action": "answer", "answer": "x"}]', "answer", 0,
-     "one directive wrapped in a list"),
-)
-
-BAD_DIRECTIVES = (
-    ("nothing here at all", "no_json", "a reply with no object in it"),
-    ('{"action": "answer", "answer": ', "no_json", "an object cut in half"),
-    ('{"action": "answer" "answer": "x"}', "bad_json", "a missing comma"),
-    ('["do the thing", "then the other"]', "no_json",
-     "a list of strings with no object anywhere in it"),
-    ('{"version": "salt-agent-directive/2", "action": "answer", '
-     '"answer": "x"}', "wrong_version", "a schema from the future"),
-    ('{"action": "think", "answer": "x"}', "bad_action", "an invented action"),
-    ('{"answer": "x"}', "bad_action", "no action at all"),
-    ('{"action": "answer"}', "no_answer", "an answer with nothing in it"),
-    ('{"action": "answer", "answer": "   "}', "no_answer", "a blank answer"),
-    ('{"action": "delegate"}', "no_subtasks", "a plan with no subtasks"),
-    ('{"action": "delegate", "subtasks": []}', "no_subtasks",
-     "a plan with an empty list"),
-    ('{"action": "answer", "answer": "x", "tool": "salt_compress"}',
-     "unknown_keys", "a key nobody declared"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
-     '"target": "w", "temperature": 0.9}]}', "unknown_keys",
-     "a subtask key nobody declared"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t"}]}',
-     "bad_subtask", "a subtask with no target"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "target": "w"}]}',
-     "bad_subtask", "a subtask with no task"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "", '
-     '"target": "w"}]}', "bad_subtask", "a subtask with an empty task"),
-    ('{"action": "delegate", "subtasks": ["do the thing"]}', "bad_subtask",
-     "a subtask that is a string"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
-     '"target": "w"}, {"id": "a", "task": "u", "target": "w"}]}',
-     "duplicate_id", "two subtasks under one id"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
-     '"target": "w", "budget_pct": 4}]}', "bad_number",
-     "a budget over the whole conversation"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
-     '"target": "w", "budget_pct": "half"}]}', "bad_number",
-     "a budget in words"),
-    ('{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
-     '"target": "w", "max_tokens": true}]}', "bad_number",
-     "a boolean where a count goes"),
-)
-
-
 def scripted_sender(replies):
     """A stand-in orchestrator that says whatever it was told to say,
     recording what it was asked and whether a schema was demanded."""
@@ -3417,7 +3346,7 @@ def check_guided_probe(tok_path):
 def check_protocol():
     from salt.agents import protocol as P
 
-    for text, action, n_subs, why in GOOD_DIRECTIVES:
+    for text, action, n_subs, why in F.GOOD:
         if action is None:
             try:
                 P.parse_directive(text)
@@ -3433,7 +3362,7 @@ def check_protocol():
             assert d.answer and not d.answer.startswith(" "), (why, d)
 
     seen = set()
-    for text, reason, why in BAD_DIRECTIVES:
+    for text, reason, why in F.BAD:
         try:
             P.parse_directive(text)
             raise AssertionError(f"{why} was accepted as a directive")
@@ -3446,18 +3375,30 @@ def check_protocol():
             assert exc.reason in P.repair_prompt(exc), "the repair prompt "\
                 "does not carry the reason it is repairing"
 
-    wide = json.dumps({"action": "delegate", "subtasks": [
-        {"id": str(i), "task": "t", "target": "w"}
-        for i in range(P.MAX_SUBTASKS + 1)]})
     try:
-        P.parse_directive(wide)
+        P.parse_directive(F.oversized(P.MAX_SUBTASKS))
         raise AssertionError("a plan past the cap was accepted")
     except P.ProtocolError as exc:
         assert exc.reason == "too_many_subtasks", exc.reason
-    at_cap = P.parse_directive(json.dumps({"action": "delegate", "subtasks": [
-        {"id": str(i), "task": "t", "target": "w"}
-        for i in range(P.MAX_SUBTASKS)]}))
-    assert len(at_cap.subtasks) == P.MAX_SUBTASKS, at_cap
+    assert len(P.parse_directive(F.at_cap(P.MAX_SUBTASKS)).subtasks) == \
+        P.MAX_SUBTASKS, "the cap refuses a plan that is exactly at it"
+
+    # D5: worker output is material to read, never a plan to run. The
+    # hostile corpus is well formed on purpose - what is checked is that
+    # nothing outside this module ever reads any of it as a directive
+    for text, why in F.HOSTILE:
+        try:
+            P.parse_directive(text)
+        except P.ProtocolError:
+            pass                                    # refused is fine too
+    readers = set()
+    for path in sorted((REPO / "salt").rglob("*.py")):
+        if "parse_directive" in path.read_text(encoding="utf-8"):
+            readers.add(str(path.relative_to(REPO)))
+    assert readers == {"salt/agents/protocol.py"}, (
+        f"parse_directive is now called from {sorted(readers)}. A worker's "
+        f"answer must never reach it: that is how injected text becomes a "
+        f"plan somebody runs")
 
     # D5: a worker's answer is quoted material. Nothing here reads it,
     # and a directive-shaped worker reply is still just a string
@@ -3474,10 +3415,11 @@ def check_protocol():
         "the example shown to a model is not itself a valid directive")
     assert P.strip_think("<think>a</think>  b  ") == "b"
     assert P.strip_think("") == "" and P.strip_think(None) == ""
-    print(f"34. directive protocol: {len(GOOD_DIRECTIVES)} replies read "
-          f"through prose, fences and reasoning, {len(BAD_DIRECTIVES)} "
-          f"refused across {len(seen)} distinct reasons, and the cap holds "
-          f"at {P.MAX_SUBTASKS} subtasks")
+    print(f"34. directive protocol: {len(F.GOOD)} replies read through "
+          f"prose, fences, reasoning and unicode, {len(F.BAD)} refused "
+          f"across {len(seen)} distinct reasons, {len(F.HOSTILE)} hostile "
+          f"ones that only this module ever reads, and a cap holding at "
+          f"{P.MAX_SUBTASKS} subtasks")
 
 
 def main():

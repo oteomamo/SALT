@@ -42,6 +42,11 @@ plain install stays green.
   so the whole worker lifecycle runs on CPU with no GPU and no model. It
   lives here rather than in the package on purpose, since a stand-in for
   a model server is a testing tool and never part of an install.
+- `_agent_fixtures.py` is not a test of its own either. It is the corpus
+  of model replies the directive checks read: the shapes a real model
+  wraps a correct answer in, the malformed ones that must be refused,
+  and the well formed ones that must never be acted on. It lives apart
+  from the harness so it can grow without the checks moving.
 
 ## 📦 Utilities
 
