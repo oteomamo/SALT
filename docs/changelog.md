@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.54
+## 2.10.0 - 2.10.55
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -81,6 +81,12 @@ Patch releases, grouped where several versions shipped one thing:
   conversation's memory selected for it. Selecting it commits nothing,
   so a conversation is the same after a delegation as before it, and
   every delegation is filed beside the conversation it ran under.
+- **2.10.55** A conversation as numbers. `session_stats` now carries a
+  snapshot block describing the conversation in one flat set of
+  signals, from how much of it is still selectable to what its last
+  read measured, and `salt_switches` lists the memory switches, what
+  the server has each one set to, and which measured number says
+  whether it did anything.
 
 ## 2.9.0 - 2.9.123
 

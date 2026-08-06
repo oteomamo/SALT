@@ -193,11 +193,19 @@ def session_payload(pool, conversation_id, created=False):
 
 def session_stats_payload(pool, conversation_id):
     """The session's own numbers, drained first so a turn submitted a
-    moment ago is counted rather than missed."""
+    moment ago is counted rather than missed.
+
+    The snapshot rides along as its own block: the same closed set of
+    signals the switch policy decides on, so an agent outside this
+    process reads exactly what one inside it would.
+    """
+    from salt.agents.snapshot import SCHEMA, snapshot
     session = pool.get(conversation_id)
     session.drain()
     trie = session.trie
     return {"conversation_id": trie.conversation_id,
+            "snapshot": snapshot(session, session.last_stats),
+            "snapshot_schema": SCHEMA,
             "n_turns": trie.n_turns,
             "n_sentences": trie.n_sentences,
             "n_alive": trie.n_alive,
@@ -296,7 +304,7 @@ def session_memory(engine, pool, conversation_id, query,
     commit = comp.get("commit")
     if commit is not None and not pool.read_only:
         commit(save=True)
-    stats = comp["stats"]
+    stats = session.last_stats = comp["stats"]
     return {"conversation_id": trie.conversation_id,
             "memory": block,
             "stats": {"n_selected": len(selected),
@@ -412,6 +420,21 @@ def build_server(engine, pool=None, roster=None):
                  structured_output=True)
     def roster_list(probe: bool = False) -> dict[str, Any]:
         return roster_payload(runtime, probe=probe)
+
+    @server.tool(name="salt_switches",
+                 description="The memory switches, what this server has "
+                             "each one set to, and which measured number "
+                             "reports whether it did anything.",
+                 structured_output=True)
+    def salt_switches() -> dict[str, Any]:
+        from salt.agents.snapshot import KEYS, SCHEMA, switch_inventory
+        # the server sets none of them, so the shipped values are what it
+        # is running under, and a client is told that rather than left to
+        # infer it
+        return {"switches": switch_inventory(),
+                "writable": False,
+                "snapshot_schema": SCHEMA,
+                "snapshot_keys": list(KEYS)}
 
     @server.tool(name="salt_delegate",
                  description="Hand one task to a helper model. With a "

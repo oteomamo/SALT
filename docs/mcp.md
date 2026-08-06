@@ -68,6 +68,7 @@ the package.
 | `session_memory` | what the conversation remembers about a question |
 | `salt_ingest_document` | read a document into a conversation's memory |
 | `roster_list` | the helper models this server can reach |
+| `salt_switches` | the memory switches and what each one is set to |
 | `salt_delegate` | hand one task to a helper model |
 
 ### salt_compress
@@ -150,6 +151,33 @@ conversation around it never crowd each other out of the memory block.
 whatever is passed is kept, so a name can never point somewhere on
 disk. Ingesting twice under one name merges into that same branch, the
 way attaching a file twice does at the prompt.
+
+## Reading a conversation as numbers
+
+`session_stats` carries a `snapshot` block: a flat set of signals
+describing the conversation as it stands. How many sentences it holds
+and how many are still selectable, how many turns, how many words are
+live, how many files are attached and how much of the memory they
+account for, how old the conversation is, and what its last read
+measured, including how far the question drifted from the recent
+conversation and how much of the coverage table no longer matches
+anything live.
+
+Every value is a number, a boolean or nothing at all, and nothing at
+all means this conversation cannot say rather than zero. A conversation
+held here has no chat model and no verbatim tail, so the signals about
+those come back empty.
+
+`salt_switches` is the other half. It lists the memory switches, what
+this server has each one set to, what it ships as, and which number in
+the snapshot or in a compression's own statistics reports whether it
+did anything. The switches are read-only over MCP: a client can see how
+memory is being selected and measure the result, and the decision to
+change it stays where the session is run.
+
+Together they are a loop an agent can close on its own: read the
+numbers, see which switch addresses them, and measure whether it
+helped.
 
 ## Helper models
 

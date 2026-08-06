@@ -40,6 +40,10 @@ class OpenSession:
         self.warning = warning
         self.read_only = read_only
         self.touched = time.monotonic()
+        # what the last read of this conversation measured, kept so the
+        # signals a compression produces can be reported without running
+        # one to find them
+        self.last_stats = None
 
     @property
     def conversation_id(self):

@@ -16,7 +16,9 @@ client does, and covers the surface a client depends on:
   5. Sessions: create, resume, list and stats round-trip through a
      scratch sessions folder, an id the REPL would refuse is refused
      here too, and the least recently used session is evicted with its
-     unsaved rows written first.
+     unsaved rows written first. The stats snapshot and the switch
+     inventory are pinned by shape, since a rule written against either
+     breaks silently when one moves.
   6. Turns and memory: a message is remembered, an exchange goes in as
      one call, a turn submitted a moment earlier is in the memory the
      next call reads, and the block carries the same labels a chat turn
@@ -65,6 +67,8 @@ except ImportError:
     sys.exit(0)
 
 from _agent_stub import Stub                                    # noqa: E402
+from salt.agents.snapshot import KEYS as SNAPSHOT_KEYS           # noqa: E402
+from salt.agents.snapshot import SCHEMA as SNAPSHOT_SCHEMA       # noqa: E402
 from salt.mcp.server import salt_version                        # noqa: E402
 
 # eight sentences, one of which is the only place December is discussed:
@@ -94,6 +98,7 @@ TOOLS = {"salt_compress": ["budget_pct", "query", "text"],
          "salt_ingest_document": ["conversation_id", "path", "source_name",
                                   "text"],
          "roster_list": ["probe"],
+         "salt_switches": [],
          "salt_delegate": ["budget_pct", "context_query", "conversation_id",
                            "ingest", "target", "task"]}
 STAT_KEYS = {"orig_words", "kept_words", "n_sentences", "n_sentences_raw",
@@ -231,6 +236,31 @@ async def drive(sessions):
                 f"the pool holds {stats['open_sessions']} sessions past a "
                 f"cap of 2")
             assert stats["budget_pct"] == 0.2, stats
+            assert stats["snapshot_schema"] == SNAPSHOT_SCHEMA, stats
+            assert list(stats["snapshot"]) == list(SNAPSHOT_KEYS), (
+                f"the snapshot changed shape: {list(stats['snapshot'])}")
+            snap = stats["snapshot"]
+            assert snap["n_sentences"] == 0 and snap["n_turns"] == 0, snap
+            # a session with no chat model and no verbatim tail says so
+            # rather than reporting a zero it cannot know
+            assert snap["model_window"] is None, snap
+            assert snap["tail_occupancy"] is None, snap
+            assert snap["drift_cos"] is None and snap["orphan_keys"] is None, (
+                f"a conversation nobody has read from reported a "
+                f"compression: {snap}")
+
+            switches = payload(await session.call_tool("salt_switches", {}))
+            assert switches["writable"] is False, switches
+            assert switches["snapshot_keys"] == list(SNAPSHOT_KEYS), switches
+            names_seen = [s["name"] for s in switches["switches"]]
+            assert len(names_seen) == len(set(names_seen)) >= 10, names_seen
+            for sw in switches["switches"]:
+                assert set(sw) == {"name", "flag", "value", "default",
+                                   "stats_key", "what", "changed"}, sw
+                assert sw["value"] == sw["default"] and not sw["changed"], (
+                    f"the server reports {sw['name']} away from its "
+                    f"shipped value: {sw}")
+                assert sw["flag"].startswith("--") and sw["what"], sw
             missing = await session.call_tool(
                 "session_stats", {"conversation_id": "never-existed"})
             assert missing.is_error, "stats answered for a session nobody made"
@@ -253,8 +283,10 @@ async def drive(sessions):
                 "session_resume", {"conversation_id": "mcp-one"}))
             assert not resumed["created"], resumed
             print(f"5. sessions: create, resume, list and stats round-trip, "
-                  f"3 malformed ids refused, and a cap of 2 evicted the "
-                  f"oldest with its state written first")
+                  f"3 malformed ids refused, a cap of 2 evicted the oldest "
+                  f"with its state written first, and the "
+                  f"{len(SNAPSHOT_KEYS)}-signal snapshot and "
+                  f"{len(names_seen)}-switch inventory came back pinned")
 
             payload(await session.call_tool("session_create",
                                             {"conversation_id": "mcp-turns"}))
@@ -348,6 +380,20 @@ async def drive(sessions):
             assert "notes.txt" in after["memory"], (
                 f"the document is not labeled with its source: "
                 f"{after['memory'][:300]}")
+
+            # a conversation that has been read from can describe itself:
+            # the signals a decision reads are numbers now, not None
+            lived = payload(await session.call_tool(
+                "session_stats", {"conversation_id": "mcp-turns"}))["snapshot"]
+            assert lived["n_sentences"] == lived["n_alive"] > 5, lived
+            assert lived["n_turns"] >= 4 and lived["live_words"] > 0, lived
+            assert lived["n_attachments"] == 2, lived
+            assert 0 < lived["attachment_words"] < lived["live_words"], lived
+            assert lived["coverage_keys"] > 0 and lived["masked"] == 0, lived
+            assert lived["orphan_keys"] is not None, (
+                f"a conversation that was just read from reports no "
+                f"compression: {lived}")
+            assert lived["session_age_s"] is not None, lived
             print(f"7. documents: a file under its own name, a typed text "
                   f"under a name stripped to {typed['source']!r}, 4 bad "
                   f"calls refused, and the excerpts labeled with the file "
