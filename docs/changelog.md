@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.59
+## 2.10.0 - 2.10.67
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -102,6 +102,16 @@ Patch releases, grouped where several versions shipped one thing:
   SALT version and every tool in order. The surface is written down in
   the server itself, so a renamed or dropped tool stops it at startup
   instead of surfacing as a broken client.
+- **2.10.64 - 2.10.67** Planning in a form a session can act on. A model
+  asked to decide what to delegate answers with one JSON object, read
+  through the prose, fences and reasoning a local model wraps it in and
+  held strictly to its shape inside. A reply that is not one is
+  repaired once, quoting the actual fault, and a second failure keeps
+  the model's own words as the answer instead of ending the round. A
+  worker is asked once whether its server accepts a schema at all,
+  since a version string does not answer that. Reasoning between
+  `<think>` tags is cut before an answer is remembered, and
+  `--agent-keep-think` keeps it.
 
 ## 2.9.0 - 2.9.123
 

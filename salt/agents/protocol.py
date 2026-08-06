@@ -39,8 +39,8 @@ REQUIRED_SUBTASK_KEYS = ("id", "task", "target")
 REASONS = ("no_json", "bad_json", "not_an_object", "wrong_version",
            "bad_action", "unknown_keys", "no_answer", "no_subtasks",
            "too_many_subtasks", "bad_subtask", "duplicate_id", "bad_number")
-_THINK = re.compile(r"<think\b[^>]*>.*?</think\s*>", re.S | re.I)
-_OPEN_THINK = re.compile(r"<think\b[^>]*>.*", re.S | re.I)
+_THINK_OPEN = re.compile(r"<think\b[^>]*>", re.I)
+_THINK_CLOSE = re.compile(r"</think\s*>", re.I)
 
 
 class ProtocolError(ValueError):
@@ -92,16 +92,48 @@ class Directive:
         return tuple(seen)
 
 
-def strip_think(text):
+def strip_think(text, reasoning_content=None):
     """Reasoning removed, answer kept.
 
-    Closed blocks go first. An unclosed one is a reply that ran out of
-    room mid-thought, and everything from the opening tag on is thinking
-    rather than answer, so it goes too.
+    Counted rather than matched, because a model that opens a second
+    think block inside the first would leave the tail of its own
+    reasoning behind under a non-greedy match, and that tail then reads
+    as the answer. An unclosed block is a reply that ran out of room
+    mid-thought, so everything from the opening tag on is thinking too.
+
+    `reasoning_content` is what a server hands back beside the answer
+    when it separates the two itself. It is dropped on the floor here:
+    what is kept is whatever the model actually said.
     """
     if not text:
         return ""
-    return _OPEN_THINK.sub("", _THINK.sub("", text)).strip()
+    out, depth, i = [], 0, 0
+    while i < len(text):
+        opened = _THINK_OPEN.match(text, i)
+        closed = _THINK_CLOSE.match(text, i)
+        if opened:
+            depth += 1
+            i = opened.end()
+        elif closed:
+            depth = max(0, depth - 1)
+            i = closed.end()
+        else:
+            if depth == 0:
+                out.append(text[i])
+            i += 1
+    if depth > 0:
+        # the reply ended inside a thought, so nothing after the last
+        # opening tag was ever an answer
+        cut = list(_THINK_OPEN.finditer(text))[-1].start()
+        return strip_think(text[:cut])
+    return "".join(out).strip()
+
+
+def reply_text(text, reasoning_content=None):
+    """What a model said, as opposed to what it thought. One place, so
+    a reply on its way into memory and a reply on its way into the
+    parser are cut the same."""
+    return strip_think(text, reasoning_content)
 
 
 def find_object(text):

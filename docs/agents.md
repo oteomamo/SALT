@@ -329,6 +329,12 @@ The commands sit alongside the rest on the
 [Chatbot mode](chatbot.md) page, and every flag is on the
 [Options](options.md) page.
 
+A model that reasons out loud is cut before it is remembered. Text
+between `<think>` tags is the model's working, and a conversation
+should not be able to recall something a helper considered and rejected
+as though it had been said. The answer is printed in full either way,
+and `--agent-keep-think` keeps the working in memory too.
+
 The same helpers are reachable without the REPL. A server started with
 `salt-mcp --roster FILE` offers `roster_list` and `salt_delegate` to
 whatever client it is speaking to, so an editor or an agent runtime can

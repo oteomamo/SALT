@@ -60,6 +60,7 @@ Agents:
 | `--offload-budget-pct` | the session budget | memory budget for a delegation's context, as a fraction like `--budget-pct` |
 | `--offload-context-cap N` | off | cap the memory handed to a worker at N words, on top of the memory budget that already sizes it |
 | `--offload-ingest` | off | remember what a worker answered, as a turn of its own labeled with the worker it came from |
+| `--agent-keep-think` | off | keep a worker's reasoning when its answer is remembered, instead of cutting it |
 
 Memory sizing:
 

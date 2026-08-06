@@ -35,7 +35,7 @@ from pathlib import Path
 
 import torch
 
-from salt.agents import ledger
+from salt.agents import ledger, protocol
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   delegate)
 from salt.agents.roster import (UNPROBED, RosterError, check_placement,
@@ -271,6 +271,7 @@ class ChatState:
         # without typing it twice
         self.last_task = None
         self.offload_ingest = args.offload_ingest
+        self.agent_keep_think = args.agent_keep_think
         self.offload_context_cap = args.offload_context_cap
         self.offload_timeout = args.offload_timeout
         self.offload_budget_pct = args.offload_budget_pct
@@ -1096,10 +1097,19 @@ def ingest_result(state, req, result):
     session was launched asking for that. Only an answer is remembered:
     a failure has nothing to say, and the tail is never touched, so a
     delegated answer is memory the next turn can select but never part
-    of the verbatim exchange the model is shown."""
+    of the verbatim exchange the model is shown.
+
+    A reasoning model's working is cut first. It was printed, so nobody
+    loses it, and what a model considered and rejected is not something
+    the conversation should be able to recall as though it were said.
+    """
     if not (req.ingest and result.ok and result.text.strip()):
         return False
-    submit_ingest(state, result.text, "worker", origin=result.target)
+    text = (result.text if state.agent_keep_think
+            else protocol.reply_text(result.text))
+    if not text.strip():
+        return False
+    submit_ingest(state, text, "worker", origin=result.target)
     submit_session_save(state)
     return True
 
@@ -2372,6 +2382,12 @@ def build_parser():
                         "from (default: the answer is printed and recorded "
                         "in delegations.jsonl, and the conversation's "
                         "memory is left as it was)")
+    p.add_argument("--agent-keep-think", action="store_true",
+                   help="keep a worker's reasoning when its answer is "
+                        "remembered (default: text between <think> tags is "
+                        "cut before ingest, so a model that reasons out "
+                        "loud does not fill this session's memory with "
+                        "its own working)")
     p.add_argument("--turns", metavar="FILE",
                    help="run a scripted conversation from a JSON array or "
                         "JSONL file instead of the interactive REPL. Each "

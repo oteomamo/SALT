@@ -3152,6 +3152,81 @@ def scripted_sender(replies):
     return send, calls
 
 
+def check_think_handling(tmp, tok, mdl):
+    """A model's working never becomes something the session said."""
+    from salt.agents import protocol as P
+
+    cases = (
+        ("<think>a</think>ANSWER", "ANSWER", "one closed block"),
+        ("<think>a<think>b</think>c</think>ANSWER", "ANSWER",
+         "a block opened inside another one"),
+        ("<THINK>a</THINK>ANSWER", "ANSWER", "shouted tags"),
+        ("<think id='1'>a</think>ANSWER", "ANSWER", "an attribute on the tag"),
+        ("ANSWER<think>still going", "ANSWER", "a thought that never closed"),
+        ("<think>only thinking", "", "a reply that is nothing but a thought"),
+        ("<think>a</think>   ", "", "a reply that is empty after the cut"),
+        ("no tags at all", "no tags at all", "a model that does not think"),
+        ("pre <think>x</think> post", "pre  post", "a thought in the middle"),
+    )
+    for text, want, why in cases:
+        assert P.strip_think(text) == want, (
+            f"{why}: {text!r} came out as {P.strip_think(text)!r}")
+    assert P.reply_text("<think>x</think>y", reasoning_content="z") == "y", (
+        "reasoning handed back beside the answer was kept")
+
+    # a think-only reply is the protocol failure path, not an answer
+    send, _ = scripted_sender(["<think>hm</think>", "<think>still</think>"])
+    out = P.ask_directive(send, [])
+    assert out.fell_back and out.directive.answer == "", out.directive
+
+    # and a delegated answer is cut before it is remembered
+    state = replayed_state(tmp, "think_ingest", tok, mdl)
+    try:
+        req = D.DelegationRequest(task="t", target="w", ingest=True)
+        result = D.DelegationResult(
+            id=1, target="w", task="t", status="ok",
+            text="<think>the user asked about batteries</think>"
+                 "The nine kilowatt hour pack covers the evening.")
+        before = state.trie.n_sentences
+        assert not state.agent_keep_think, "the expert flag ships on"
+        with redirect_stdout(io.StringIO()):
+            assert cli.ingest_result(state, req, result)
+            state.ingest.drain()
+        kept = state.trie.texts[before:]
+        assert kept, "the answer was not remembered at all"
+        assert not any("<think>" in t or "the user asked" in t
+                       for t in kept), (
+            f"a worker's working reached the conversation: {kept}")
+        assert any("nine kilowatt hour" in t for t in kept), kept
+
+        state.agent_keep_think = True
+        mark = state.trie.n_sentences
+        with redirect_stdout(io.StringIO()):
+            assert cli.ingest_result(state, req, D.DelegationResult(
+                id=2, target="w", task="t", status="ok",
+                text="<think>reconsidering the roof</think>"
+                     "The roof was replaced in 2019 under warranty."))
+            state.ingest.drain()
+        assert any("reconsidering" in t for t in state.trie.texts[mark:]), (
+            "--agent-keep-think dropped the working it exists to keep")
+
+        # a reply that is nothing but working is nothing to remember
+        state.agent_keep_think = False
+        mark = state.trie.n_sentences
+        with redirect_stdout(io.StringIO()):
+            assert not cli.ingest_result(state, req, D.DelegationResult(
+                id=3, target="w", task="t", status="ok",
+                text="<think>I have no idea</think>"))
+        assert state.trie.n_sentences == mark, (
+            "a reply with nothing but working in it was remembered anyway")
+    finally:
+        state.ingest.close()
+    print(f"37. think handling: {len(cases)} reply shapes cut to what the "
+          f"model actually said, a think-only reply treated as a failed "
+          f"directive, and a worker's working kept out of the conversation "
+          f"unless the session asked for it")
+
+
 def check_repair_loop():
     """One repair, then take what was said. Never a third attempt."""
     from salt.agents import protocol as P
@@ -3377,6 +3452,7 @@ def main():
         check_protocol()
         check_guided_probe(tok_path)
         check_repair_loop()
+        check_think_handling(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
