@@ -25,6 +25,7 @@ material, and text that looks like a directive inside it is text.
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 SCHEMA = "salt-agent-directive/1"
 ACTIONS = ("answer", "delegate")
@@ -263,6 +264,59 @@ def parse_directive(text):
         raise ProtocolError("duplicate_id",
                             f"subtask ids must differ, got {ids}")
     return Directive(action=action, subtasks=parsed)
+
+
+TEMPLATES = {"schema": Path(__file__).resolve().parent /
+                       "orchestrator_schema.md",
+             "plain": Path(__file__).resolve().parent /
+                      "orchestrator_plain.md"}
+FALLBACK_TEMPLATE = ("Decide how the question under ASK: gets answered. "
+                     "Reply with one JSON object and nothing else, either "
+                     "{answer_example} or {delegate_example}. The helpers "
+                     "you may use are:\n{targets}")
+
+
+def template_for(capability):
+    """Which instructions this orchestrator gets. A model whose server
+    will hold it to a schema is told to fill one; a model that will not
+    be held to anything is shown the object instead, because an example
+    is worth more to it than a description."""
+    from salt.agents.roster import GUIDED_CAPABLE
+    return "schema" if capability == GUIDED_CAPABLE else "plain"
+
+
+def target_lines(targets):
+    """The helpers, one per line, named exactly as they must be spelled
+    back. A pair is the name and what that worker is for."""
+    rows = []
+    for item in targets or ():
+        name, note = (item, "") if isinstance(item, str) else item
+        rows.append(f"- {name}{': ' + note if note else ''}")
+    return "\n".join(rows) or "- (none: this session reaches no helpers)"
+
+
+def orchestrator_instructions(capability, targets=()):
+    """The system prompt an orchestrating model is given.
+
+    Read per call, like the worker prompt, so the wording can be tuned
+    live, and tolerant of a missing file: a round must not die over one.
+    The text is otherwise byte-stable on purpose, since a prompt that
+    changes shape every turn is a prompt no cache can hold.
+    """
+    names = tuple(t if isinstance(t, str) else t[0] for t in targets or ())
+    try:
+        body = TEMPLATES[template_for(capability)].read_text(
+            encoding="utf-8").strip()
+    except (OSError, ValueError, KeyError):
+        body = FALLBACK_TEMPLATE
+    return body.format(targets=target_lines(targets),
+                       answer_example=example_answer(),
+                       delegate_example=example_directive(names or ("worker",)))
+
+
+def example_answer():
+    return json.dumps({"version": SCHEMA, "action": "answer",
+                       "answer": "the whole answer, in full"}, indent=2)
 
 
 def example_directive(targets=("worker",)):

@@ -3232,6 +3232,91 @@ def check_think_handling(tmp, tok, mdl):
           f"unless the session asked for it")
 
 
+# the shipped templates, hashed. A prompt that changes shape is a prompt
+# no prefix cache can hold, so a wording change is a decision rather
+# than a side effect: edit a template on purpose and update its hash in
+# the same commit
+TEMPLATE_HASHES = {
+    "orchestrator_schema.md":
+        "2810ff15d41195a42b8931a34de2accb79d51ca35580125f5164bc9db424054e",
+    "orchestrator_plain.md":
+        "d8f52431a85b9df2bbda337b089b25d56c5abfeb430757d99d77a6b78a0d7d01",
+}
+
+
+def check_templates():
+    """The orchestrator's instructions: one per capability, package
+    data, and stable byte for byte between runs."""
+    import hashlib
+
+    from salt.agents import protocol as P
+    from salt.agents.roster import (GUIDED_CAPABLE, GUIDED_PLAIN,
+                                    GUIDED_UNKNOWN)
+
+    assert P.template_for(GUIDED_CAPABLE) == "schema", "a server that will "\
+        "hold a model to a schema is not given the schema instructions"
+    for capability in (GUIDED_PLAIN, GUIDED_UNKNOWN, "anything else"):
+        assert P.template_for(capability) == "plain", (
+            f"{capability!r} was treated as able to follow a schema")
+
+    for name, path in P.TEMPLATES.items():
+        assert path.is_file(), f"the {name} template is not in the package"
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        assert digest == TEMPLATE_HASHES[path.name], (
+            f"{path.name} changed. If that was on purpose, put "
+            f"{digest!r} in TEMPLATE_HASHES in the same commit")
+        raw = path.read_text(encoding="utf-8")
+        assert path.name in (REPO / "pyproject.toml").read_text(
+            encoding="utf-8"), (
+            f"{path.name} is not package data, so an installed wheel would "
+            f"fall back to the built-in wording")
+        for field in ("{targets}",):
+            assert field in raw, f"{path.name} names no {field}"
+    assert "{answer_example}" in P.TEMPLATES["plain"].read_text(
+        encoding="utf-8"), "the plain template shows no example"
+
+    schema_text = P.orchestrator_instructions(GUIDED_CAPABLE,
+                                              [("w", "summarising")])
+    plain_text = P.orchestrator_instructions(GUIDED_PLAIN, ["w", "x"])
+    assert "- w: summarising" in schema_text, schema_text[:300]
+    assert "- w\n- x" in plain_text, plain_text[:300]
+    assert "{" in plain_text and '"subtasks"' in plain_text, (
+        "the plain instructions show no object to copy")
+    assert '"subtasks"' not in schema_text, (
+        "the schema instructions spell out a schema the server supplies")
+    assert len(plain_text) > len(schema_text), (
+        "the instructions for a model that cannot be constrained are not "
+        "the longer ones")
+    # the examples a plain model is shown are themselves valid directives
+    shown = plain_text[plain_text.index("{"):]
+    assert P.parse_directive(shown).action == "answer", (
+        "the answer example in the plain instructions does not parse")
+    assert P.parse_directive(
+        shown[shown.index('"subtasks"') - 200:]).delegates, (
+        "the delegate example in the plain instructions does not parse")
+
+    # byte stability: the same inputs render the same prompt every time
+    assert P.orchestrator_instructions(GUIDED_PLAIN, ["w", "x"]) == \
+        plain_text, "the same ask rendered two different prompts"
+    assert "(none: this session reaches no helpers)" in \
+        P.orchestrator_instructions(GUIDED_CAPABLE, []), (
+        "a roster with nothing in it renders an empty list of helpers")
+
+    # a missing template costs the wording, never the round
+    real, P.TEMPLATES["plain"] = P.TEMPLATES["plain"], Path("/nonexistent.md")
+    try:
+        fallen = P.orchestrator_instructions(GUIDED_PLAIN, ["w"])
+        assert "JSON object" in fallen and "- w" in fallen, fallen
+    finally:
+        P.TEMPLATES["plain"] = real
+    print(f"39. orchestrator instructions: two templates chosen by what "
+          f"the worker's server accepts, both package data and pinned "
+          f"byte for byte, rendering identically for the same helpers, "
+          f"with both examples parsing as directives and a missing file "
+          f"costing the wording rather than the round")
+
+
 def check_repair_loop():
     """One repair, then take what was said. Never a third attempt."""
     from salt.agents import protocol as P
@@ -3470,6 +3555,7 @@ def main():
         check_protocol()
         check_guided_probe(tok_path)
         check_repair_loop()
+        check_templates()
         check_think_handling(tmp, tok, mdl)
         check_deep_probe(tmp, tok, mdl)
         print("PASS")
