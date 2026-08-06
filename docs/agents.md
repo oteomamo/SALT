@@ -328,3 +328,9 @@ and how slow it was, and `/worker probe <name>` reconnects one of them.
 The commands sit alongside the rest on the
 [Chatbot mode](chatbot.md) page, and every flag is on the
 [Options](options.md) page.
+
+The same helpers are reachable without the REPL. A server started with
+`salt-mcp --roster FILE` offers `roster_list` and `salt_delegate` to
+whatever client it is speaking to, so an editor or an agent runtime can
+hand a task to one of these models with a conversation's memory behind
+it. The [MCP server](mcp.md) page covers that side.

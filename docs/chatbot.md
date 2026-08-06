@@ -55,6 +55,14 @@ up its own, each one a server of its own that stays loaded. `--roster`
 declares them and the `/roster` and `/worker` commands below inspect
 them. It has its own page: [Agents](agents.md).
 
+## Conversations without the REPL
+
+These conversations are files, and the prompt is not the only way to
+reach them. `salt-mcp` serves the same folder over the Model Context
+Protocol, so an editor or an agent runtime can add turns to a
+conversation and read what it remembers, and a session started there
+can be resumed here. The [MCP server](mcp.md) page has the setup.
+
 ## REPL commands
 
 | Command | Effect |

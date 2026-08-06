@@ -162,7 +162,8 @@ cap, attached files and the budget it compresses under.
 
 These are the same conversations `saltChat` keeps, in the same folder
 and under the same naming rule, so a session started here can be
-resumed at the prompt and the other way round.
+resumed at the prompt and the other way round. What the prompt does
+with them is on the [Chatbot mode](chatbot.md) page.
 
 ### Remembering and reading
 
