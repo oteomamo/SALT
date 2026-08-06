@@ -68,9 +68,23 @@ the package.
 | `session_add_turn` | remember a message, or a whole exchange at once |
 | `session_memory` | what the conversation remembers about a question |
 | `salt_ingest_document` | read a document into a conversation's memory |
+| `salt_contract` | which version of this tool contract the server speaks |
 | `roster_list` | the helper models this server can reach |
 | `salt_switches` | the memory switches and what each one is set to |
 | `salt_delegate` | hand one task to a helper model |
+
+`salt_contract` answers the question a client asks first: which surface
+am I talking to. It returns the contract number, the SALT version, and
+every tool this server offers, in order.
+
+The surface grows one way only. Tool names are forever, a renamed tool
+being a break every client feels silently, and schemas grow additively:
+a new argument is optional with a default, a new response field is
+added beside the others, and an existing field is never repurposed. The
+contract number moves only if that promise is ever broken, so a client
+that reads a `1` knows every tool it learned still means what it meant.
+The version in the handshake is the SALT version, so a client log
+records which build it spoke to.
 
 ### salt_compress
 

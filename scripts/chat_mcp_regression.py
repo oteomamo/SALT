@@ -83,6 +83,7 @@ except ImportError:
 from _agent_stub import Stub                                    # noqa: E402
 from salt.agents.snapshot import KEYS as SNAPSHOT_KEYS           # noqa: E402
 from salt.agents.snapshot import SCHEMA as SNAPSHOT_SCHEMA       # noqa: E402
+from salt.mcp.server import TOOL_NAMES, TOOLS_CONTRACT          # noqa: E402
 from salt.mcp.server import salt_version                        # noqa: E402
 
 # eight sentences, one of which is the only place December is discussed:
@@ -112,6 +113,7 @@ TOOLS = {"salt_compress": ["budget_pct", "query", "text"],
          "salt_ingest_document": ["conversation_id", "path", "source_name",
                                   "text"],
          "roster_list": ["probe"],
+         "salt_contract": [],
          "salt_switches": [],
          "salt_delegate": ["budget_pct", "context_query", "conversation_id",
                            "ingest", "target", "task"]}
@@ -183,12 +185,24 @@ async def drive(sessions):
             names = {t.name: sorted(t.input_schema["properties"])
                      for t in listed.tools}
             assert names == TOOLS, f"the tool surface moved: {names}"
+            # order too, and against the list the server declares rather
+            # than against whatever it happened to register
+            assert [t.name for t in listed.tools] == list(TOOL_NAMES), (
+                f"the tool order moved: {[t.name for t in listed.tools]}")
+            assert set(TOOL_NAMES) == set(TOOLS), (
+                "the declared surface and the pinned one disagree")
             required = {t.name: set(t.input_schema.get("required", []))
                         for t in listed.tools}
             assert required["salt_compress"] == {"text"}, required
-            print(f"2. tool list: {len(names)} tools pinned by name and "
-                  f"arguments, with only the text required of a "
-                  f"compression")
+            contract = payload(await session.call_tool("salt_contract", {}))
+            assert contract["salt_mcp_tools"] == TOOLS_CONTRACT, contract
+            assert contract["tools"] == list(TOOL_NAMES), contract
+            assert contract["salt_version"] == info.version, contract
+            assert contract["read_only"] is False, contract
+            print(f"2. tool list: {len(names)} tools pinned by name, order "
+                  f"and arguments, with only the text required of a "
+                  f"compression, and the server stamping tool contract "
+                  f"{contract['salt_mcp_tools']}")
 
             res = await session.call_tool(
                 "salt_compress",

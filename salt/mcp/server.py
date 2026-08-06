@@ -11,6 +11,20 @@ The compression itself is assembled here from the engine's own building
 blocks, the same ones salt/compress.py wires for a one-shot run. The
 defaults come from that command's parser, so a tool call and a command
 line compress a text the same way.
+
+HOW THIS SURFACE IS ALLOWED TO GROW. A client discovers the tools at
+runtime and compiles nothing in, which is what makes adding safe and
+renaming dangerous:
+
+1. Tool names are forever. Adding tools is free, renaming one is a
+   breaking change every client feels silently.
+2. Schemas evolve additively: a new argument is optional and has a
+   default, a new response field is added beside the others. An
+   existing field is never repurposed.
+
+The version in the handshake is the package version, so a client log
+always records which contract it spoke to, and salt_contract states
+the tool contract's own number beside the tool list it covers.
 """
 
 import argparse
@@ -24,6 +38,18 @@ from salt.mcp.errors import (DEFAULT_MAX_CHARS, ToolError, guarded,
                              need_budget, need_text)
 
 SERVER_NAME = "salt"
+# the tool contract's own number, bumped only when a tool is renamed or
+# removed, which is to say never on purpose. Additive growth leaves it
+# exactly where it is
+TOOLS_CONTRACT = 1
+# the whole surface, in the order a client is offered it. Written down
+# here rather than left to whatever the registry happens to hold, so a
+# rename or a removal is a failure at startup instead of a silence a
+# client discovers in the field
+TOOL_NAMES = ("salt_compress", "roster_list", "salt_contract",
+              "salt_switches", "salt_delegate", "session_create",
+              "session_resume", "session_list", "session_add_turn",
+              "session_memory", "salt_ingest_document", "session_stats")
 DEFAULT_BUDGET_PCT = 0.20
 # every refusal a read-only server makes starts with this, so a client
 # can tell "this server will not" apart from "this call was wrong"
@@ -428,6 +454,21 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
             "attachments": list(trie.attached_sources)}
 
 
+def stamped(server, expected):
+    """Fix this server's tool list, and refuse to start with a surface
+    that has drifted from the one written down. A tool name is a
+    contract with every client, so a rename is caught here, once, rather
+    than in somebody else's editor."""
+    names = tuple(server._tool_manager._tools)
+    if names != tuple(expected):
+        raise RuntimeError(
+            f"the MCP tool surface has drifted: {list(names)} were "
+            f"registered where {list(expected)} were declared. A tool name "
+            f"is forever, so change TOOL_NAMES only to ADD.")
+    server.tool_names = names
+    return server
+
+
 def build_server(engine, pool=None, roster=None,
                  max_chars=DEFAULT_MAX_CHARS):
     """The MCP server and its tools, with the engine they compress on."""
@@ -466,6 +507,19 @@ def build_server(engine, pool=None, roster=None,
     def roster_list(probe: bool = False) -> dict[str, Any]:
         return guarded(roster_payload, runtime, probe=probe)
 
+    @server.tool(name="salt_contract",
+                 description="Which version of this tool contract the "
+                             "server speaks, and every tool it offers.",
+                 structured_output=True)
+    def salt_contract() -> dict[str, Any]:
+        return {"salt_mcp_tools": TOOLS_CONTRACT,
+                "salt_version": salt_version(),
+                "tools": list(server.tool_names),
+                "read_only": read_only,
+                "growth": ["tool names are forever",
+                           "arguments and response fields are added, "
+                           "never repurposed"]}
+
     @server.tool(name="salt_switches",
                  description="The memory switches, what this server has "
                              "each one set to, and which measured number "
@@ -498,7 +552,8 @@ def build_server(engine, pool=None, roster=None,
                        max_chars=max_chars)
 
     if pool is None:
-        return server
+        # a server with no conversations offers the tools that need none
+        return stamped(server, TOOL_NAMES[:5])
 
     @server.tool(name="session_create",
                  description="Start a conversation whose memory this "
@@ -565,7 +620,7 @@ def build_server(engine, pool=None, roster=None,
     def session_stats(conversation_id: str) -> dict[str, Any]:
         return guarded(session_stats_payload, pool, conversation_id)
 
-    return server
+    return stamped(server, TOOL_NAMES)
 
 
 def load_roster(path):
