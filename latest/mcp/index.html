@@ -759,6 +759,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-the-server-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the server runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#server-flags" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1295,6 +1306,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-the-server-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the server runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#server-flags" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1471,8 +1493,40 @@ entry for SALT is the command and its flags:</p>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
-<p>The server loads the encoder on the first call that needs it, so a
-client that connects and asks for nothing pays nothing.</p>
+<p>Where that file lives depends on the client.</p>
+<p><strong>Claude Code</strong> takes it from the command line:</p>
+<div class="highlight"><pre><span></span><code>claude<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>salt<span class="w"> </span>--<span class="w"> </span>salt-mcp<span class="w"> </span>--gpu<span class="w"> </span><span class="m">0</span>
+</code></pre></div>
+<p>Add <code>--scope project</code> to write it into a <code>.mcp.json</code> beside the code,
+which is what you want when the conversations belong to the project
+rather than to you.</p>
+<p><strong>Claude Desktop</strong> reads <code>claude_desktop_config.json</code>. Open its
+settings, edit the config, and put the block above in it. The app
+starts the server when it starts and stops it when it quits.</p>
+<p><strong>Cursor</strong> reads <code>~/.cursor/mcp.json</code> for every project, or
+<code>.cursor/mcp.json</code> inside one project. Same block either way.</p>
+<p>Anything else that speaks MCP works the same way: it needs a command to
+run, and <code>salt-mcp</code> is on the path once the extra is installed. Use the
+full path to the <code>salt-mcp</code> in your environment if the client does not
+inherit your shell.</p>
+<h2 id="how-the-server-runs">How the server runs</h2>
+<p>One process, started by the client and living as long as it does. It
+holds the encoder in memory once loaded, and loads it on the first call
+that needs it, so a client that connects and asks for nothing pays
+nothing.</p>
+<p>Conversations are opened on demand and kept warm, because a client that
+adds a turn is usually about to read memory. Past
+<code>--max-open-sessions</code> the one used longest ago is closed, and closing
+means finishing what it was still encoding, writing it if it changed,
+and then letting go.</p>
+<p>One client per server, and one server per folder of conversations.
+Nothing locks a session folder, so two servers over the same folder
+would each save over the other. A server that sees signs of another one
+holding a conversation says so in the reply rather than refusing.</p>
+<p>No GPU is required. On a machine without one the encoder runs on the
+CPU, which is slower per call and needs nothing installed beyond the
+package. <code>--gpu</code>, <code>--device</code> and <code>--bge-device</code> put it on a card when
+there is one.</p>
 <h2 id="server-flags">Server flags</h2>
 <table>
 <thead>
@@ -1520,9 +1574,6 @@ client that connects and asks for nothing pays nothing.</p>
 </tr>
 </tbody>
 </table>
-<p>There is no GPU requirement. On a machine without one the encoder runs
-on the CPU, which is slower per call but needs nothing installed beyond
-the package.</p>
 <h2 id="tools">Tools</h2>
 <table>
 <thead>
@@ -1845,6 +1896,20 @@ in the session folder is written at all, not even the marker a normal
 server leaves to notice a second one.</p>
 <p>This is what to point a shared or automated client at when it should
 be able to look at conversations without being able to change them.</p>
+<p>A useful pair: run your own work through <code>saltChat</code> or a normal server,
+and give anything automated a read-only one over the same folder.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;salt-readonly&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt-mcp&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;--read-only&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--sessions-dir&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;/path/to/conversations&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>It can list the conversations, read what any of them remembers about a
+question, report their numbers and ask a helper model something, and it
+cannot add a turn, ingest a document or leave a mark on the folder.</p>
 <h2 id="what-is-not-here">What is not here</h2>
 <p>Some things are deliberately left out of this first version. A
 conversation's turns are not written to the kv ledger the REPL keeps,
