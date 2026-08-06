@@ -1648,6 +1648,15 @@ two servers on the same folder would each save over the other. A server
 that notices another one holding a session says so in its reply rather
 than refusing, since a leftover marker from a crashed server must not
 be what stops the next one from working.</p>
+<p>Anything a client should know about a conversation that is not a
+refusal comes back in a <code>warnings</code> list on the reply: another server
+looking like it holds this one, or a repair the open had to make. A
+conversation whose files disagree after a crash is rolled back to its
+last complete state as it opens, the dropped text is kept in
+<code>load_repairs.jsonl</code> beside it, and the reply says what was dropped.</p>
+<p>However the server ends, it ends the same way. A client hanging up, a
+Ctrl-C or a kill all drain every open conversation and write the ones
+that changed before the process stops.</p>
 <h2 id="documents-in-a-conversation">Documents in a conversation</h2>
 <p><code>salt_ingest_document</code> puts a file into a session's memory. Give it a
 <code>path</code> and it reads the file itself, PDF or plain text, or give it
