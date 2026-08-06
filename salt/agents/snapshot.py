@@ -53,7 +53,7 @@ SWITCHES = (
            "let a surfaced theme's suppression fade over quiet turns"),
     Switch("coverage_decay_docs", "--coverage-decay-docs", False,
            "coverage_half_life", "let attached files decay too"),
-    Switch("shift_damping", "--shift-damping", False, "shift_damped",
+    Switch("shift_damping", "--shift-damping", None, "shift_damped",
            "scale down stale suppression when the question pivots"),
     Switch("shift_margin", "--shift-margin", 0.12, "drift_cos",
            "how far a question must pivot to count as a shift"),

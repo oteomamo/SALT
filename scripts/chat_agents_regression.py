@@ -2981,6 +2981,93 @@ def check_worker_turns(tmp, tok, mdl):
           "model's again")
 
 
+def check_snapshot(tmp, tok, mdl):
+    """The signals a decision about the switches is allowed to read.
+
+    Built once and read by two consumers, the MCP server and the switch
+    policy that comes later, so what a session says about itself has to
+    be true of a real session rather than only well shaped.
+    """
+    from salt.agents import snapshot as S
+
+    state = replayed_state(tmp, "snapshot_live", tok, mdl)
+    try:
+        snap = S.snapshot(state)
+        assert tuple(snap) == S.KEYS, (
+            f"the snapshot changed shape: {list(snap)}")
+        t = state.trie
+        assert snap["n_sentences"] == t.n_sentences > 0, snap
+        assert snap["n_alive"] == t.n_alive and snap["masked"] == t.n_masked
+        # both sides of every exchange are turns of their own
+        assert snap["n_turns"] == t.n_turns == 2 * len(TRANSCRIPT), snap
+        assert snap["live_words"] == t.live_words > 0, snap
+        assert snap["coverage_keys"] == len(t.coverage) > 0, (
+            "a session that has answered turns has no coverage")
+        # the last turn committed, so the compression signals are real
+        assert snap["drift_cos"] == state.last_stats.get("drift_cos"), snap
+        assert snap["orphan_keys"] is not None, snap
+        assert snap["session_age_s"] is not None and snap[
+            "session_age_s"] >= 0, snap
+        # a chat session has both of the things an MCP session lacks
+        assert snap["model_window"] == state.runner.input_budget(), snap
+        assert 0 < snap["tail_occupancy"] <= 1, (
+            f"a session with {len(state.tail)} tail entries reports "
+            f"occupancy {snap['tail_occupancy']}")
+        assert snap["pending_ingest"] == state.ingest.pending, snap
+        assert all(isinstance(v, (int, float, bool, type(None)))
+                   for v in snap.values()), (
+            f"a signal is not a number: {snap}")
+
+        # attachments are counted apart from the conversation
+        assert snap["n_attachments"] == 0 and snap[
+            "attachment_words"] == 0, snap
+        with redirect_stdout(io.StringIO()):
+            state.trie.add_turn("The roof faces south and was replaced in "
+                                "2019 under a ten year warranty.",
+                                role="doc", source="notes.txt",
+                                tokenizer=tok, model=mdl, device="cpu")
+        after = S.snapshot(state)
+        assert after["n_attachments"] == 1, after
+        assert 0 < after["attachment_words"] < after["live_words"], after
+
+        # the switch inventory describes THIS session, and every switch
+        # it names is a kwarg the session actually carries, at the value
+        # the launch flags ship it at
+        launch = cli.build_parser().parse_args(["--device", "cpu"])
+        for sw in S.SWITCHES:
+            shipped = (not launch.no_tail_exclude if sw.name == "tail_exclude"
+                       else getattr(launch, sw.name, "missing"))
+            assert sw.default == shipped, (
+                f"the inventory calls {sw.name!r} {sw.default!r} by default "
+                f"while a session launches it {shipped!r}")
+        values = S.switch_values(state)
+        for sw in S.SWITCHES:
+            assert hasattr(state, sw.name), (
+                f"the inventory names {sw.name!r}, which a session does "
+                f"not carry, so nothing could set it")
+            assert values[sw.name] == getattr(state, sw.name), sw
+        rows = S.switch_inventory(values)
+        assert [r["name"] for r in rows] == [sw.name for sw in S.SWITCHES]
+        # tail exclusion is the one switch that ships on
+        on = [r["name"] for r in rows if r["changed"]]
+        assert on == [] or on == ["tail_exclude"], (
+            f"a default session reports switches away from their shipped "
+            f"values: {on}")
+        stats = cli.build_stats(state)
+        for sw in S.SWITCHES:
+            if sw.name in stats["switches"]:
+                assert stats["switches"][sw.name] == values[sw.name], (
+                    f"{sw.name} reads differently in /stats and in the "
+                    f"inventory")
+    finally:
+        state.ingest.close()
+    print(f"33. snapshot: all {len(S.KEYS)} signals true of a live session "
+          f"including the window and tail a served session has and an MCP "
+          f"one does not, attachments counted apart from the conversation, "
+          f"and every one of {len(S.SWITCHES)} switches a kwarg the session "
+          f"really carries")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -3025,6 +3112,7 @@ def main():
         check_command_surfaces()
         check_offload_ergonomics(tmp, tok, mdl)
         check_worker_turns(tmp, tok, mdl)
+        check_snapshot(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
