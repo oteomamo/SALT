@@ -837,6 +837,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reading-a-conversation-as-numbers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading a conversation as numbers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#helper-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1351,6 +1362,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reading-a-conversation-as-numbers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading a conversation as numbers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#helper-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1521,6 +1543,10 @@ the package.</p>
 <td>the helper models this server can reach</td>
 </tr>
 <tr>
+<td><code>salt_switches</code></td>
+<td>the memory switches and what each one is set to</td>
+</tr>
+<tr>
 <td><code>salt_delegate</code></td>
 <td>hand one task to a helper model</td>
 </tr>
@@ -1606,6 +1632,28 @@ conversation around it never crowd each other out of the memory block.</p>
 whatever is passed is kept, so a name can never point somewhere on
 disk. Ingesting twice under one name merges into that same branch, the
 way attaching a file twice does at the prompt.</p>
+<h2 id="reading-a-conversation-as-numbers">Reading a conversation as numbers</h2>
+<p><code>session_stats</code> carries a <code>snapshot</code> block: a flat set of signals
+describing the conversation as it stands. How many sentences it holds
+and how many are still selectable, how many turns, how many words are
+live, how many files are attached and how much of the memory they
+account for, how old the conversation is, and what its last read
+measured, including how far the question drifted from the recent
+conversation and how much of the coverage table no longer matches
+anything live.</p>
+<p>Every value is a number, a boolean or nothing at all, and nothing at
+all means this conversation cannot say rather than zero. A conversation
+held here has no chat model and no verbatim tail, so the signals about
+those come back empty.</p>
+<p><code>salt_switches</code> is the other half. It lists the memory switches, what
+this server has each one set to, what it ships as, and which number in
+the snapshot or in a compression's own statistics reports whether it
+did anything. The switches are read-only over MCP: a client can see how
+memory is being selected and measure the result, and the decision to
+change it stays where the session is run.</p>
+<p>Together they are a loop an agent can close on its own: read the
+numbers, see which switch addresses them, and measure whether it
+helped.</p>
 <h2 id="helper-models">Helper models</h2>
 <p>Start the server with <code>--roster FILE</code> and it can hand work to the
 smaller models that file names. The roster is the same one <code>saltChat</code>
