@@ -4298,6 +4298,181 @@ def check_scripted_round(tmp, tok, mdl):
           "encoder and a loopback stub")
 
 
+COMPRESS_KWARGS = {"query", "budget_pct", "tokenizer", "model", "device",
+                   "coverage_half_life", "coverage_decay_docs",
+                   "shift_damping", "shift_margin", "shift_query_boost",
+                   "per_source_themes", "max_words", "stable_keys",
+                   "coverage_gc", "coverage_max_keys", "defer_commit",
+                   "exclude_sent_idx"}
+
+
+def turn_switches_of(state):
+    return cli.turn_switches(state)
+
+
+@contextmanager
+def watched_compress(trie):
+    """Exactly what a turn asked the compressor for."""
+    seen, real = [], trie.compress
+
+    def spy(**kwargs):
+        seen.append(dict(kwargs))
+        return real(**kwargs)
+
+    trie.compress = spy
+    try:
+        yield seen
+    finally:
+        del trie.compress
+
+
+@contextmanager
+def counted_snapshot():
+    """How many times a run asked the session to describe itself."""
+    calls, real = [], cli.snapshot
+
+    def counting(*a, **kw):
+        calls.append(1)
+        return real(*a, **kw)
+
+    cli.snapshot = counting
+    try:
+        yield calls
+    finally:
+        cli.snapshot = real
+
+
+def fixed_policy(overrides, name="test"):
+    from salt.agents import policy as PL
+
+    class Fixed(PL.SwitchPolicy):
+        pass
+
+    Fixed.name = name
+    Fixed.decide = lambda self, snap: dict(overrides)
+    return Fixed()
+
+
+def check_switch_seam(tmp, tok, mdl):
+    """A turn's selection asked about before it happens, and a default
+    session selecting exactly as it did before anything could ask."""
+    from salt.agents import policy as PL
+    from salt.agents import snapshot as S
+
+    assert set(PL.SELECTION) | set(PL.INGEST_ONLY) == {
+        sw.name for sw in S.SWITCHES}, (
+        "a switch is neither something a turn can set nor something it "
+        "cannot, so nothing decides about it")
+    assert not set(PL.SELECTION) & set(PL.INGEST_ONLY), PL.INGEST_ONLY
+    assert set(PL.INGEST_ONLY) == {"dedup_cos", "max_sentences"}, (
+        f"the switches a per-turn decision cannot reach changed: "
+        f"{PL.INGEST_ONLY}")
+    null = PL.NullPolicy()
+    assert null.decide(None) == {} and not null.decides, null
+
+    state = replayed_state(tmp, "seam_default", tok, mdl)
+    try:
+        assert isinstance(state.switch_policy, PL.NullPolicy), (
+            "a session decides about its own switches by default")
+        values, overrides = turn_switches_of(state)
+        assert overrides == {} and set(values) == set(PL.KWARGS), values
+        for name in PL.KWARGS:
+            assert values[name] == getattr(state, name), name
+
+        kwargs = cli.compress_kwargs(state, "and the inverter?", None, values)
+        assert set(kwargs) == COMPRESS_KWARGS, (
+            f"what a turn asks the compressor for changed: "
+            f"{sorted(set(kwargs) ^ COMPRESS_KWARGS)}")
+        assert kwargs["query"] == "and the inverter?", kwargs
+        assert (kwargs["budget_pct"], kwargs["defer_commit"]) == (
+            state.budget, True), kwargs
+        assert kwargs["stable_keys"] == state.stable_coverage_keys, (
+            "the switch and the keyword it travels as came apart")
+        assert kwargs["exclude_sent_idx"] is None, kwargs
+
+        # the default policy is not asked, so it costs nothing to have
+        with counted_snapshot() as asked, watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+        assert not asked, (
+            "a session that decides nothing still described itself")
+        assert state.last_overrides == {}, state.last_overrides
+        assert set(sent[0]) == COMPRESS_KWARGS, sorted(sent[0])
+        assert sent[0]["per_source_themes"] is False, sent[0]
+        assert sent[0]["exclude_sent_idx"] is not None, (
+            "a session that excludes its tail was told to exclude nothing")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # asking a policy that decides nothing changes nothing about a turn
+    runs = []
+    for name, chooser in (("seam_null", None), ("seam_quiet", fixed_policy({}))):
+        state = replayed_state(tmp, name, tok, mdl)
+        try:
+            if chooser is not None:
+                state.switch_policy = chooser
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+            runs.append({"prompt": json.loads(json.dumps(
+                             state.runner.prompts[-1])),
+                         "stats": json.loads(json.dumps(state.last_stats)),
+                         "trie": trie_snapshot(state.trie)})
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    assert runs[0] == runs[1], (
+        "consulting a policy that decided nothing moved the turn anyway")
+
+    # an override applies to that call and to nothing else
+    state = replayed_state(tmp, "seam_override", tok, mdl)
+    try:
+        state.switch_policy = fixed_policy({"per_source_themes": True,
+                                            "tail_exclude": False})
+        with counted_snapshot() as asked, watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+        assert len(asked) == 1, f"the policy was asked {len(asked)} times"
+        assert state.last_stats["theme_scope"] == "source", (
+            "a decision to profile per source did not reach the selection")
+        assert sent[0]["per_source_themes"] is True, sent[0]
+        assert sent[0]["exclude_sent_idx"] is None, (
+            "a decision to stop excluding the tail did not reach the "
+            "selection")
+        assert state.last_overrides == {"per_source_themes": True,
+                                        "tail_exclude": False}, \
+            state.last_overrides
+        assert state.per_source_themes is False and state.tail_exclude, (
+            "a per-turn decision was written into the session")
+
+        # and the turn after it is the session's own again
+        state.switch_policy = fixed_policy({})
+        with redirect_stdout(io.StringIO()):
+            cli.chat_turn(state, "and the panels?")
+        assert state.last_stats["theme_scope"] == "global", (
+            "last turn's decision leaked into this one")
+        assert state.last_overrides == {}, state.last_overrides
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # a policy that asks for something a turn cannot give it is refused
+    for bad, wanted in ((["per_source_themes"], "dict"),
+                        ({"no_such_switch": 1}, "no_such_switch"),
+                        ({"max_sentences": 40}, "remembered")):
+        try:
+            PL.check(bad)
+            raise AssertionError(f"{bad} was accepted")
+        except PL.PolicyError as exc:
+            assert wanted in str(exc), (bad, str(exc))
+    assert PL.check({"coverage_gc": True}) == {"coverage_gc": True}
+    print("46. the switch seam: a turn's selection assembled in one place "
+          "and asked about once, the default policy never asked and never "
+          "changing a byte of it, an override reaching that call and "
+          "neither the session nor the next turn, and a decision naming an "
+          "ingest switch refused with the reason")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -4355,6 +4530,7 @@ def main():
         check_agent_turn(tmp, tok, mdl)
         check_agent_trace(tmp, tok, mdl)
         check_scripted_round(tmp, tok, mdl)
+        check_switch_seam(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

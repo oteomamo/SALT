@@ -35,7 +35,8 @@ from pathlib import Path
 
 import torch
 
-from salt.agents import ledger, orchestrator, protocol, trace
+from salt.agents import ledger, orchestrator, policy, protocol, trace
+from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   close_quietly, delegate)
 from salt.agents.roster import (GUIDED_CAPABLE, UNPROBED, RosterError,
@@ -287,6 +288,10 @@ class ChatState:
         # turn being recorded now belongs to
         self.last_round = None
         self.pending_round = None
+        # who decides how a turn selects. Nobody, until something says
+        # otherwise: the default is not asked and changes nothing
+        self.switch_policy = policy.NullPolicy()
+        self.last_overrides = {}
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         self.offload_ingest = args.offload_ingest
         self.agent_keep_think = args.agent_keep_think
@@ -2077,6 +2082,46 @@ def handle_command(line, state):
     return True
 
 
+def turn_switches(state):
+    """What this turn selects under, and what a policy changed about it.
+
+    The session's own settings are read fresh every turn, so nothing a
+    policy decided last turn survives into this one. A session with the
+    default policy is not asked at all and does not pay for the
+    snapshot.
+    """
+    values = {name: getattr(state, name) for name in policy.KWARGS}
+    chooser = getattr(state, "switch_policy", None)
+    if chooser is None or not chooser.decides:
+        return values, {}
+    overrides = policy.check(chooser.decide(snapshot(state)))
+    values.update(overrides)
+    return values, overrides
+
+
+def compress_kwargs(state, line, excl, switches):
+    """Everything this turn asks the compressor for. Assembled in one
+    place so what a turn selects under is a thing that can be read,
+    decided about and pinned, rather than a call site."""
+    return {"query": line,
+            "budget_pct": state.budget,
+            "tokenizer": state.bge_tok,
+            "model": state.bge_model,
+            "device": state.bge_device,
+            "coverage_half_life": switches["coverage_half_life"],
+            "coverage_decay_docs": switches["coverage_decay_docs"],
+            "shift_damping": switches["shift_damping"],
+            "shift_margin": switches["shift_margin"],
+            "shift_query_boost": switches["shift_query_boost"],
+            "per_source_themes": switches["per_source_themes"],
+            "max_words": memory_word_cap(state, line),
+            "stable_keys": switches["stable_coverage_keys"],
+            "coverage_gc": switches["coverage_gc"],
+            "coverage_max_keys": switches["coverage_max_keys"],
+            "defer_commit": True,
+            "exclude_sent_idx": excl}
+
+
 def chat_turn(state, line, reply_fn=None, reply_model_id=None,
               reply_tokenizer=None, reply_label=None):
     """One turn of the conversation, from the question to what is kept.
@@ -2100,24 +2145,11 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     # the tail, unless --no-tail-exclude)
     memory_block, selected_idx, drift_extra, commit = "", [], None, None
     if state.trie.n_sentences > 0:
+        switches, state.last_overrides = turn_switches(state)
         excl = (tail_resident_sent_idx(state.trie, state.tail)
-                if state.tail_exclude else None)
-        comp = state.trie.compress(query=line, budget_pct=state.budget,
-                                   tokenizer=state.bge_tok,
-                                   model=state.bge_model,
-                                   device=state.bge_device,
-                                   coverage_half_life=state.coverage_half_life,
-                                   coverage_decay_docs=state.coverage_decay_docs,
-                                   shift_damping=state.shift_damping,
-                                   shift_margin=state.shift_margin,
-                                   shift_query_boost=state.shift_query_boost,
-                                   per_source_themes=state.per_source_themes,
-                                   max_words=memory_word_cap(state, line),
-                                   stable_keys=state.stable_coverage_keys,
-                                   coverage_gc=state.coverage_gc,
-                                   coverage_max_keys=state.coverage_max_keys,
-                                   defer_commit=True,
-                                   exclude_sent_idx=excl)
+                if switches["tail_exclude"] else None)
+        comp = state.trie.compress(
+            **compress_kwargs(state, line, excl, switches))
         selected_idx = comp["selected_sent_idx"]
         commit = comp.get("commit")
         state.last_stats = comp["stats"]
