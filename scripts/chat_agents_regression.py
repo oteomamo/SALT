@@ -4473,6 +4473,147 @@ def check_switch_seam(tmp, tok, mdl):
           "ingest switch refused with the reason")
 
 
+def rules_doc(*entries):
+    from salt.agents import rules as RU
+    return {"version": RU.SCHEMA, "rules": list(entries)}
+
+
+def check_rules_language(tmp, tok, mdl):
+    """A language that only compares, and a file that has to be right
+    before it is allowed to decide anything."""
+    from salt.agents import policy as PL
+    from salt.agents import rules as RU
+    from salt.agents import snapshot as S
+
+    signals = {name: None for name in S.RULE_SIGNALS}
+    signals.update({"n_attachments": 2, "n_sentences": 40, "n_alive": 30,
+                    "alive_ratio": 0.75, "attachment_share": 0.4,
+                    "topic_shift": True, "orphan_mass": 0.0,
+                    "session_age_s": 900.0, "coverage_keys": 12})
+    cases = [
+        ("n_attachments > 0", True), ("n_attachments > 2", False),
+        ("n_attachments >= 2", True), ("n_sentences != 40", False),
+        ("alive_ratio <= 0.75", True), ("orphan_mass > 0", False),
+        ("topic_shift", True), ("not topic_shift", False),
+        ("drift_cos > 0.5", False), ("not drift_cos", True),
+        ("drift_cos == null", True), ("drift_cos != null", False),
+        ("n_attachments > 0 and alive_ratio < 0.5", False),
+        ("n_attachments > 0 or alive_ratio < 0.5", True),
+        # and binds tighter than or, so this is true on its right half
+        ("n_sentences > 100 and topic_shift or n_attachments == 2", True),
+        ("n_sentences > 100 and (topic_shift or n_attachments == 2)", False),
+        ("not (n_attachments > 0 and topic_shift)", False),
+        ("true", True), ("not false", True),
+        ("session_age_s > 600 and coverage_keys > 10", True),
+    ]
+    for text, wanted in cases:
+        node = RU.parse(text)
+        got = RU.truth(RU.evaluate(node, signals))
+        assert got is wanted, f"{text!r} read as {got}, expected {wanted}"
+    # a signal the session cannot report never fires an ordered test
+    blind = {name: None for name in S.RULE_SIGNALS}
+    for text in ("n_attachments > 0", "n_attachments < 1", "alive_ratio >= 0",
+                 "topic_shift"):
+        assert RU.truth(RU.evaluate(RU.parse(text), blind)) is False, text
+
+    # nothing that is not a comparison is a valid expression
+    for bad in ("n_attachments + 1 > 0", "__import__('os')",
+                "trie.n_sentences > 0", "n_attachments > 0)",
+                "(n_attachments > 0", "n_attachments >", "", "   ",
+                "and n_attachments", "n_attachments 0", "n_attachments > 0 0",
+                "open('x')", "n_attachments > 0; drop", "'a' == 'a'"):
+        try:
+            RU.parse(bad)
+            raise AssertionError(f"{bad!r} parsed as an expression")
+        except RU.RuleError:
+            pass
+
+    good = {"id": "attachments", "when": "n_attachments > 0",
+            "then": {"per_source_themes": True},
+            "expected": "files profiled apart from the conversation"}
+    loaded = RU.loads(rules_doc(good))
+    assert [r.id for r in loaded] == ["attachments"], loaded
+    assert loaded[0].then == {"per_source_themes": True}, loaded[0]
+    assert loaded[0].fires(signals) and not loaded[0].fires(blind), loaded[0]
+
+    # everything a file can get wrong, found when it loads
+    def refused(doc, wanted, allow=False):
+        try:
+            RU.loads(doc, allow_examples=allow)
+            raise AssertionError(f"{doc} was accepted")
+        except RU.RuleError as exc:
+            assert wanted in str(exc), f"{wanted!r} not in {str(exc)!r}"
+
+    refused({"version": "salt-switch-rules/2", "rules": []},
+            "this salt reads")
+    refused({"version": RU.SCHEMA}, "no list of rules")
+    refused(rules_doc(dict(good, when="n_sentence > 0")), "n_sentence")
+    refused(rules_doc(dict(good, when="n_sentence > 0")), "may read")
+    refused(rules_doc(dict(good, then={"max_sentences": 40})),
+            "cannot set")
+    refused(rules_doc(dict(good, then={"per_source_themes": "yes"})),
+            "a switch takes")
+    refused(rules_doc(dict(good, then={})), "changes nothing")
+    refused(rules_doc({k: v for k, v in good.items() if k != "id"}), "no ['id'")
+    refused(rules_doc(dict(good, note="hi")), "no place for")
+    refused(rules_doc(good, dict(good, then={"coverage_gc": True})),
+            "two rules called")
+
+    # a set that could turn on two switches that cancel is refused whole
+    refused(rules_doc(dict(good, id="a", then={"coverage_gc": True}),
+                      dict(good, id="b",
+                           then={"stable_coverage_keys": True})),
+            "grace window")
+    refused(rules_doc(dict(good, id="a", then={"coverage_gc": True}),
+                      dict(good, id="b", then={"coverage_half_life": 8})),
+            "overlap")
+    # turning one of them OFF is not turning it on
+    RU.loads(rules_doc(dict(good, id="a", then={"coverage_gc": True}),
+                       dict(good, id="b",
+                            then={"stable_coverage_keys": False})))
+
+    # examples are shipped unloaded unless the caller asks for them
+    doc = rules_doc(good, dict(good, id="unproven", example=True,
+                               when="session_age_s > 3600",
+                               then={"coverage_half_life": 8}))
+    assert [r.id for r in RU.loads(doc)] == ["attachments"], (
+        "an example rule decided something nobody asked it to")
+    assert [r.id for r in RU.loads(doc, allow_examples=True)] == [
+        "attachments", "unproven"], "the example gate does not open"
+
+    # the policy: later rules win, and what fired is kept for the record
+    policy = RU.RulePolicy(RU.loads(rules_doc(
+        dict(good, id="broad", when="n_sentences > 0",
+             then={"per_source_themes": False, "shift_margin": 0.2}),
+        dict(good, id="narrow", when="n_attachments > 1",
+             then={"per_source_themes": True}))))
+    assert policy.decides and policy.name == "rules"
+    assert policy.decide(signals) == {"per_source_themes": True,
+                                      "shift_margin": 0.2}, policy
+    assert policy.fired == ("broad", "narrow"), policy.fired
+    assert policy.decide(blind) == {} and policy.fired == (), policy.fired
+    assert not RU.RulePolicy(()).decides, (
+        "a rules file with nothing in it still costs a snapshot per turn")
+    assert set(PL.SELECTION) >= {r for r in ("per_source_themes",
+                                             "coverage_gc")}
+
+    path = tmp / "rules.json"
+    path.write_text(json.dumps(rules_doc(good)), encoding="utf-8")
+    assert [r.id for r in RU.load(path)] == ["attachments"], path
+    bad_path = tmp / "broken.json"
+    bad_path.write_text("{oops", encoding="utf-8")
+    try:
+        RU.load(bad_path)
+        raise AssertionError("a broken file loaded")
+    except RU.RuleError as exc:
+        assert "not readable as JSON" in str(exc), exc
+    print(f"47. the rules language: {len(cases)} expressions read by a "
+          f"parser that only compares, every hostile string refused rather "
+          f"than run, a signal a session cannot report firing nothing, "
+          f"every way a file can be wrong caught when it loads, and a set "
+          f"that could stack two cancelling switches refused whole")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -4531,6 +4672,7 @@ def main():
         check_agent_trace(tmp, tok, mdl)
         check_scripted_round(tmp, tok, mdl)
         check_switch_seam(tmp, tok, mdl)
+        check_rules_language(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
