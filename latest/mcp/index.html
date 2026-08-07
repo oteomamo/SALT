@@ -1736,13 +1736,16 @@ disk. Ingesting twice under one name merges into that same branch, the
 way attaching a file twice does at the prompt.</p>
 <h2 id="reading-a-conversation-as-numbers">Reading a conversation as numbers</h2>
 <p><code>session_stats</code> carries a <code>snapshot</code> block: a flat set of signals
-describing the conversation as it stands. How many sentences it holds
-and how many are still selectable, how many turns, how many words are
-live, how many files are attached and how much of the memory they
-account for, how old the conversation is, and what its last read
-measured, including how far the question drifted from the recent
-conversation and how much of the coverage table no longer matches
-anything live.</p>
+describing the conversation as it stands. How many sentences it holds,
+how many are still selectable and what share of them that is, how many
+turns, how many words are live, how many files are attached and how
+much of the memory they account for, how old the conversation is, what
+budget it selects under, and what its last read measured, including how
+far the question drifted from the recent conversation and how much of
+the coverage table no longer matches anything live.</p>
+<p>Proportions are signals of their own rather than something a reader
+works out, because the rules a session can be given later compare
+values and do not calculate them.</p>
 <p>Every value is a number, a boolean or nothing at all, and nothing at
 all means this conversation cannot say rather than zero. A conversation
 held here has no chat model and no verbatim tail, so the signals about
