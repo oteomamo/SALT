@@ -4827,6 +4827,122 @@ def check_rules_sample(tmp, tok, mdl):
           "switch can act, and nothing internal is anywhere in the prose")
 
 
+def audited_run(tmp, cid, tok, mdl, flags, lines):
+    """A conversation run turn by turn under a policy, with what was
+    decided on each of them kept in order."""
+    state = quiet_state(tmp, cid, tok, mdl, turns=(), flags=flags)
+    trail = []
+    try:
+        for line in lines:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, line)
+            trail.append({"overrides": dict(state.last_overrides),
+                          "fired": [row["id"] for row in state.last_audit],
+                          "scope": (state.last_stats or {}).get("theme_scope")})
+        return {"trail": trail, "trie": trie_snapshot(state.trie),
+                "prompts": json.loads(json.dumps(state.runner.prompts))}
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+
+def check_switch_determinism(tmp, tok, mdl):
+    """The same conversation under the same rules decides the same way,
+    turn for turn, and what one turn decided is gone by the next."""
+    path = rules_file(
+        tmp, "trail.json",
+        {"id": "always", "when": "n_sentences > 0",
+         "then": {"shift_margin": 0.2}},
+        {"id": "grown", "when": "n_sentences > 4",
+         "then": {"per_source_themes": True, "shift_margin": 0.3}})
+    on = ["--switch-agent", "--switch-rules", str(path)]
+
+    runs = [audited_run(tmp, cid, tok, mdl, on, TRANSCRIPT)
+            for cid in ("trail_a", "trail_b")]
+    assert runs[0] == runs[1], (
+        "the same conversation under the same rules decided differently "
+        "the second time")
+    trail = runs[0]["trail"]
+    assert trail[0]["fired"] == [] and trail[0]["overrides"] == {}, (
+        "a turn with nothing selected yet still consulted the rules")
+    fired = [row["fired"] for row in trail]
+    assert ["always"] in fired and ["always", "grown"] in fired, fired
+    # a rule that starts firing does so once and stays fired, in order
+    first = fired.index(["always", "grown"])
+    assert all(row == ["always", "grown"] for row in fired[first:]), fired
+    assert all(row in ([], ["always"]) for row in fired[:first]), fired
+    # the later rule wins the switch they both set
+    early = trail[fired.index(["always"])]
+    assert early["overrides"] == {"shift_margin": 0.2}, early
+    assert early["scope"] == "global", early
+    late = trail[first]
+    assert late["overrides"] == {"shift_margin": 0.3,
+                                 "per_source_themes": True}, late
+    assert late["scope"] == "source", late
+
+    # what a rule sets composes with the tail exclusion rather than
+    # replacing it, and stops composing the moment it stops firing
+    keep = rules_file(tmp, "compose.json",
+                      {"id": "sources", "when": "n_sentences > 0",
+                       "then": {"per_source_themes": True}})
+    state = quiet_state(tmp, "compose", tok, mdl,
+                        flags=["--switch-agent", "--switch-rules",
+                               str(keep)])
+    try:
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+        assert sent[0]["per_source_themes"] is True, sent[0]
+        assert sent[0]["exclude_sent_idx"] is not None, (
+            "a decided switch took the tail exclusion down with it")
+
+        drop = rules_file(tmp, "drop.json",
+                          {"id": "no-tail", "when": "n_sentences > 0",
+                           "then": {"tail_exclude": False,
+                                    "per_source_themes": True}})
+        from salt.agents import rules as RU
+        state.switch_policy = RU.RulePolicy(RU.load(drop), drop)
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the panels?")
+        assert sent[0]["exclude_sent_idx"] is None, (
+            "a decision to stop excluding the tail did not compose with "
+            "the rest of the call")
+        assert sent[0]["per_source_themes"] is True, sent[0]
+
+        # back to nothing deciding, and the turn is the session's own
+        state.switch_policy = cli.policy.NullPolicy()
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the roof?")
+        assert sent[0]["per_source_themes"] is False, sent[0]
+        assert sent[0]["exclude_sent_idx"] is not None, sent[0]
+        assert state.last_overrides == {} and state.last_audit == (), state
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # a decision sits on top of what the session was launched with
+    both = quiet_state(tmp, "compose_flags", tok, mdl,
+                       flags=["--coverage-gc", "--switch-agent",
+                              "--switch-rules", str(keep)])
+    try:
+        with watched_compress(both.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(both, "and the inverter?")
+        assert sent[0]["coverage_gc"] is True, (
+            "a decision about one switch dropped a flag about another")
+        assert sent[0]["per_source_themes"] is True, sent[0]
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(both)
+    print(f"50. deciding, twice: {len(TRANSCRIPT)} turns under one rules "
+          f"file decided identically both times, a narrow rule taking the "
+          f"switch a broad one also sets, every decision composing with "
+          f"the tail exclusion and the session's own flags, and none of it "
+          f"outliving the turn it was made for")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -4888,6 +5004,7 @@ def main():
         check_rules_language(tmp, tok, mdl)
         check_switch_agent(tmp, tok, mdl)
         check_rules_sample(tmp, tok, mdl)
+        check_switch_determinism(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
