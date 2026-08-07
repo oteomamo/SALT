@@ -100,6 +100,10 @@ class Endpoint:
     stream: object = None
     capability: str = GUIDED_PLAIN
     model_id: str = None
+    # the tokenizer of whichever model this is, for a turn that has to
+    # be measured by the model that wrote it. None means the session's
+    # own, which is what the chat seam already falls back to
+    tokenizer: object = None
 
     @property
     def guided(self):
@@ -147,13 +151,8 @@ def main_runner_stream(state, gen=None):
     return stream
 
 
-def orchestrator_endpoint(state, gen=None):
-    """Which model plans this turn, or None when the session has none.
-
-    One answer for now, the session's own chat model. The shape is here
-    rather than inline because a roster orchestrator is the next thing
-    to arrive, and when it does this function is what changes.
-    """
+def main_endpoint(state, gen=None):
+    """The session's own chat model, or None when it has none."""
     runner = getattr(state, "runner", None)
     if runner is None:
         return None
@@ -163,6 +162,88 @@ def orchestrator_endpoint(state, gen=None):
                     stream=main_runner_stream(state, gen),
                     capability=GUIDED_PLAIN,
                     model_id=cfg.get("hf_id"))
+
+
+def entry_gen(entry, gen=None):
+    """What to generate with at a roster endpoint: the round's settings,
+    with the roster's own opinions about that model on top.
+
+    The entry wins, and it has to. A reasoning model with a temperature
+    written down for it has that number for a reason, and a round that
+    overrode it in the name of determinism would be deciding how to run
+    a model it was only told to use.
+    """
+    over = dict(PLANNING_GEN if gen is None else gen)
+    if entry.max_tokens is not None:
+        over["max_new_tokens"] = int(entry.max_tokens)
+    if entry.temperature is not None:
+        over["temperature"] = float(entry.temperature)
+    return over
+
+
+def handle_send(handle, gen=None, schema=None):
+    """One prompt put to a roster endpoint, waited out in full.
+
+    Unlike the chat seam, this one can carry a schema, so a server that
+    said it would hold a model to one is actually asked to.
+    """
+    def send(messages, guided=False):
+        over = entry_gen(handle.entry, gen)
+        if guided and schema is not None:
+            over["guided_json"] = schema
+        pieces = []
+        stream = handle.call(messages, **over)
+        try:
+            for piece in stream:
+                pieces.append(piece)
+        finally:
+            close_quietly(stream)
+        return "".join(pieces)
+
+    return send
+
+
+def handle_stream(handle, gen=None):
+    def stream(messages):
+        return handle.call(messages, **entry_gen(handle.entry, gen))
+
+    return stream
+
+
+def roster_endpoint(state, gen=None):
+    """The roster's orchestrator, when it names one and that one opens.
+
+    A declared orchestrator that is not running is not an error and not
+    a reason to stop: the round falls back to the session's own model
+    and says which one it planned with, which is worth more than a turn
+    that refuses because a second server is down.
+    """
+    roster = getattr(state, "roster", None)
+    entry = getattr(roster, "orchestrator", None) if roster is not None else None
+    if entry is None:
+        return None
+    handle = state.worker(entry.name)
+    runner = handle.opened()
+    if runner is None:
+        return None
+    return Endpoint(label=entry.name,
+                    send=handle_send(handle, gen, protocol.DIRECTIVE_SCHEMA),
+                    stream=handle_stream(handle, gen),
+                    capability=handle.probe_capabilities(),
+                    model_id=(entry.model or {}).get("hf_id"),
+                    tokenizer=getattr(runner, "tokenizer", None))
+
+
+def orchestrator_endpoint(state, gen=None):
+    """Which model plans this turn, or None when the session has none.
+
+    The roster's orchestrator when there is one and it answers, else the
+    session's own chat model. An endpoint rather than a switch of the
+    chat model: /model is untouched and the conversation still belongs
+    to the model it was started with.
+    """
+    endpoint = roster_endpoint(state, gen)
+    return main_endpoint(state, gen) if endpoint is None else endpoint
 
 
 def targets_for(state):

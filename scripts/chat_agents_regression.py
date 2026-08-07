@@ -4042,7 +4042,7 @@ def check_agent_turn(tmp, tok, mdl):
 
             roles_before = list(state.trie.roles)
             out = agent_line(state, f"/agent {ask}")
-            assert f"{cli.AGENT_LABEL}> planning ..." in out, out
+            assert f"{cli.AGENT_LABEL}> planning with fake ..." in out, out
             assert "2 pieces to hand out" in out, out
             assert "1. w: answered, 9 words" in out, out
             assert "2. nope: was not attempted" in out, out
@@ -5165,6 +5165,143 @@ def check_directive_schema(tmp, tok, mdl):
           "asks for it and changing nothing else about the call")
 
 
+def boss_roster(url, tmp, **kw):
+    """A roster with a worker and an orchestrator beside it."""
+    worker = delegation_roster(url, tmp).entries[0]
+    boss = R.RosterEntry(name="boss", alias="stub", role="orchestrator",
+                         server_url=url,
+                         model={"alias": "stub", "hf_id": "some/model",
+                                "path": BGE_MODEL}, **kw)
+    return R.Roster(path=str(tmp / "boss_roster.json"),
+                    entries=(worker, boss))
+
+
+def check_roster_orchestrator(tmp, tok, mdl):
+    """Which model plans a turn when the roster names one for it."""
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+
+    plan_json = json.dumps({"version": P.SCHEMA, "action": "delegate",
+                            "subtasks": [{"id": "1", "task": "size it",
+                                          "target": "w"}]})
+    final = "A 9 kWh bank covers the evening."
+    said = "Nine kilowatt hours of storage covers the evening draw."
+    ask = "what size battery does that argue for"
+
+    # the capability probe is a completion like any other, so it takes
+    # the first canned answer and the plan takes the second
+    with Stub(cards=CARDS, guided=True,
+              canned=CannedReplies(["{", "ok", plan_json, final])) as boss, \
+            Stub(cards=CARDS, pieces=(said,)) as w:
+        roster = boss_roster(boss.url, tmp, max_tokens=2048, temperature=0.6)
+        roster = R.Roster(path=roster.path, entries=(
+            delegation_roster(w.url, tmp).entries[0], roster.entries[1]))
+        state = replayed_state(tmp, "boss_turn", tok, mdl, roster=roster)
+        state.runner.prompts.clear()
+        try:
+            end = O.orchestrator_endpoint(state)
+            assert end.label == "boss", (
+                f"the roster names an orchestrator and the round planned "
+                f"with {end.label!r}")
+            assert end.capability == R.GUIDED_CAPABLE, (
+                "a server that accepts a schema was planned around as one "
+                "that does not")
+            assert end.model_id == "some/model", end
+            assert end.tokenizer is not None, (
+                "the orchestrator's own tokenizer never reached the turn")
+
+            # the roster's own settings for that model win over the round's
+            gen = O.entry_gen(roster.orchestrator, O.PLANNING_GEN)
+            assert gen == {"temperature": 0.6, "max_new_tokens": 2048}, gen
+
+            # a schema-native endpoint is actually asked with the schema,
+            # at the roster entry's own settings
+            hello = [{"role": "user", "content": "hi"}]
+            end.send(hello, guided=True)
+            sent = boss.httpd.last_payload
+            assert sent["guided_json"] == P.DIRECTIVE_SCHEMA, sorted(sent)
+            assert sent["temperature"] == 0.6, sent
+            assert sent["max_tokens"] == 2048, sent
+            end.send(hello, guided=False)
+            assert "guided_json" not in boss.httpd.last_payload, (
+                "a call that asked for no shape carried one anyway")
+
+            before = w.httpd.posts
+            out = agent_line(state, f"/agent {ask}")
+            assert "planning with boss ..." in out, out
+            assert not state.runner.prompts, (
+                "the session's own chat model was asked to plan a turn its "
+                "roster names an orchestrator for")
+            assert w.httpd.posts == before + 1, (
+                "the piece did not reach the worker")
+            assert final in out, out
+
+            # the write-up came from the orchestrator too, and carried no
+            # schema: only the directive ask is a shape anybody demands
+            asked = boss.httpd.last_payload
+            assert "guided_json" not in asked, (
+                "the write-up was constrained to a directive's shape")
+            assert asked["temperature"] == 0.6, asked
+            assert boss.httpd.posts >= 5, (
+                f"the round did not go through the orchestrator: "
+                f"{boss.httpd.posts} calls")
+
+            # and the turn is stamped with the model that wrote the reply
+            assert events_of(state)[-1]["model"] == "some/model", (
+                f"the turn was stamped "
+                f"{events_of(state)[-1]['model']!r} rather than the "
+                f"orchestrator's model")
+            assert state.tail[-1]["content"] == final, state.tail[-1]
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # a declared orchestrator that is not answering costs the round
+    # nothing: the session's own model plans instead and says so
+    with Stub(cards=CARDS, pieces=(said,)) as w:
+        roster = R.Roster(path="<test>", entries=(
+            delegation_roster(w.url, tmp).entries[0],
+            R.RosterEntry(name="boss", alias="stub", role="orchestrator",
+                          server_url=f"http://127.0.0.1:{closed_port()}",
+                          model={"alias": "stub", "hf_id": "some/model",
+                                 "path": BGE_MODEL})))
+        state = canned_state(tmp, "boss_down", tok, mdl, [plan_json, final],
+                             roster)
+        try:
+            assert O.roster_endpoint(state) is None, (
+                "an orchestrator nobody is serving was planned with")
+            out = agent_line(state, f"/agent {ask}")
+            assert "planning with fake ..." in out, out
+            assert final in out and len(state.runner.prompts) == 2, out
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # an orchestrator entry is a roster entry like any other: it gets a
+    # handle, it is placed, and /worker can start and stop it
+    roster = boss_roster("http://127.0.0.1:1", tmp)
+    state = replayed_state(tmp, "boss_surface", tok, mdl, roster=roster)
+    try:
+        assert [h.name for h in state.worker_handles()] == ["w", "boss"], (
+            "an orchestrator entry has no handle, so nothing could start "
+            "or place it")
+        assert state.worker("boss").role == "orchestrator", state.worker("boss")
+        assert [e.name for e in roster.workers] == ["w"], (
+            "the orchestrator is offered as a worker tasks can go to")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cli.handle_command("/roster", state)
+        assert "orchestrator" in out.getvalue(), out.getvalue()
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+    print("53. the roster orchestrator: a turn plans with the model the "
+          "roster names for it, under that entry's own settings and a "
+          "schema its server accepts, and the reply is stamped with it; "
+          "one that is not answering falls back to the session's own "
+          "model and says which planned")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5229,6 +5366,7 @@ def main():
         check_switch_determinism(tmp, tok, mdl)
         check_model_policy(tmp, tok, mdl)
         check_directive_schema(tmp, tok, mdl)
+        check_roster_orchestrator(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

@@ -1255,9 +1255,10 @@ class AgentRound:
     on is said out loud rather than left to a silent prompt.
     """
 
-    def __init__(self, task, limits=None):
+    def __init__(self, task, limits=None, endpoint=None):
         self.task = task
         self.limits = limits
+        self.endpoint = endpoint
         self.results = []
         self.record = None
         self.done = 0
@@ -1274,8 +1275,14 @@ class AgentRound:
 
     def __call__(self, state, messages, memory_block):
         started = time.time()
-        print("planning ...", flush=True)
-        outcome = orchestrator.plan(state, self.task, memory_block)
+        endpoint = (orchestrator.orchestrator_endpoint(state)
+                    if self.endpoint is None else self.endpoint)
+        # named out loud: with a roster orchestrator down, the round
+        # falls back to the session's own model, and which model made
+        # the plan is the first thing anybody reading this wants
+        print(f"planning with {endpoint.label} ...", flush=True)
+        outcome = orchestrator.plan(state, self.task, memory_block,
+                                    endpoint=endpoint)
         directive = outcome.directive
         pieces = []
         try:
@@ -1331,8 +1338,12 @@ def agent_turn(state, rest):
     if not task:
         print(AGENT_USAGE)
         return
-    round_ = AgentRound(task, agent_limits(state))
-    reply = chat_turn(state, task, reply_fn=round_, reply_label=AGENT_LABEL)
+    endpoint = orchestrator.orchestrator_endpoint(state)
+    round_ = AgentRound(task, agent_limits(state), endpoint)
+    reply = chat_turn(state, task, reply_fn=round_,
+                      reply_model_id=getattr(endpoint, "model_id", None),
+                      reply_tokenizer=getattr(endpoint, "tokenizer", None),
+                      reply_label=AGENT_LABEL)
     file_trace(state, round_.record)
     return reply
 
