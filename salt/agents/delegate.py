@@ -318,7 +318,8 @@ def failure_status(handle, exc):
     return "dead" if handle.state == DEAD else "error"
 
 
-def delegate(state, req, context=None):
+def delegate(state, req, context=None, seq=None, off_thread=False,
+             stop=None):
     """Send `req` to its worker and wait for the whole reply.
 
     Blocking: the stream is consumed to completion before this returns,
@@ -327,6 +328,13 @@ def delegate(state, req, context=None):
     as an exception, so one worker having a bad day cannot end the turn
     that asked it, and an interrupted delegation is still recorded as
     one that happened rather than one the session never knew about.
+
+    `off_thread` says this call is one of several running at once, which
+    a worker refuses to be unless told. Everything that reads the trie
+    has to have happened already then: `context` arrives built and `seq`
+    arrives handed out, both by the thread that owns the session. `stop`
+    is how the round says it has run out of time, and a call that
+    notices it severs its response and keeps what arrived.
     """
     if not req.target:
         raise DelegationError(
@@ -344,17 +352,27 @@ def delegate(state, req, context=None):
         messages, note = fit_messages(runner, messages, req, overrides)
         if note:
             print(f"  {note}")
-    state.delegation_seq += 1
+    if seq is None:
+        state.delegation_seq += 1
+        seq = state.delegation_seq
     t_start = time.time()
     pieces, status, error = [], "ok", ""
     prior = _apply_request_timeout(handle, req)
     # held in a name rather than left to the for loop, so Ctrl-C closes it
     # here and now: closing the generator is what severs the response and
     # aborts the request on the worker
-    stream = handle.call(messages, **overrides)
+    stream = handle.call(messages, off_thread=off_thread, **overrides)
     try:
         for piece in stream:
             pieces.append(piece)
+            if stop is not None and stop.is_set():
+                # the round ran out of time. Breaking here closes the
+                # stream below, which severs the response and frees the
+                # worker, and what arrived so far is kept
+                status = "timeout"
+                error = ("the round's time limit ended this call before "
+                         "the worker finished")
+                break
     except WorkerError as exc:
         status, error = failure_status(handle, exc), str(exc)
     except KeyboardInterrupt:
@@ -372,7 +390,7 @@ def delegate(state, req, context=None):
         close_quietly(stream)
         _restore_timeout(handle, prior)
     text = "".join(pieces)
-    return DelegationResult(id=state.delegation_seq, target=handle.name,
+    return DelegationResult(id=seq, target=handle.name,
                             task=req.task, status=status, text=text,
                             error=error, usage=call_usage(handle, text),
                             context=ctx, t_start=t_start, t_end=time.time())

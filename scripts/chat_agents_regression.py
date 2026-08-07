@@ -5328,6 +5328,121 @@ def check_roster_orchestrator(tmp, tok, mdl):
           "model and says which planned")
 
 
+def three_worker_roster(urls, tmp):
+    entries = tuple(
+        R.RosterEntry(name=name, alias="stub", role="worker", server_url=url,
+                      model={"alias": "stub", "hf_id": "some/model",
+                             "path": BGE_MODEL})
+        for name, url in urls)
+    return R.Roster(path=str(Path(tmp) / "many.json"), entries=entries)
+
+
+def check_parallel_fanout(tmp, tok, mdl):
+    """Pieces for different helpers go out at once, and the round reads
+    exactly as it did when they went one at a time."""
+    from salt.agents import orchestrator as O
+
+    one = plan_of(("a", "w"), ("b", "w"))
+    many = plan_of(("a", "w"), ("b", "x"), ("c", "y"))
+    assert not O.fans_out(one.subtasks), (
+        "two pieces for one worker were threaded, and that worker takes "
+        "one call at a time")
+    assert O.fans_out(many.subtasks), many
+
+    # three workers, deliberately skewed: the slowest is asked first, so
+    # a round that waited its turn could not beat the sum
+    with Stub(cards=CARDS, pieces=("slow",), delay=0.6) as slow, \
+            Stub(cards=CARDS, pieces=("mid",), delay=0.35) as mid, \
+            Stub(cards=CARDS, pieces=("quick",), delay=0.1) as quick:
+        roster = three_worker_roster((("w", slow.url), ("x", mid.url),
+                                      ("y", quick.url)), tmp)
+        state = replayed_state(tmp, "fanout", tok, mdl, roster=roster)
+        try:
+            plan = plan_of(("size it", "w"), ("check it", "x"),
+                           ("write it", "y"))
+            seen = []
+            # opened first: loading three tokenizers is not what this
+            # measures, and a session that has probed its roster has
+            # them open already
+            with redirect_stdout(io.StringIO()):
+                for name in ("w", "x", "y"):
+                    assert state.worker(name).opened() is not None, name
+            t0 = time.time()
+            out = O.execute(state, plan, on_result=seen.append)
+            took = time.time() - t0
+            assert [r.target for r in out] == ["w", "x", "y"], (
+                f"the answers came back in the order they finished rather "
+                f"than the order the plan put them: {[r.target for r in out]}")
+            assert [r.text for r in out] == ["slow", "mid", "quick"], out
+            assert [r.target for r in seen] == ["w", "x", "y"], (
+                "the round reported pieces as they landed rather than in "
+                "plan order")
+            assert all(r.ok for r in out), out
+            assert took < 1.05, (
+                f"three pieces of 0.6s, 0.35s and 0.1s took {took:.2f}s, "
+                f"which is the sum rather than the slowest")
+            assert [r.id for r in out] == [1, 2, 3], (
+                f"ids were handed out by whichever thread got there first: "
+                f"{[r.id for r in out]}")
+            assert state.delegation_seq == 3, state.delegation_seq
+            assert all(r.context is not None and r.context.n_selected
+                       for r in out), (
+                "a piece went out without this session's memory, which the "
+                "session's own thread had to select")
+
+            # the same plan, run one at a time, is the same round
+            before = trie_snapshot(state.trie)
+            in_turn = O.execute(state, plan, parallel=False)
+            assert [(r.target, r.text, r.status) for r in in_turn] == [
+                (r.target, r.text, r.status) for r in out], (
+                "a round that fanned out and one that did not read "
+                "differently")
+            assert trie_snapshot(state.trie) == before, (
+                "running the pieces at once moved the session's memory")
+            assert not L.ledger_path(state.trie.cache_dir).exists(), (
+                "a thread filed a delegation")
+
+            # an invented worker is refused without stopping the others
+            out = O.execute(state, plan_of(("a", "w"), ("b", "nope"),
+                                           ("c", "y")))
+            assert [r.status for r in out] == ["ok", "refused", "ok"], out
+            assert out[1].id == 0 and not out[1].ran, out[1]
+
+            # the delegation cap is applied before anything is sent
+            out = O.execute(state, plan_of(("a", "w"), ("b", "x"),
+                                           ("c", "y")),
+                            O.AgentLimits(max_delegations_per_turn=2))
+            assert [r.status for r in out] == ["ok", "ok", "stopped"], out
+            assert "2 delegations" in out[2].error, out[2].error
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # the wall limit is the join: what is still going is told to stop,
+    # keeps what arrived, and comes back typed
+    with Stub(cards=CARDS, pieces=("a", "b", "c"), delay=0.5) as slow, \
+            Stub(cards=CARDS, pieces=("quick",)) as quick:
+        roster = three_worker_roster((("w", slow.url), ("y", quick.url)), tmp)
+        state = replayed_state(tmp, "fanout_wall", tok, mdl, roster=roster)
+        try:
+            out = O.execute(state, plan_of(("a", "w"), ("b", "y")),
+                            O.AgentLimits(max_wall_s=0.35))
+            assert [r.status for r in out] == ["timeout", "ok"], out
+            assert "time limit" in out[0].error, out[0].error
+            assert out[0].ran, "a call that was cut short never happened"
+            assert state.worker("w").state != DEAD, (
+                "a worker the round gave up waiting for was left for dead")
+            assert state.worker("y").state == "READY", state.worker("y").state
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("54. parallel fan-out: three pieces for three helpers run at "
+          "once and come back in plan order with ids handed out by the "
+          "session's own thread, the same plan run one at a time reads "
+          "identically, and the wall limit stops what is still going and "
+          "types it without killing the worker")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5393,6 +5508,7 @@ def main():
         check_model_policy(tmp, tok, mdl)
         check_directive_schema(tmp, tok, mdl)
         check_roster_orchestrator(tmp, tok, mdl)
+        check_parallel_fanout(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

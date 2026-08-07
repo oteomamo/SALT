@@ -16,22 +16,31 @@ that went badly leaves behind exactly what one that never happened
 would, which is what lets the caller decide what a round was worth after
 seeing it rather than before.
 
-Version 1 uses the session's own chat model for both of its own calls. A
-schema cannot be demanded through the chat seam, which carries
-generation settings and nothing else, so that model is planned for as
-one that will not be held to a schema however capable the server behind
-it is: it is shown a worked directive instead of being handed one to
-fill.
+Which model does the deciding is the roster's business: the endpoint it
+names for the job when that one answers, and the session's own chat
+model otherwise. The difference is not only which weights reply. A
+roster endpoint is reached over HTTP and can be handed a schema, so a
+server that says it will hold a model to one is asked to; the chat seam
+carries generation settings and nothing else, so a model behind it is
+planned for as one that will not be held to anything and is shown a
+worked directive instead.
+
+Pieces go out at once when they go to different helpers. The thread
+that owns the session does everything that touches it - selecting each
+piece's memory, handing out ids, filing what came back - and the
+threads do HTTP and nothing else.
 """
 
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from salt.agents import protocol
 from salt.agents.delegate import (DelegationRequest, DelegationResult,
-                                  close_quietly, delegate)
+                                  build_context, close_quietly, delegate)
 from salt.agents.policy import KWARGS, PolicyError, SwitchPolicy, check
 from salt.agents.roster import GUIDED_CAPABLE, GUIDED_PLAIN, RosterError
 
@@ -367,14 +376,20 @@ def worker_entry(state, name):
     return entry
 
 
-def execute(state, directive, limits=None, on_result=None):
-    """Run a directive's subtasks in the order it put them.
+def fans_out(subtasks):
+    """Whether this plan is worth running at once. Two pieces for one
+    worker are not: that worker takes one call at a time, so threading
+    them buys nothing and costs the round its simple order."""
+    return len({sub.target for sub in subtasks}) > 1
 
-    One at a time, on this thread, because the trie is read on it: every
-    subtask's context is selected, sent and answered before the next one
-    is looked at. What comes back is a result per subtask in plan order,
-    always the same length as the plan, so a round can account for every
-    piece of what it decided to do.
+
+def execute(state, directive, limits=None, on_result=None, parallel=None):
+    """Run a directive's subtasks and report on every one of them.
+
+    What comes back is a result per subtask in plan order, always the
+    same length as the plan, whether the pieces went out one at a time
+    or all at once, so a round can account for every piece of what it
+    decided to do and reads the same either way.
 
     Nothing here ends the round early by raising. A worker that does not
     exist, one that is down, a cap that has been reached and an
@@ -386,8 +401,20 @@ def execute(state, directive, limits=None, on_result=None):
         raise OrchestratorError(
             f"this salt delegates one round deep, and these limits ask for "
             f"{limits.depth}")
+    subtasks = tuple(directive.subtasks)
+    if parallel is None:
+        parallel = fans_out(subtasks)
+    if parallel:
+        return execute_together(state, subtasks, limits, on_result)
+    return execute_in_turn(state, subtasks, limits, on_result)
+
+
+def execute_in_turn(state, subtasks, limits, on_result=None):
+    """One at a time, on this thread, because the trie is read on it:
+    every subtask's context is selected, sent and answered before the
+    next one is looked at."""
     results, spent, started = [], 0, time.time()
-    for subtask in directive.subtasks:
+    for subtask in subtasks:
         reason = stop_reason(limits, results, spent, started)
         if reason:
             result = not_run(subtask, STOPPED, reason)
@@ -402,6 +429,67 @@ def execute(state, directive, limits=None, on_result=None):
                 spent += delegated_tokens(result)
         results.append(result)
         if on_result is not None:
+            on_result(result)
+    return results
+
+
+def execute_together(state, subtasks, limits, on_result=None):
+    """Every piece at once, and the round waits for all of them.
+
+    The division of labour is the whole design. This thread owns the
+    session, so it selects every piece's memory, hands out every id and
+    files nothing until the last worker is back. The threads do HTTP and
+    nothing else: none of them touches the trie, and none of them
+    reaches into the session to record what it did.
+
+    Order is the plan's order, not the order the answers arrived in. A
+    round that fanned out and a round that did not are the same round to
+    everything downstream, which is what lets the caps, the write-up and
+    the trace stay one implementation.
+
+    The wall limit is the join here rather than a question asked between
+    pieces. What is still running when it expires is told to stop, keeps
+    whatever arrived and comes back as a timeout. The token budget is
+    not enforceable this way and is not pretended to be: a parallel
+    round is bounded by how many pieces it may hand out and how long it
+    may wait.
+    """
+    started = time.time()
+    results, jobs = [None] * len(subtasks), []
+    for index, subtask in enumerate(subtasks):
+        if len(jobs) >= limits.max_delegations_per_turn:
+            results[index] = not_run(
+                subtask, STOPPED,
+                f"this turn's limit of {limits.max_delegations_per_turn} "
+                f"delegations is used up")
+            continue
+        try:
+            entry = worker_entry(state, subtask.target)
+        except RosterError as exc:
+            results[index] = not_run(subtask, REFUSED, str(exc))
+            continue
+        request = subtask_request(state, subtask, entry)
+        # the trie is read HERE and the id handed out HERE, on the one
+        # thread that owns them, before any worker is called at all
+        state.delegation_seq += 1
+        jobs.append((index, request, build_context(state, request),
+                     state.delegation_seq))
+    if jobs:
+        stop = threading.Event()
+        with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+            futures = {
+                pool.submit(delegate, state, request, context=context,
+                            seq=seq, off_thread=True, stop=stop): index
+                for index, request, context, seq in jobs}
+            left = limits.max_wall_s - (time.time() - started)
+            _, running = wait(futures, timeout=max(0.0, left))
+            if running:
+                stop.set()
+                wait(running)
+            for future, index in futures.items():
+                results[index] = future.result()
+    if on_result is not None:
+        for result in results:
             on_result(result)
     return results
 
