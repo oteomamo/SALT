@@ -4943,6 +4943,135 @@ def check_switch_determinism(tmp, tok, mdl):
           f"outliving the turn it was made for")
 
 
+def check_model_policy(tmp, tok, mdl):
+    """A model asked to set the switches, and the guard that has the
+    last word about anything it asks for."""
+    from salt.agents import orchestrator as O
+    from salt.agents import policy as PL
+    from salt.agents import protocol as P
+
+    # the directive grew an optional switches object, and a directive
+    # without one reads exactly as it always did
+    plain = P.parse_directive('{"action": "answer", "answer": "x"}')
+    assert plain.switches == {}, plain
+    assert P.parse_directive(
+        '{"action": "delegate", "subtasks": [{"id": "a", "task": "t", '
+        '"target": "w"}]}').switches == {}, "a plan grew switches nobody set"
+    carried = P.parse_directive(
+        '{"action": "answer", "answer": "files", "switches": '
+        '{"per_source_themes": true, "coverage_max_keys": 2000}}')
+    assert carried.switches == {"per_source_themes": True,
+                                "coverage_max_keys": 2000}, carried
+    for bad, why in (('{"action": "answer", "answer": "x", "switches": []}',
+                      "object of switch names"),
+                     ('{"action": "answer", "answer": "x", "switches": '
+                      '{"a": "yes"}}', "takes"),
+                     ('{"action": "answer", "answer": "x", "switches": '
+                      + json.dumps({str(i): 1 for i in range(9)}) + "}",
+                      "at most")):
+        try:
+            P.parse_directive(bad)
+            raise AssertionError(f"{bad} parsed")
+        except P.ProtocolError as exc:
+            assert exc.reason == "bad_switches" and why in exc.detail, exc
+
+    def proposing(*replies):
+        state = canned_state(tmp, f"model_policy_{len(replies)}_"
+                                  f"{abs(hash(replies)) % 9999}", tok, mdl,
+                             list(replies))
+        state.switch_policy = O.ModelPolicy().bind(state)
+        return state
+
+    good = json.dumps({"version": P.SCHEMA, "action": "answer",
+                       "answer": "this session has files in it",
+                       "switches": {"per_source_themes": True}})
+    state = proposing(good)
+    try:
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+        assert sent[0]["per_source_themes"] is True, sent[0]
+        assert state.last_overrides == {"per_source_themes": True}, state
+        assert state.per_source_themes is False, (
+            "a model's proposal was written into the session")
+        asked = state.runner.prompts[0]
+        assert "SWITCHES YOU MAY SET" in asked[1]["content"], asked[1]
+        for name in PL.KWARGS:
+            assert f"- {name}" in asked[1]["content"], name
+        assert "n_sentences" in asked[1]["content"], (
+            "the model was asked to decide without being told anything")
+        assert P.parse_directive(O.switch_example()).switches, (
+            "the shape a model is shown does not itself parse")
+        audit = state.last_audit
+        assert audit[0]["id"] == "model", audit
+        assert audit[0]["then"] == {"per_source_themes": True}, audit
+        assert "files" in audit[0]["when"], audit
+        assert "switch agent: model" in stats_output(state), stats_output(state)
+        event = events_of(state)[-1]
+        assert event["switch_rules_fired"] == ["model"], event
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # the guard disposes: every hostile proposal costs the turn nothing
+    hostile = [
+        (json.dumps({"version": P.SCHEMA, "action": "answer", "answer": "a",
+                     "switches": {"max_sentences": 1}}), "cannot set"),
+        (json.dumps({"version": P.SCHEMA, "action": "answer", "answer": "a",
+                     "switches": {"os": 1}}), "not something"),
+        (json.dumps({"version": P.SCHEMA, "action": "answer", "answer": "a",
+                     "switches": {"coverage_gc": True,
+                                  "stable_coverage_keys": True}}),
+         "grace window"),
+    ]
+    for reply, why in hostile:
+        state = proposing(reply, reply)
+        try:
+            with watched_compress(state.trie) as sent:
+                with redirect_stdout(io.StringIO()):
+                    cli.chat_turn(state, "and the inverter?")
+            assert state.last_overrides == {}, (reply, state.last_overrides)
+            assert sent[0]["coverage_gc"] is False, sent[0]
+            assert sent[0]["stable_keys"] is False, sent[0]
+            assert why in state.last_audit[0]["when"], (
+                f"the refusal did not say why: {state.last_audit}")
+            assert "switch_overrides" not in events_of(state)[-1], (
+                "a refused proposal was recorded as an override")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # a model that will not answer with a directive leaves the turn alone
+    state = proposing("I would turn everything on.", "still prose")
+    try:
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+        assert state.last_overrides == {}, state.last_overrides
+        assert state.last_audit and "did not answer" in \
+            state.last_audit[0]["when"], state.last_audit
+        assert sent[0]["per_source_themes"] is False, sent[0]
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # the flag: rule by default, and the model path is opt-in
+    args = cli.build_parser().parse_args(["--device", "cpu"])
+    assert args.switch_policy == "rule", args.switch_policy
+    chooser = cli.build_switch_policy(cli.build_parser().parse_args(
+        ["--device", "cpu", "--switch-agent", "--switch-policy", "model"]))
+    assert isinstance(chooser, O.ModelPolicy) and chooser.decides, chooser
+    assert isinstance(cli.build_switch_policy(cli.build_parser().parse_args(
+        ["--device", "cpu", "--switch-policy", "model"])), PL.NullPolicy), (
+        "the model decided switches for a session that never turned the "
+        "agent on")
+    print(f"51. the model policy: the directive carries an optional "
+          f"switches object an older one never had, a proposal reaches the "
+          f"turn it was made for and no further, and {len(hostile)} "
+          f"proposals that name what cannot be set or would stack two "
+          f"cancelling switches are dropped with the reason kept")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5005,6 +5134,7 @@ def main():
         check_switch_agent(tmp, tok, mdl)
         check_rules_sample(tmp, tok, mdl)
         check_switch_determinism(tmp, tok, mdl)
+        check_model_policy(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

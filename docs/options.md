@@ -66,6 +66,7 @@ Agents:
 | `--switch-agent` | off | let a policy decide the memory switches per turn instead of leaving them where the flags set them |
 | `--switch-rules FILE` | none | the rules `--switch-agent` decides by, as sentences about the session and the switch each one changes |
 | `--switch-rules-allow-examples` | off | load the rules a file marks as examples too, which are written down to be read rather than run |
+| `--switch-policy rule\|model` | rule | what decides under `--switch-agent`: the rules file, or the chat model itself (experimental) |
 
 Memory sizing:
 

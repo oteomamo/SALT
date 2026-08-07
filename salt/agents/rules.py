@@ -304,6 +304,17 @@ def guard(rules):
     return rules
 
 
+def guard_overrides(overrides):
+    """The same pairs, held against one set of changes rather than
+    against a file of rules. Whatever proposed them, written down or
+    generated, meets the same refusal."""
+    for one, other, why in CONFLICTS:
+        if overrides.get(one) and overrides.get(other):
+            raise RuleError(f"this would turn on both {one} and {other}, "
+                            f"and {why}. Keep one of them.")
+    return overrides
+
+
 def loads(data, allow_examples=False, where="<rules>"):
     """A rules document as rules, or a refusal naming what is wrong."""
     if not isinstance(data, dict):

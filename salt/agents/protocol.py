@@ -32,14 +32,17 @@ ACTIONS = ("answer", "delegate")
 # a plan wider than this is a model that has misunderstood the job, not
 # an ambitious plan. Bounded here so nothing downstream has to be
 MAX_SUBTASKS = 8
-TOP_KEYS = {"version", "action", "answer", "subtasks"}
+TOP_KEYS = {"version", "action", "answer", "subtasks", "switches"}
 SUBTASK_KEYS = {"id", "task", "target", "query", "budget_pct", "max_tokens"}
 REQUIRED_SUBTASK_KEYS = ("id", "task", "target")
 # reasons a caller branches on. The sentence beside each one is for a
 # person and for the re-prompt; the code is what the caller reads
 REASONS = ("no_json", "bad_json", "not_an_object", "wrong_version",
            "bad_action", "unknown_keys", "no_answer", "no_subtasks",
-           "too_many_subtasks", "bad_subtask", "duplicate_id", "bad_number")
+           "too_many_subtasks", "bad_subtask", "duplicate_id", "bad_number",
+           "bad_switches")
+# a proposal wider than this is a model changing everything at once
+MAX_SWITCHES = 8
 _THINK_OPEN = re.compile(r"<think\b[^>]*>", re.I)
 _THINK_CLOSE = re.compile(r"</think\s*>", re.I)
 
@@ -78,6 +81,10 @@ class Directive:
     action: str
     answer: str = ""
     subtasks: tuple = field(default_factory=tuple)
+    # optional, and read by the switch policy rather than by the round:
+    # a model that has an opinion about how the next turn should select
+    # says so here, and a model that has none says nothing
+    switches: dict = field(default_factory=dict)
 
     @property
     def delegates(self):
@@ -213,6 +220,33 @@ def _subtask(raw, index):
                            f"subtask {index} max_tokens", int, 0))
 
 
+def _switches(raw):
+    """A model's opinion about how the next turn should select, checked
+    for shape and nothing else.
+
+    Which switches exist and which of them cancel each other is the
+    policy layer's question, and it asks it again before anything is
+    applied. Absent is the normal answer and reads as no opinion.
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ProtocolError("bad_switches",
+                            f"switches is an object of switch names, got "
+                            f"{type(raw).__name__}")
+    if len(raw) > MAX_SWITCHES:
+        raise ProtocolError("bad_switches",
+                            f"{len(raw)} switches proposed, and at most "
+                            f"{MAX_SWITCHES} are allowed")
+    for name, value in raw.items():
+        if not isinstance(value, (bool, int, float, type(None))):
+            raise ProtocolError("bad_switches",
+                                f"switch {name!r} is set to a "
+                                f"{type(value).__name__}, and a switch takes "
+                                f"a number, a yes or no, or nothing")
+    return dict(raw)
+
+
 def parse_directive(text):
     """One model reply read as a directive, or a reason it is not one.
 
@@ -244,10 +278,12 @@ def parse_directive(text):
         raise ProtocolError("bad_action",
                             f"action must be one of {list(ACTIONS)}, got "
                             f"{action!r}")
+    switches = _switches(raw.get("switches"))
     if action == "answer":
         return Directive(action=action,
                          answer=_text(raw.get("answer"), "answer",
-                                      "no_answer"))
+                                      "no_answer"),
+                         switches=switches)
 
     subtasks = raw.get("subtasks")
     if not isinstance(subtasks, list) or not subtasks:
@@ -263,7 +299,7 @@ def parse_directive(text):
     if len(set(ids)) != len(ids):
         raise ProtocolError("duplicate_id",
                             f"subtask ids must differ, got {ids}")
-    return Directive(action=action, subtasks=parsed)
+    return Directive(action=action, subtasks=parsed, switches=switches)
 
 
 TEMPLATES = {"schema": Path(__file__).resolve().parent /

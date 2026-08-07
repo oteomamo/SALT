@@ -290,7 +290,7 @@ class ChatState:
         self.pending_round = None
         # who decides how a turn selects. Nobody, until something says
         # otherwise: the default is not asked and changes nothing
-        self.switch_policy = build_switch_policy(args)
+        self.switch_policy = build_switch_policy(args).bind(self)
         self.last_overrides = {}
         self.last_audit = ()
         self.agent_stats = resume_rounds(self.trie.cache_dir)
@@ -2126,6 +2126,8 @@ def build_switch_policy(args):
     the other decides nothing rather than guessing."""
     if not getattr(args, "switch_agent", False):
         return policy.NullPolicy()
+    if getattr(args, "switch_policy", "rule") == "model":
+        return orchestrator.ModelPolicy()
     path = getattr(args, "switch_rules", None)
     if not path:
         print("--switch-agent needs --switch-rules FILE to decide by, so "
@@ -2771,6 +2773,13 @@ def build_parser():
                         "of sentences about the session and the switch each "
                         "one changes while it is true. A sample ships as "
                         "salt/agents/switch_rules_sample.json")
+    p.add_argument("--switch-policy", choices=("rule", "model"),
+                   default="rule",
+                   help="what decides the switches under --switch-agent: "
+                        "the rules file, or the chat model itself. EXPERIMENTAL: "
+                        "a model's proposal meets the same refusals a written "
+                        "rule does, and is dropped rather than applied when it "
+                        "asks for something that cannot be done (default: rule)")
     p.add_argument("--switch-rules-allow-examples", action="store_true",
                    help="load the rules a file marks as examples too. They "
                         "are written down to be read rather than run, and "
@@ -2914,7 +2923,7 @@ def main(argv=None):
 
     # and the same reason again: a rules file that will not load must
     # say so before a conversation starts selecting under it
-    if args.switch_agent and args.switch_rules:
+    if args.switch_agent and args.switch_rules and args.switch_policy != "model":
         try:
             build_switch_policy(args)
         except (OSError, rules.RuleError) as exc:

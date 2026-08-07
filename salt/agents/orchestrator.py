@@ -24,6 +24,7 @@ it is: it is shown a worked directive instead of being handed one to
 fill.
 """
 
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,7 @@ from pathlib import Path
 from salt.agents import protocol
 from salt.agents.delegate import (DelegationRequest, DelegationResult,
                                   close_quietly, delegate)
+from salt.agents.policy import KWARGS, PolicyError, SwitchPolicy, check
 from salt.agents.roster import GUIDED_CAPABLE, GUIDED_PLAIN, RosterError
 
 ASK_HEADER = "ASK: "
@@ -420,6 +422,102 @@ class Round:
     @property
     def answered(self):
         return tuple(r for r in self.results if r.ok)
+
+
+SWITCH_ASK = ("Set the memory switches for this conversation's next turn, "
+              "or leave them alone.")
+SWITCH_INSTRUCTIONS = (
+    "You are deciding how one conversation's memory is selected for its "
+    "next turn. You are given that conversation as numbers, then the "
+    "switches you may set.\n\n"
+    "Reply with one JSON object and nothing else, shaped like this:\n\n"
+    "{example}\n\n"
+    "- \"switches\" holds only names from the list you were given, each "
+    "set to a number, true, false or null.\n"
+    "- An empty \"switches\" object is the right answer whenever the "
+    "numbers do not argue for a change, and most of the time they do "
+    "not.\n"
+    "- \"answer\" is one sentence saying why. A person reads it. Nothing "
+    "acts on it.")
+
+
+def switch_example():
+    return json.dumps({"version": protocol.SCHEMA, "action": "answer",
+                       "answer": "why these, in one sentence",
+                       "switches": {"per_source_themes": True}}, indent=2)
+
+
+def switch_messages(signals, allowed):
+    """What a model is asked when it is asked to set the switches."""
+    numbers = "\n".join(f"- {name}: {value}"
+                        for name, value in sorted(signals.items()))
+    switches = "\n".join(f"- {name}" for name in allowed)
+    return [{"role": "system",
+             "content": SWITCH_INSTRUCTIONS.format(example=switch_example())},
+            {"role": "user",
+             "content": (f"THIS CONVERSATION\n{numbers}\n\nSWITCHES YOU MAY "
+                         f"SET\n{switches}\n\n{ASK_HEADER}{SWITCH_ASK}")}]
+
+
+class ModelPolicy(SwitchPolicy):
+    """Ask this session's own model what it would change, and hold it to
+    the same refusals a written rule meets.
+
+    EXPERIMENTAL. This is the shape the switches are eventually decided
+    in, standing up early so the seam behind it is real: a model
+    proposes and the guard disposes, so a proposal that names a switch
+    nothing can set, or that would turn on two switches known to cancel
+    each other, is dropped with a reason rather than applied.
+
+    A round that goes wrong costs the turn nothing. The model is asked
+    once, and anything other than a usable proposal leaves the session's
+    own settings standing.
+    """
+
+    name = "model"
+    decides = True
+
+    def __init__(self, state=None, endpoint=None):
+        self.state = state
+        self.endpoint = endpoint
+        self.proposed = {}
+        self.reason = ""
+        self.refused = ""
+
+    def bind(self, state):
+        self.state = state
+        return self
+
+    def decide(self, signals):
+        from salt.agents.rules import RuleError, guard_overrides
+        self.proposed, self.reason, self.refused = {}, "", ""
+        endpoint = (orchestrator_endpoint(self.state)
+                    if self.endpoint is None else self.endpoint)
+        if endpoint is None:
+            self.refused = "this session has no model to ask"
+            return {}
+        outcome = protocol.ask_directive(
+            endpoint.send,
+            switch_messages(signals, KWARGS), guided=endpoint.guided)
+        directive = outcome.directive
+        self.proposed = dict(directive.switches)
+        self.reason = directive.answer or ""
+        if outcome.fell_back and not self.proposed:
+            self.refused = "the model did not answer with a proposal"
+            return {}
+        try:
+            return guard_overrides(check(self.proposed))
+        except (PolicyError, RuleError) as exc:
+            self.refused = str(exc)
+            return {}
+
+    def explain(self):
+        if self.refused:
+            return ({"id": self.name, "when": self.refused, "then": {}},)
+        if not self.proposed:
+            return ()
+        return ({"id": self.name, "when": self.reason or "the model's call",
+                 "then": dict(self.proposed)},)
 
 
 def round_record(ask, directive, results, text, outcome=None, started=None,

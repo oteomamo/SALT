@@ -62,6 +62,11 @@ class SwitchPolicy:
     def decide(self, snapshot):
         return {}
 
+    def bind(self, state):
+        """The session this policy decides for, handed over once it
+        exists. A policy that needs nothing from it ignores this."""
+        return self
+
     def explain(self):
         """Why the last decision came out as it did, one entry per
         reason. Empty from a policy that has no reasons to give, which
