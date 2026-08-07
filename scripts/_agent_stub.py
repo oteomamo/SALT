@@ -133,6 +133,22 @@ class _StubHandler(BaseHTTPRequestHandler):
             self.server.peak = max(self.server.peak, self.server.inflight)
             self.server.posts += 1
         try:
+            served = {c.get("id") for c in self.server.cards}
+            if (self.server.unknown_model
+                    and self.server.last_payload.get("model") not in served):
+                # a real server answers 404 for a model it does not have,
+                # whatever else the request asked for
+                body = json.dumps({"error": {
+                    "message": f"The model "
+                               f"`{self.server.last_payload.get('model')}` "
+                               f"does not exist.",
+                    "type": "NotFoundError"}}).encode()
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if (not self.server.guided
                     and "guided_json" in self.server.last_payload):
                 # what a server that never heard of guided decoding says:
@@ -197,11 +213,11 @@ class Stub:
     def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
                  status=200, raw=None, port=0, stall=0.0, drop=False,
                  serving=True, post_status=200, usage=False, guided=True,
-                 canned=None):
+                 canned=None, unknown_model=False):
         self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
                         status=status, raw=raw, stall=stall, drop=drop,
                         post_status=post_status, usage=usage, guided=guided,
-                        canned=canned)
+                        canned=canned, unknown_model=unknown_model)
         self.port = port
         self.httpd = None
         self.aborted = threading.Event()

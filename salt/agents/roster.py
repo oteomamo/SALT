@@ -309,7 +309,7 @@ GUIDED_PLAIN = "plain"
 GUIDED_UNKNOWN = "unknown"
 
 
-def probe_guided(entry, url=None, timeout=10):
+def probe_guided(entry, url=None, timeout=10, served_model=None):
     """Whether this endpoint can be made to answer in a schema.
 
     Asked of the wire, never inferred from a version string: a server
@@ -318,6 +318,12 @@ def probe_guided(entry, url=None, timeout=10):
     is sent, and the server's own answer decides. Anything other than
     an accepted request means the plain protocol, since a capability
     that cannot be demonstrated is one to plan without.
+
+    The request goes out under the name the server itself is serving,
+    asked for here when the caller does not already know it. A server
+    started from a registered alias answers to that alias and not to the
+    model's full id, and a probe under the wrong name comes back 404 -
+    which is a question about the name, never an answer about schemas.
     """
     import requests
 
@@ -325,8 +331,11 @@ def probe_guided(entry, url=None, timeout=10):
     if not url:
         return GUIDED_UNKNOWN, "nothing to probe: no endpoint yet"
     cfg = entry.model or {}
-    body = {"model": cfg.get("hf_id") or entry.alias, "prompt": "{",
-            "max_tokens": 1, "temperature": 0,
+    if served_model is None:
+        found = probe(entry, url=url, timeout=timeout)
+        served_model = found.served_model
+    body = {"model": served_model or cfg.get("hf_id") or entry.alias,
+            "prompt": "{", "max_tokens": 1, "temperature": 0,
             "guided_json": GUIDED_SCHEMA}
     try:
         resp = requests.post(f"{url}/v1/completions", json=body,
@@ -336,6 +345,13 @@ def probe_guided(entry, url=None, timeout=10):
     if resp.status_code == 200:
         return GUIDED_CAPABLE, "the endpoint accepted a schema"
     detail = (resp.text or "").strip().replace("\n", " ")[:200]
+    if resp.status_code == 404:
+        # the server does not have this model at all, so it never got as
+        # far as the schema. Saying "plain" here would be a guess wearing
+        # a measurement's clothes
+        return GUIDED_UNKNOWN, (f"the endpoint does not serve "
+                                f"{body['model']!r}, so nothing was asked "
+                                f"about schemas: {detail}")
     return GUIDED_PLAIN, f"the endpoint refused a schema ({resp.status_code}): {detail}"
 
 

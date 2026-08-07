@@ -3457,6 +3457,28 @@ def check_guided_probe(tok_path):
             assert "".join(h.call([{"role": "user", "content": "hi"}])) == \
                 "hello", "a server without schemas stopped answering"
 
+    # the probe goes out under the name the SERVER is serving, not the
+    # registry's id for it. A server started from an alias answers to
+    # that alias, and asking under the full id is a 404 about the name
+    # rather than an answer about schemas
+    served = [{"id": "served-as-this", "max_model_len": 4096}]
+    with Stub(cards=served, guided=True) as aliased:
+        h = WorkerHandle(entry(aliased.url,
+                               model={"alias": "served-as-this",
+                                      "hf_id": "some/org/some-model-AWQ",
+                                      "path": tok_path}))
+        assert h.probe_capabilities() == RR.GUIDED_CAPABLE, h.guided_detail
+        assert aliased.httpd.last_payload["model"] == "served-as-this", (
+            f"the probe asked under {aliased.httpd.last_payload['model']!r}, "
+            f"which this server does not serve")
+
+    with Stub(cards=served, guided=True, unknown_model=True) as wrong:
+        h = WorkerHandle(entry(wrong.url, model=cfg))
+        assert h.probe_capabilities() == RR.GUIDED_UNKNOWN, (
+            f"a 404 about the model name was read as an answer about "
+            f"schemas: {h.guided} / {h.guided_detail}")
+        assert "does not serve" in h.guided_detail, h.guided_detail
+
     # an endpoint that is not there is unknown, never capable, and a
     # worker that died forgets what it learned
     gone = WorkerHandle(entry(f"http://127.0.0.1:{closed_port()}", model=cfg))

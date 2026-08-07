@@ -529,8 +529,14 @@ class WorkerHandle:
         cannot be asked is one to plan around, not one to fail on."""
         if self.guided != GUIDED_UNKNOWN:
             return self.guided
+        # the name this endpoint answers to, when a probe or an open
+        # client has already learned it. Saves the lookup and, more to
+        # the point, is the name the real calls will go out under
+        served = getattr(self.probe_result, "served_model", None) or getattr(
+            self.runner, "served_model", None)
         self.guided, self.guided_detail = probe_guided(
-            self.entry, url=url or self.url, timeout=timeout)
+            self.entry, url=url or self.url, timeout=timeout,
+            served_model=served)
         return self.guided
 
     def ready(self):
