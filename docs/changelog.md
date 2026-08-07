@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.81
+## 2.10.0 - 2.10.89
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -130,6 +130,22 @@ Patch releases, grouped where several versions shipped one thing:
   `--agent-max-delegations` and `--agent-max-wall` bound what one round
   may cost, and every planned turn leaves a line in `agent_trace.jsonl`
   that `/stats` reads back.
+- **2.10.82 - 2.10.89** A session that decides its own switches.
+  `--switch-agent` with `--switch-rules FILE` lets a rules file decide
+  the memory switches per turn. A rule is a sentence about the session
+  and the switch it changes while that sentence is true, read by a
+  parser that only compares the numbers a session reports about itself
+  and never runs anything. A file that names a signal nobody reports, a
+  switch a turn cannot set, or two switches known to cancel each other
+  is refused before the session starts. Every decision lasts one turn
+  and is written into nothing, and a turn a rule changed says which
+  rule, what was true and what it set, in `/stats` and in that turn's
+  own record. A sample ships as
+  `salt/agents/switch_rules_sample.json` with one rule there is a
+  reason for and two marked as examples that stay unloaded unless
+  `--switch-rules-allow-examples` asks for them.
+  `--switch-policy model` is the same seam with the chat model
+  proposing instead, experimental, and held to the same refusals.
 
 ## 2.9.0 - 2.9.123
 

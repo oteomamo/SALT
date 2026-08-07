@@ -354,6 +354,86 @@ session opens and reports how many turns were planned out, how many
 pieces went out, how many came back empty and what a round costs on
 average.
 
+## Letting a session decide its own switches
+
+SALT ships a set of memory switches that are off by default: how long a
+surfaced theme stays suppressed, whether attached files are profiled
+apart from the conversation, whether the keyword order is frozen, and so
+on. They are off because what each one is worth depends on the
+conversation, and a default that helps one kind of session hurts
+another. `--switch-agent` hands that decision to something that can look
+at the conversation first.
+
+### Rules
+
+A rules file is a list of sentences about a session and the switch each
+one changes while its sentence is true:
+
+```json
+{
+  "version": "salt-switch-rules/1",
+  "rules": [
+    {"id": "files-profiled-apart",
+     "when": "n_attachments > 0",
+     "then": {"per_source_themes": true},
+     "expected": "files are profiled apart from the conversation"}
+  ]
+}
+```
+
+```
+saltChat --switch-agent --switch-rules salt/agents/switch_rules_sample.json
+```
+
+`when` is read by a parser written for this and nothing else. It
+compares the numbers a session reports about itself, joins comparisons
+with `and`, `or` and `not`, and does nothing else at all. There is no
+arithmetic, no way to name anything but those numbers, and nothing in
+the file is ever run as code. A signal a session cannot report reads as
+nothing and a comparison against nothing is false, so a rule about
+attachments does not fire for a conversation that cannot say whether it
+has any.
+
+Everything a file can get wrong is refused when it loads rather than
+partway through a conversation: a signal nobody reports, a switch a turn
+cannot set, an expression that does not parse, two rules under one name,
+and a set that could turn on two switches known to cancel each other.
+The session does not start until the file is right.
+
+A decision lasts one turn. The session's own settings are the starting
+point every time, so nothing a rule did last turn survives into this
+one, and nothing a rule decides is written into the session.
+
+### What the sample ships
+
+`salt/agents/switch_rules_sample.json` carries one rule there is a
+reason for. Per-source theme profiles have nothing to act on in a
+session with no files attached, so the rule turns them on exactly where
+they can act. It also carries two rules marked as examples, one about
+long sessions and one about stale coverage. Those are written down to be
+read rather than run, they say so in the file, and they stay unloaded
+unless `--switch-rules-allow-examples` asks for them out loud. Whether
+they help is an open question, and the honest answer today is that it
+has not been measured.
+
+### The audit trail
+
+A turn a rule changed says so twice. `/stats` names the policy, the rule
+that fired, the sentence that was true and what it set, and that turn's
+own record in the KV trace carries the changes and the rule names beside
+everything it already held. A turn nothing decided about says nothing
+and its record keeps the shape it always had.
+
+### A model instead of a file
+
+`--switch-policy model` is the same seam with the chat model where the
+file would be. It is shown the conversation as numbers and the switches
+it may set, and it answers with what it wants changed and one sentence
+saying why. It is experimental. What it proposes meets exactly the
+refusals a written rule meets, so a proposal naming something that
+cannot be set, or one that would turn on two switches that cancel, is
+dropped with the reason kept rather than applied.
+
 ## Delegating from a script
 
 A scripted run can delegate as well as talk. An item in a `--turns` file
