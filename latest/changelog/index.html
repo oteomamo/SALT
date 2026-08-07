@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-21081" class="md-nav__link">
+  <a href="#2100-21089" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.81
+        2.10.0 - 2.10.89
       
     </span>
   </a>
@@ -1250,10 +1250,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-21081" class="md-nav__link">
+  <a href="#2100-21089" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.81
+        2.10.0 - 2.10.89
       
     </span>
   </a>
@@ -1404,7 +1404,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2100-21081">2.10.0 - 2.10.81</h2>
+<h2 id="2100-21089">2.10.0 - 2.10.89</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
 releases, hand parts of its work to them with SALT memory in the loop.</p>
@@ -1529,6 +1529,22 @@ releases, hand parts of its work to them with SALT memory in the loop.</p>
   <code>--agent-max-delegations</code> and <code>--agent-max-wall</code> bound what one round
   may cost, and every planned turn leaves a line in <code>agent_trace.jsonl</code>
   that <code>/stats</code> reads back.</li>
+<li><strong>2.10.82 - 2.10.89</strong> A session that decides its own switches.
+  <code>--switch-agent</code> with <code>--switch-rules FILE</code> lets a rules file decide
+  the memory switches per turn. A rule is a sentence about the session
+  and the switch it changes while that sentence is true, read by a
+  parser that only compares the numbers a session reports about itself
+  and never runs anything. A file that names a signal nobody reports, a
+  switch a turn cannot set, or two switches known to cancel each other
+  is refused before the session starts. Every decision lasts one turn
+  and is written into nothing, and a turn a rule changed says which
+  rule, what was true and what it set, in <code>/stats</code> and in that turn's
+  own record. A sample ships as
+  <code>salt/agents/switch_rules_sample.json</code> with one rule there is a
+  reason for and two marked as examples that stay unloaded unless
+  <code>--switch-rules-allow-examples</code> asks for them.
+  <code>--switch-policy model</code> is the same seam with the chat model
+  proposing instead, experimental, and held to the same refusals.</li>
 </ul>
 <h2 id="290-29123">2.9.0 - 2.9.123</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding

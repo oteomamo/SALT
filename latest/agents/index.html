@@ -847,6 +847,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-a-session-decide-its-own-switches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting a session decide its own switches
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Letting a session decide its own switches">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-sample-ships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the sample ships
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-audit-trail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The audit trail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-model-instead-of-a-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A model instead of a file
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#delegating-from-a-script" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1427,6 +1488,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-a-session-decide-its-own-switches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting a session decide its own switches
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Letting a session decide its own switches">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-sample-ships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the sample ships
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-audit-trail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The audit trail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-model-instead-of-a-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A model instead of a file
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#delegating-from-a-script" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1764,6 +1886,69 @@ a line in <code>delegations.jsonl</code>. <code>/stats</code> reads the file bac
 session opens and reports how many turns were planned out, how many
 pieces went out, how many came back empty and what a round costs on
 average.</p>
+<h2 id="letting-a-session-decide-its-own-switches">Letting a session decide its own switches</h2>
+<p>SALT ships a set of memory switches that are off by default: how long a
+surfaced theme stays suppressed, whether attached files are profiled
+apart from the conversation, whether the keyword order is frozen, and so
+on. They are off because what each one is worth depends on the
+conversation, and a default that helps one kind of session hurts
+another. <code>--switch-agent</code> hands that decision to something that can look
+at the conversation first.</p>
+<h3 id="rules">Rules</h3>
+<p>A rules file is a list of sentences about a session and the switch each
+one changes while its sentence is true:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt-switch-rules/1&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;rules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;files-profiled-apart&quot;</span><span class="p">,</span>
+<span class="w">     </span><span class="nt">&quot;when&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;n_attachments &gt; 0&quot;</span><span class="p">,</span>
+<span class="w">     </span><span class="nt">&quot;then&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;per_source_themes&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">     </span><span class="nt">&quot;expected&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;files are profiled apart from the conversation&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>saltChat --switch-agent --switch-rules salt/agents/switch_rules_sample.json
+</code></pre></div>
+<p><code>when</code> is read by a parser written for this and nothing else. It
+compares the numbers a session reports about itself, joins comparisons
+with <code>and</code>, <code>or</code> and <code>not</code>, and does nothing else at all. There is no
+arithmetic, no way to name anything but those numbers, and nothing in
+the file is ever run as code. A signal a session cannot report reads as
+nothing and a comparison against nothing is false, so a rule about
+attachments does not fire for a conversation that cannot say whether it
+has any.</p>
+<p>Everything a file can get wrong is refused when it loads rather than
+partway through a conversation: a signal nobody reports, a switch a turn
+cannot set, an expression that does not parse, two rules under one name,
+and a set that could turn on two switches known to cancel each other.
+The session does not start until the file is right.</p>
+<p>A decision lasts one turn. The session's own settings are the starting
+point every time, so nothing a rule did last turn survives into this
+one, and nothing a rule decides is written into the session.</p>
+<h3 id="what-the-sample-ships">What the sample ships</h3>
+<p><code>salt/agents/switch_rules_sample.json</code> carries one rule there is a
+reason for. Per-source theme profiles have nothing to act on in a
+session with no files attached, so the rule turns them on exactly where
+they can act. It also carries two rules marked as examples, one about
+long sessions and one about stale coverage. Those are written down to be
+read rather than run, they say so in the file, and they stay unloaded
+unless <code>--switch-rules-allow-examples</code> asks for them out loud. Whether
+they help is an open question, and the honest answer today is that it
+has not been measured.</p>
+<h3 id="the-audit-trail">The audit trail</h3>
+<p>A turn a rule changed says so twice. <code>/stats</code> names the policy, the rule
+that fired, the sentence that was true and what it set, and that turn's
+own record in the KV trace carries the changes and the rule names beside
+everything it already held. A turn nothing decided about says nothing
+and its record keeps the shape it always had.</p>
+<h3 id="a-model-instead-of-a-file">A model instead of a file</h3>
+<p><code>--switch-policy model</code> is the same seam with the chat model where the
+file would be. It is shown the conversation as numbers and the switches
+it may set, and it answers with what it wants changed and one sentence
+saying why. It is experimental. What it proposes meets exactly the
+refusals a written rule meets, so a proposal naming something that
+cannot be set, or one that would turn on two switches that cancel, is
+dropped with the reason kept rather than applied.</p>
 <h2 id="delegating-from-a-script">Delegating from a script</h2>
 <p>A scripted run can delegate as well as talk. An item in a <code>--turns</code> file
 shaped like this goes to a worker instead of the chat model, in the
