@@ -35,9 +35,9 @@ from pathlib import Path
 
 import torch
 
-from salt.agents import ledger, protocol
+from salt.agents import ledger, orchestrator, protocol
 from salt.agents.delegate import (DelegationRequest, build_context,
-                                  delegate)
+                                  close_quietly, delegate)
 from salt.agents.roster import (GUIDED_CAPABLE, UNPROBED, RosterError,
                                 check_placement, entry_cards, load_roster)
 from salt.agents.worker import (BUSY, DEAD, WorkerError, WorkerHandle,
@@ -143,6 +143,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /offload! @NAME    put the last delegated task to another worker too
 @NAME <question>   let that worker answer this turn instead of the chat
                    model, with the turn kept as any other
+/agent <task>      answer this turn by planning it out first: the chat model
+                   splits the task, workers take the pieces, it writes the reply
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
 /stats             session, attachments, compression, and GPU memory stats
@@ -152,8 +154,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 
 # what TAB offers: every command HELP lists, so the two cannot drift
 COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/offload",
-            "/offload!", "/doc", "/budget", "/stats", "/new", "/clear",
-            "/exit"]
+            "/offload!", "/agent", "/doc", "/budget", "/stats", "/new",
+            "/clear", "/exit"]
 
 
 def cuda_index(device):
@@ -273,6 +275,8 @@ class ChatState:
         # the last task handed over, so it can be put to another worker
         # without typing it twice
         self.last_task = None
+        # the last agent turn this session took, whole
+        self.last_round = None
         self.offload_ingest = args.offload_ingest
         self.agent_keep_think = args.agent_keep_think
         self.offload_context_cap = args.offload_context_cap
@@ -414,6 +418,7 @@ class ChatState:
         self.delegation_seq, self.delegation_stats = resume_delegations(
             self.trie.cache_dir)
         self.pending_delegations = []
+        self.last_round = None
         resume_workers(self)
         self.load_full_attachments()
         self.load_tail()
@@ -1159,6 +1164,12 @@ def worker_turn(state, line):
 
 def ingest_result(state, req, result):
     """Remember a worker's answer as a turn of this session, when the
+    request asked for that."""
+    return keep_answer(state, result, req.ingest)
+
+
+def keep_answer(state, result, ingest):
+    """Remember a worker's answer as a turn of this session, when the
     session was launched asking for that. Only an answer is remembered:
     a failure has nothing to say, and the tail is never touched, so a
     delegated answer is memory the next turn can select but never part
@@ -1168,7 +1179,7 @@ def ingest_result(state, req, result):
     loses it, and what a model considered and rejected is not something
     the conversation should be able to recall as though it were said.
     """
-    if not (req.ingest and result.ok and result.text.strip()):
+    if not (ingest and result.ok and result.text.strip()):
         return False
     text = (result.text if state.agent_keep_think
             else protocol.reply_text(result.text))
@@ -1192,6 +1203,106 @@ def record_delegation(state, result, ingest=False):
         ledger.append(state.trie.cache_dir, rec)
     except OSError as exc:
         print(f"[delegations] recording #{result.id} failed: {exc}")
+
+
+AGENT_LABEL = "agent"
+AGENT_USAGE = ("Usage: /agent <task>   (plan the turn out, hand the pieces "
+               "to workers, and answer from what comes back)")
+
+
+def file_round(state, results):
+    """Keep and file what a round's helpers said, one delegation at a
+    time. Only the pieces that reached a worker: a subtask nobody was
+    asked is not a delegation, and a ledger that carried it would say
+    this session did something it did not do."""
+    for result in results:
+        if not result.ran:
+            continue
+        remembered = keep_answer(state, result, state.offload_ingest)
+        record_delegation(state, result, remembered)
+
+
+class AgentRound:
+    """One turn answered by planning it out first.
+
+    An object rather than a function because the turn needs both halves
+    of it. The answer streams out through the reply seam like any other
+    reply, and the record of what it took to get lands here, where the
+    turn that asked for it can file it afterwards.
+
+    The steps print as they happen. A round is several calls long and
+    the person is waiting through all of them, so what is being waited
+    on is said out loud rather than left to a silent prompt.
+    """
+
+    def __init__(self, task, limits=None):
+        self.task = task
+        self.limits = limits
+        self.results = []
+        self.record = None
+        self.done = 0
+
+    def note(self, result):
+        self.done += 1
+        said = orchestrator.OUTCOMES.get(result.status, result.status)
+        if result.ok:
+            n = len(protocol.reply_text(result.text).split())
+            said = f"{said}, {n} word{'' if n == 1 else 's'}"
+        elif result.error:
+            said = f"{said}: {result.error}"
+        print(f"  {self.done}. {result.target}: {said}")
+
+    def __call__(self, state, messages, memory_block):
+        started = time.time()
+        print("planning ...", flush=True)
+        outcome = orchestrator.plan(state, self.task, memory_block)
+        directive = outcome.directive
+        pieces = []
+        try:
+            if not directive.subtasks:
+                pieces.append(protocol.reply_text(directive.answer or ""))
+                yield pieces[0]
+                return
+            n = len(directive.subtasks)
+            print(f"  {n} piece{'' if n == 1 else 's'} to hand out")
+            self.results = orchestrator.execute(state, directive, self.limits,
+                                                self.note)
+            file_round(state, self.results)
+            print("  writing it up ...", flush=True)
+            stream = orchestrator.synthesis_stream(state, self.task,
+                                                   self.results)
+            try:
+                for piece in stream:
+                    pieces.append(piece)
+                    yield piece
+            finally:
+                close_quietly(stream)
+        finally:
+            # built even when the round was cut short: an interrupted
+            # turn is still a turn this session took, and the record of
+            # it is what says how far it got
+            self.record = orchestrator.round_record(
+                self.task, directive, self.results, "".join(pieces).strip(),
+                outcome, started)
+
+
+def agent_turn(state, rest):
+    """`/agent TASK` - the same turn, planned out before it is answered.
+
+    Nothing about the turn changes. The same memory is selected for it,
+    the same pair enters the tail, the same record is kept, and the
+    reply is written by this session's own model. What differs is that
+    the model writes it from what its helpers came back with rather than
+    from the conversation alone.
+    """
+    task = " ".join(rest).strip()
+    if not task:
+        print(AGENT_USAGE)
+        return
+    round_ = AgentRound(task)
+    reply = chat_turn(state, task, reply_fn=round_, reply_label=AGENT_LABEL)
+    state.last_round = round_.record
+    return reply
 
 
 def delegation_extra(state):
@@ -1845,6 +1956,8 @@ def handle_command(line, state):
         worker_command(state, rest)
     elif cmd in ("/offload", "/offload!"):
         offload_command(state, rest, again=cmd.endswith("!"))
+    elif cmd == "/agent":
+        agent_turn(state, rest)
     elif cmd == "/doc":
         if not rest:
             print("Usage: /doc <path>")

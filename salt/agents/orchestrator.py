@@ -95,6 +95,7 @@ class Endpoint:
 
     label: str
     send: object
+    stream: object = None
     capability: str = GUIDED_PLAIN
     model_id: str = None
 
@@ -128,6 +129,22 @@ def main_runner_send(state, gen=None):
     return send
 
 
+def main_runner_stream(state, gen=None):
+    """The same call, left running, for text somebody is waiting to read.
+
+    A plan is consumed whole and nobody sees it, so it is fetched whole.
+    A write-up is the reply to a question, and a reply that arrives all
+    at once after a minute of silence is a worse reply than the same
+    words arriving as they are written.
+    """
+    gen = PLANNING_GEN if gen is None else gen
+
+    def stream(messages):
+        return state.runner.stream_chat(messages, **gen)
+
+    return stream
+
+
 def orchestrator_endpoint(state, gen=None):
     """Which model plans this turn, or None when the session has none.
 
@@ -141,6 +158,7 @@ def orchestrator_endpoint(state, gen=None):
     cfg = getattr(runner, "cfg", None) or {}
     return Endpoint(label=getattr(runner, "alias", None) or MAIN_LABEL,
                     send=main_runner_send(state, gen),
+                    stream=main_runner_stream(state, gen),
                     capability=GUIDED_PLAIN,
                     model_id=cfg.get("hf_id"))
 
@@ -403,6 +421,34 @@ class Round:
         return tuple(r for r in self.results if r.ok)
 
 
+def round_record(ask, directive, results, text, outcome=None, started=None):
+    """One round as the thing a session keeps. Built in one place because
+    a round written up all at once and one written up as it is generated
+    are the same round, and must be recorded as the same round."""
+    return Round(ask=ask, directive=directive, results=tuple(results),
+                 text=text,
+                 protocol_failures=getattr(outcome, "failures", 0),
+                 fell_back=bool(getattr(outcome, "fell_back", False)),
+                 t_start=time.time() if started is None else started,
+                 t_end=time.time())
+
+
+def writing_endpoint(state, endpoint=None):
+    endpoint = (orchestrator_endpoint(state, SYNTHESIS_GEN)
+                if endpoint is None else endpoint)
+    if endpoint is None:
+        raise OrchestratorError(
+            "this session has no chat model, so there is nothing to write "
+            "the round up with")
+    return endpoint
+
+
+def synthesis_stream(state, ask, results, memory_block="", endpoint=None):
+    """The write-up as it is generated, for a caller with a reader."""
+    endpoint = writing_endpoint(state, endpoint)
+    return endpoint.stream(synthesis_messages(ask, results, memory_block))
+
+
 def synthesize(state, ask, directive, results, endpoint=None, outcome=None,
                started=None):
     """The answer this round adds up to, and the record of the round.
@@ -414,19 +460,9 @@ def synthesize(state, ask, directive, results, endpoint=None, outcome=None,
     """
     t_start = time.time() if started is None else started
     if results:
-        endpoint = (orchestrator_endpoint(state, SYNTHESIS_GEN)
-                    if endpoint is None else endpoint)
-        if endpoint is None:
-            raise OrchestratorError(
-                "this session has no chat model, so there is nothing to "
-                "write the round up with")
         text = protocol.reply_text(
-            endpoint.send(synthesis_messages(ask, results)) or "")
+            writing_endpoint(state, endpoint).send(
+                synthesis_messages(ask, results)) or "")
     else:
         text = protocol.reply_text(getattr(directive, "answer", "") or "")
-    record = Round(ask=ask, directive=directive, results=tuple(results),
-                   text=text,
-                   protocol_failures=getattr(outcome, "failures", 0),
-                   fell_back=bool(getattr(outcome, "fell_back", False)),
-                   t_start=t_start, t_end=time.time())
-    return text, record
+    return text, round_record(ask, directive, results, text, outcome, t_start)

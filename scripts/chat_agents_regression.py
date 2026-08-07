@@ -3523,11 +3523,11 @@ def check_protocol():
           f"{P.MAX_SUBTASKS} subtasks")
 
 
-def canned_state(tmp, cid, tok, mdl, answers, roster=None):
+def canned_state(tmp, cid, tok, mdl, answers, roster=None, flags=()):
     """A replayed session whose chat model answers a planning call with
     whatever this round was scripted to hear, and which has forgotten the
     turns that built its memory."""
-    state = replayed_state(tmp, cid, tok, mdl, roster=roster)
+    state = replayed_state(tmp, cid, tok, mdl, roster=roster, flags=flags)
     state.runner.canned = CannedReplies(answers)
     state.runner.prompts.clear()
     state.runner.overrides.clear()
@@ -3956,6 +3956,134 @@ def check_synthesis_call(tmp, tok, mdl):
           "that answered skipping the call, and the session unmoved")
 
 
+def agent_line(state, line):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.handle_command(line, state)
+    return buf.getvalue()
+
+
+def check_agent_turn(tmp, tok, mdl):
+    """`/agent` end to end: planned, handed round, written up, and kept
+    as an ordinary turn of this session."""
+    from salt.agents import protocol as P
+
+    ask = "what size battery does that argue for"
+    plan_json = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [{"id": "1", "task": "size the bank", "target": "w"},
+                      {"id": "2", "task": "check the inverter",
+                       "target": "nope"}]})
+    final = "A 9 kWh bank covers the evening, and the inverter is unchecked."
+    said = "Nine kilowatt hours of storage covers the evening draw."
+
+    with Stub(cards=CARDS, pieces=(said,)) as s:
+        roster = delegation_roster(s.url, tmp)
+        state = canned_state(tmp, "agent_turn", tok, mdl, [plan_json, final],
+                             roster)
+        try:
+            assert cli.AGENT_USAGE in agent_line(state, "/agent    "), (
+                "/agent with nothing to do said nothing about what it wants")
+            assert not state.runner.prompts and s.httpd.posts == 0, (
+                "an empty /agent still cost a call")
+
+            roles_before = list(state.trie.roles)
+            out = agent_line(state, f"/agent {ask}")
+            assert f"{cli.AGENT_LABEL}> planning ..." in out, out
+            assert "2 pieces to hand out" in out, out
+            assert "1. w: answered, 9 words" in out, out
+            assert "2. nope: was not attempted" in out, out
+            assert "writing it up ..." in out and final in out, out
+            assert s.httpd.posts == 1, (
+                f"the round reached a worker {s.httpd.posts} times for one "
+                f"piece it could hand out")
+            assert len(state.runner.prompts) == 2, (
+                f"the round cost {len(state.runner.prompts)} calls to the "
+                f"chat model rather than a plan and a write-up")
+
+            sent = state.worker("w").runner.tokenizer.decode(
+                s.httpd.last_payload["prompt"]).lower()
+            assert "size the bank" in sent, (
+                "the worker was sent something other than its own piece")
+            assert "salt memory" in sent, (
+                "the piece went out without this conversation's memory")
+
+            # the turn itself is an ordinary turn
+            assert [t["role"] for t in state.tail[-2:]] == ["user",
+                                                            "assistant"]
+            assert state.tail[-2]["content"] == ask, state.tail[-2]
+            assert state.tail[-1]["content"] == final, state.tail[-1]
+            assert state.trie.roles[-1] == "assistant", state.trie.roles[-3:]
+            assert state.trie.texts[-1].strip() in final, (
+                "the turn remembered something other than what it said")
+            new = state.trie.roles[len(roles_before):]
+            assert "worker" not in new, (
+                f"a helper's answer was remembered by a session that never "
+                f"asked for that: {new}")
+
+            event = events_of(state)[-1]
+            assert event["model"] == "test/fake", (
+                f"the turn was stamped {event['model']!r} rather than the "
+                f"model that wrote the reply")
+            assert event["agent_delegations"] == 1, event
+            assert event["agent_workers"] == ["w"], event
+            filed = L.read(state.trie.cache_dir).records
+            assert len(filed) == 1 and filed[0]["target"] == "w", (
+                f"the round filed {len(filed)} delegations for the one piece "
+                f"that reached a worker")
+
+            record = state.last_round
+            assert (record.ask, record.text) == (ask, final), record
+            assert len(record.results) == 2 and len(record.delegated) == 1, \
+                record
+            assert record.protocol_failures == 0 and record.seconds >= 0, \
+                record
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # asked for, the helper's answer is remembered as its own turn
+        state = canned_state(tmp, "agent_ingest", tok, mdl,
+                             [plan_json, final], roster,
+                             flags=["--offload-ingest"])
+        try:
+            roles_before = list(state.trie.roles)
+            agent_line(state, f"/agent {ask}")
+            new = state.trie.roles[len(roles_before):]
+            assert new.count("worker") == 1, (
+                f"a session that asked to keep helper answers kept {new}")
+            assert L.read(state.trie.cache_dir).records[0]["ingest"], (
+                "the answer was remembered without the ledger saying so")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # a plan that answers is the turn, with nobody handed anything
+        answer_json = json.dumps({"version": P.SCHEMA, "action": "answer",
+                                  "answer": "about 9 kWh"})
+        state = canned_state(tmp, "agent_alone", tok, mdl, [answer_json],
+                             roster)
+        try:
+            before = s.httpd.posts
+            out = agent_line(state, f"/agent {ask}")
+            assert "about 9 kWh" in out and "to hand out" not in out, out
+            assert s.httpd.posts == before, "a plan that answered still "\
+                "handed work out"
+            assert len(state.runner.prompts) == 1, (
+                "a plan that answered was asked to write itself up again")
+            assert state.tail[-1]["content"] == "about 9 kWh", state.tail[-1]
+            assert not L.ledger_path(state.trie.cache_dir).exists(), (
+                "a round that delegated nothing filed a delegation")
+            assert state.last_round.results == (), state.last_round
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("43. the agent turn: /agent plans the turn, hands out the pieces "
+          "it can, writes the reply from what came back and keeps the turn "
+          "as this session's own, with a plan that answers costing nobody "
+          "anything")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -4010,6 +4138,7 @@ def main():
         check_plan_call(tmp, tok, mdl)
         check_execute_step(tmp, tok, mdl)
         check_synthesis_call(tmp, tok, mdl)
+        check_agent_turn(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
