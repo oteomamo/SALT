@@ -25,11 +25,17 @@ SCHEMA = "salt-snapshot/1"
 
 # the closed set, in the order a reader meets them: what the session
 # holds, what its last compression saw, and what is still in flight
-KEYS = ("n_sentences", "n_alive", "masked", "n_turns", "live_words",
-        "n_attachments", "attachment_words", "near_dups", "session_age_s",
+KEYS = ("n_sentences", "n_alive", "masked", "alive_ratio", "n_turns",
+        "live_words", "n_attachments", "attachment_words",
+        "attachment_share", "near_dups", "session_age_s", "budget_pct",
         "orphan_keys", "orphan_mass", "drift_cos", "drift_ema",
         "topic_shift", "coverage_keys", "tail_occupancy", "model_window",
         "pending_ingest")
+
+# what a rule may name. The same set, deliberately: a signal a session
+# reports and a signal a decision may read apart would be two answers to
+# one question, and the assert below is what keeps them one
+RULE_SIGNALS = KEYS
 
 
 @dataclass(frozen=True)
@@ -113,6 +119,14 @@ def _window(state):
     return runner.input_budget() if runner is not None else None
 
 
+def _share(part, whole):
+    """One quantity as a fraction of another, or None where the whole is
+    nothing. Proportions are signals rather than something a rule works
+    out, because the language a rule is written in compares and does not
+    calculate."""
+    return round(part / float(whole), 3) if whole else None
+
+
 def snapshot(state, stats=None):
     """This session as the closed set of signals a decision may read.
 
@@ -123,15 +137,19 @@ def snapshot(state, stats=None):
     trie = state.trie
     s = _stats(state, stats)
     ingest = getattr(state, "ingest", None)
+    attachment_words = _attachment_words(trie)
     out = {"n_sentences": trie.n_sentences,
            "n_alive": trie.n_alive,
            "masked": trie.n_masked,
+           "alive_ratio": _share(trie.n_alive, trie.n_sentences),
            "n_turns": trie.n_turns,
            "live_words": trie.live_words,
            "n_attachments": len(trie.attached_sources),
-           "attachment_words": _attachment_words(trie),
+           "attachment_words": attachment_words,
+           "attachment_share": _share(attachment_words, trie.live_words),
            "near_dups": trie.n_near_dups,
            "session_age_s": _age(trie),
+           "budget_pct": getattr(state, "budget", None),
            "orphan_keys": s.get("coverage_orphan_keys"),
            "orphan_mass": s.get("coverage_orphan_mass"),
            "drift_cos": s.get("drift_cos"),
@@ -142,6 +160,8 @@ def snapshot(state, stats=None):
            "model_window": _window(state),
            "pending_ingest": ingest.pending if ingest is not None else None}
     assert tuple(out) == KEYS, "the snapshot grew a key nothing pinned"
+    assert tuple(out) == RULE_SIGNALS, (
+        "what a session reports and what a rule may read have drifted")
     return out
 
 

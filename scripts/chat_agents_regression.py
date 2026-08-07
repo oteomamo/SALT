@@ -3036,6 +3036,25 @@ def check_snapshot(tmp, tok, mdl):
                    for v in snap.values()), (
             f"a signal is not a number: {snap}")
 
+        # a rule compares and cannot calculate, so every proportion one
+        # could want to test is a signal of its own
+        assert S.RULE_SIGNALS == S.KEYS, (
+            "what a session reports and what a rule may read have drifted")
+        assert snap["alive_ratio"] == round(t.n_alive / t.n_sentences, 3), snap
+        assert 0 < snap["alive_ratio"] <= 1, snap
+        assert snap["budget_pct"] == state.budget > 0, snap
+        assert snap["attachment_share"] == 0, (
+            "a session with no attachments reports some of its words as "
+            "attached")
+        empty = S.snapshot(cli.ChatState(
+            cli.build_parser().parse_args(["--device", "cpu"]), tok, mdl, None,
+            SessionTrie("snapshot_empty", cache_dir=tmp,
+                        model_name=BGE_MODEL)))
+        assert empty["alive_ratio"] is None and empty[
+            "attachment_share"] is None, (
+            f"a session with nothing in it reported proportions of it: "
+            f"{empty}")
+
         # attachments are counted apart from the conversation
         assert snap["n_attachments"] == 0 and snap[
             "attachment_words"] == 0, snap
@@ -3047,6 +3066,7 @@ def check_snapshot(tmp, tok, mdl):
         after = S.snapshot(state)
         assert after["n_attachments"] == 1, after
         assert 0 < after["attachment_words"] < after["live_words"], after
+        assert 0 < after["attachment_share"] < 1, after
 
         # the switch inventory describes THIS session, and every switch
         # it names is a kwarg the session actually carries, at the value
