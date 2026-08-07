@@ -43,6 +43,33 @@ REASONS = ("no_json", "bad_json", "not_an_object", "wrong_version",
            "bad_switches")
 # a proposal wider than this is a model changing everything at once
 MAX_SWITCHES = 8
+# the same rules as parse_directive below, in the form a server can hold
+# a model to while it generates. Not a second definition of the protocol:
+# a reply that satisfies this is still parsed, and a server that ignores
+# it changes nothing about what is accepted
+DIRECTIVE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "string"},
+        "action": {"type": "string", "enum": list(ACTIONS)},
+        "answer": {"type": "string"},
+        "subtasks": {
+            "type": "array",
+            "maxItems": MAX_SUBTASKS,
+            "items": {"type": "object",
+                      "properties": {"id": {"type": "string"},
+                                     "task": {"type": "string"},
+                                     "target": {"type": "string"},
+                                     "query": {"type": "string"},
+                                     "budget_pct": {"type": "number"},
+                                     "max_tokens": {"type": "integer"}},
+                      "required": ["id", "task", "target"],
+                      "additionalProperties": False}},
+        "switches": {"type": "object"},
+    },
+    "required": ["action"],
+    "additionalProperties": False,
+}
 _THINK_OPEN = re.compile(r"<think\b[^>]*>", re.I)
 _THINK_CLOSE = re.compile(r"</think\s*>", re.I)
 

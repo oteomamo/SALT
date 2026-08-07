@@ -18,6 +18,13 @@ from salt.chat.runner import (_model_input_limit, input_budget_for,
                               render_prompt)
 
 
+# what a caller may put on the request body instead of into sampling:
+# vLLM's structured-output demands. Named here rather than guessed at,
+# so a stray generation setting can never become a body key
+BODY_EXTRAS = ("guided_json", "guided_regex", "guided_choice",
+               "guided_grammar", "response_format")
+
+
 class VLLMServeChatRunner:
     kind = "vllm-serve"
 
@@ -100,6 +107,13 @@ class VLLMServeChatRunner:
         payload = {"model": self.served_model, "prompt": ids,
                    "max_tokens": max_new_tokens, "stream": True,
                    "stream_options": {"include_usage": True}}
+        # a caller that wants the server to hold this reply to a shape
+        # says so with one of these, and they ride the body rather than
+        # the sampling parameters. Absent unless somebody sets one, so a
+        # turn that asks for nothing sends exactly what it always sent
+        for key in BODY_EXTRAS:
+            if gen_cfg.get(key) is not None:
+                payload[key] = gen_cfg[key]
         if do_sample:
             payload["temperature"] = temperature
             payload["top_p"] = float(gen_cfg.get("top_p", 1.0))

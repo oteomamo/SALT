@@ -5081,6 +5081,68 @@ def check_model_policy(tmp, tok, mdl):
           f"cancelling switches are dropped with the reason kept")
 
 
+def check_directive_schema(tmp, tok, mdl):
+    """The shape a server can hold a model to, and the fact that it now
+    reaches the server at all."""
+    from salt.agents import protocol as P
+    from salt.chat import runner_serve
+
+    schema = P.DIRECTIVE_SCHEMA
+    assert set(schema["properties"]) == P.TOP_KEYS, (
+        f"the schema and the parser disagree about the top level: "
+        f"{sorted(set(schema['properties']) ^ P.TOP_KEYS)}")
+    assert schema["properties"]["action"]["enum"] == list(P.ACTIONS), schema
+    assert schema["required"] == ["action"], schema
+    assert schema["additionalProperties"] is False, (
+        "the schema allows keys the parser refuses")
+    sub = schema["properties"]["subtasks"]
+    assert sub["maxItems"] == P.MAX_SUBTASKS, sub
+    assert set(sub["items"]["properties"]) == P.SUBTASK_KEYS, (
+        f"the schema and the parser disagree about a subtask: "
+        f"{sorted(set(sub['items']['properties']) ^ P.SUBTASK_KEYS)}")
+    assert sub["items"]["required"] == list(P.REQUIRED_SUBTASK_KEYS), sub
+    assert sub["items"]["additionalProperties"] is False, sub
+    # anything the schema would allow, the parser accepts
+    for text in (P.example_answer(), P.example_directive(("w",))):
+        assert P.parse_directive(text), text
+
+    assert "guided_json" in runner_serve.BODY_EXTRAS, runner_serve.BODY_EXTRAS
+
+    with Stub(cards=CARDS, pieces=('{"action": "answer", "answer": "x"}',)) as s:
+        state = replayed_state(tmp, "schema_body", tok, mdl,
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            handle = state.worker("w")
+            "".join(handle.call([{"role": "user", "content": "hi"}],
+                                max_new_tokens=16))
+            assert "guided_json" not in s.httpd.last_payload, (
+                "a call that asked for no shape carried one anyway")
+            plain = dict(s.httpd.last_payload)
+
+            "".join(handle.call([{"role": "user", "content": "hi"}],
+                                max_new_tokens=16,
+                                guided_json=P.DIRECTIVE_SCHEMA))
+            body = s.httpd.last_payload
+            assert body.get("guided_json") == P.DIRECTIVE_SCHEMA, (
+                f"the schema never reached the server: "
+                f"{sorted(set(body) - set(plain))}")
+            assert set(body) - set(plain) == {"guided_json"}, (
+                f"asking for a shape changed more of the request than the "
+                f"shape: {sorted(set(body) ^ set(plain))}")
+            for key, value in plain.items():
+                if key != "guided_json":
+                    assert body[key] == value, (
+                        f"{key} differs between a shaped call and a plain "
+                        f"one")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("52. the directive schema: one shape a server can hold a model "
+          "to, agreeing with the parser key for key and bound by the same "
+          "subtask ceiling, riding the request body only when a caller "
+          "asks for it and changing nothing else about the call")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5144,6 +5206,7 @@ def main():
         check_rules_sample(tmp, tok, mdl)
         check_switch_determinism(tmp, tok, mdl)
         check_model_policy(tmp, tok, mdl)
+        check_directive_schema(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
