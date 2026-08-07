@@ -3967,6 +3967,7 @@ def agent_line(state, line):
 def check_agent_turn(tmp, tok, mdl):
     """`/agent` end to end: planned, handed round, written up, and kept
     as an ordinary turn of this session."""
+    from salt.agents import orchestrator as O
     from salt.agents import protocol as P
 
     ask = "what size battery does that argue for"
@@ -4076,9 +4077,31 @@ def check_agent_turn(tmp, tok, mdl):
             assert not L.ledger_path(state.trie.cache_dir).exists(), (
                 "a round that delegated nothing filed a delegation")
             assert state.last_round.results == (), state.last_round
+            assert cli.agent_limits(state) == O.AgentLimits(), (
+                "an unflagged session runs rounds under something other "
+                "than the settled limits")
         finally:
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(state)
+
+        # the caps a session was launched with are the caps a round runs to
+        capped = canned_state(tmp, "agent_capped", tok, mdl,
+                              [plan_json, final], roster,
+                              flags=["--agent-max-delegations", "1",
+                                     "--agent-max-wall", "30"])
+        try:
+            limits = cli.agent_limits(capped)
+            assert (limits.max_delegations_per_turn,
+                    limits.max_wall_s) == (1, 30.0), limits
+            before = s.httpd.posts
+            agent_line(capped, f"/agent {ask}")
+            assert [r.status for r in capped.last_round.results] == [
+                "ok", "stopped"], capped.last_round.results
+            assert s.httpd.posts == before + 1, (
+                "a round handed out more pieces than its session allows")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(capped)
     print("43. the agent turn: /agent plans the turn, hands out the pieces "
           "it can, writes the reply from what came back and keeps the turn "
           "as this session's own, with a plan that answers costing nobody "

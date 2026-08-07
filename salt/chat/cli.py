@@ -290,6 +290,8 @@ class ChatState:
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         self.offload_ingest = args.offload_ingest
         self.agent_keep_think = args.agent_keep_think
+        self.agent_max_delegations = args.agent_max_delegations
+        self.agent_max_wall = args.agent_max_wall
         self.offload_context_cap = args.offload_context_cap
         self.offload_timeout = args.offload_timeout
         self.offload_budget_pct = args.offload_budget_pct
@@ -1300,6 +1302,16 @@ class AgentRound:
             state.last_round = state.pending_round = self.record
 
 
+def agent_limits(state):
+    """What this session lets one round cost. The token budget has no
+    flag of its own yet: it is a ceiling on runaway helpers rather than
+    something a person sizes per session, and the two that are worth
+    sizing are how many pieces and how long."""
+    return orchestrator.AgentLimits(
+        max_delegations_per_turn=state.agent_max_delegations,
+        max_wall_s=state.agent_max_wall)
+
+
 def agent_turn(state, rest):
     """`/agent TASK` - the same turn, planned out before it is answered.
 
@@ -1313,7 +1325,7 @@ def agent_turn(state, rest):
     if not task:
         print(AGENT_USAGE)
         return
-    round_ = AgentRound(task)
+    round_ = AgentRound(task, agent_limits(state))
     reply = chat_turn(state, task, reply_fn=round_, reply_label=AGENT_LABEL)
     file_trace(state, round_.record)
     return reply
@@ -2634,6 +2646,21 @@ def build_parser():
                         "cut before ingest, so a model that reasons out "
                         "loud does not fill this session's memory with "
                         "its own working)")
+    p.add_argument("--agent-max-delegations", type=int,
+                   default=orchestrator.AgentLimits.max_delegations_per_turn,
+                   metavar="N",
+                   help="how many pieces one /agent turn may hand out. The "
+                        "pieces past the limit are reported as not "
+                        "attempted and the turn is answered from what did "
+                        "come back (default: "
+                        f"{orchestrator.AgentLimits.max_delegations_per_turn})")
+    p.add_argument("--agent-max-wall", type=float,
+                   default=orchestrator.AgentLimits.max_wall_s,
+                   metavar="SECONDS",
+                   help="how long one /agent turn may spend handing pieces "
+                        "out before it stops and answers with what it has "
+                        f"(default: "
+                        f"{orchestrator.AgentLimits.max_wall_s:.0f})")
     p.add_argument("--turns", metavar="FILE",
                    help="run a scripted conversation from a JSON array or "
                         "JSONL file instead of the interactive REPL. Each "
