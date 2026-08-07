@@ -1454,8 +1454,15 @@ def check_delegation_call(tmp, tok, mdl):
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(state)
 
-    assert D.STATUSES == ("ok", "timeout", "dead", "aborted", "error"), (
+    assert D.STATUSES == ("ok", "timeout", "dead", "aborted", "error",
+                          "refused", "stopped"), (
         f"the failure taxonomy changed: {D.STATUSES}")
+    assert D.NOT_RUN == ("refused", "stopped"), D.NOT_RUN
+    for status in D.STATUSES:
+        made = D.DelegationResult(id=1, target="w", task="t", status=status)
+        assert made.ran == (status not in D.NOT_RUN), (
+            f"a {status!r} result disagrees with itself about whether a "
+            f"worker was asked")
 
     dead = Stub(cards=CARDS, port=free_port())
     # ingest on, so a failure has something to fail to leave behind
@@ -3657,6 +3664,150 @@ def check_plan_call(tmp, tok, mdl):
           "the helpers, and the session unmoved by all of it")
 
 
+def plan_of(*pairs, **fields):
+    """A delegating directive over (task, target) pairs, in plan order."""
+    from salt.agents import protocol as P
+    return P.Directive(action="delegate", subtasks=tuple(
+        P.Subtask(id=str(i + 1), task=task, target=target, **fields)
+        for i, (task, target) in enumerate(pairs)))
+
+
+@contextmanager
+def watched_delegate(scripted=None):
+    """Every request a round sends, and canned answers to them in place
+    of a real call when the check is about the loop rather than the
+    worker."""
+    from salt.agents import orchestrator as O
+    sent, real = [], O.delegate
+
+    def fake(state, req, context=None):
+        sent.append(req)
+        return real(state, req, context) if scripted is None else scripted.pop(0)
+
+    O.delegate = fake
+    try:
+        yield sent
+    finally:
+        O.delegate = real
+
+
+def made_result(target="w", task="t", status="ok", out=0, text="answered"):
+    now = time.time()
+    return D.DelegationResult(id=1, target=target, task=task, status=status,
+                              text=text, usage={"output_tokens": out},
+                              t_start=now, t_end=now)
+
+
+def check_execute_step(tmp, tok, mdl):
+    """A plan carried out in order, and every piece of it accounted for."""
+    from salt.agents import orchestrator as O
+
+    answer = "A 9 kWh bank covers the evening."
+    with Stub(cards=CARDS, pieces=(answer,)) as s:
+        state = replayed_state(tmp, "execute_run", tok, mdl,
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            plan = plan_of(("size the bank", "w"), ("check the inverter", "w"),
+                           ("write it up", "w"))
+            with watched_delegate() as sent:
+                out = O.execute(state, plan)
+            assert len(out) == 3 and s.httpd.posts == 3, (len(out),
+                                                          s.httpd.posts)
+            assert [r.status for r in out] == ["ok"] * 3, out
+            assert all(r.ran and r.text == answer for r in out), out
+            assert [r.task for r in sent] == [sub.task for sub
+                                              in plan.subtasks], sent
+            assert [r.id for r in out] == [1, 2, 3], (
+                f"delegations that happened were not given ids in order: "
+                f"{[r.id for r in out]}")
+            assert all(r.context.n_selected for r in out), (
+                "a subtask was sent without any of this session's memory")
+            assert all(req.timeout_s == state.offload_timeout
+                       for req in sent), (
+                "a subtask's worker is waited on differently from the same "
+                "worker under /offload")
+            assert not any(req.ingest for req in sent), (
+                "a delegated answer is remembered by a session that never "
+                "asked for it")
+
+            # what the plan said about one subtask reaches the worker
+            with watched_delegate() as sent:
+                O.execute(state, plan_of(("size it", "w"), budget_pct=0.5,
+                                         max_tokens=17, query="battery"))
+            assert (sent[0].budget_pct, sent[0].max_tokens) == (0.5, 17), sent
+            assert sent[0].query == "battery", sent[0]
+            assert s.httpd.last_payload["max_tokens"] == 17, (
+                "the reply cap the plan set for one subtask never reached "
+                "the worker")
+
+            # a name nobody has costs that subtask and nothing else
+            before = s.httpd.posts
+            out = O.execute(state, plan_of(("one", "w"), ("two", "nope"),
+                                           ("three", "w")))
+            assert [r.status for r in out] == ["ok", "refused", "ok"], out
+            assert not out[1].ran and not out[1].ok, out[1]
+            assert "nope" in out[1].error and "known" in out[1].error, out[1]
+            assert out[1].target == "nope" and out[1].id == 0, out[1]
+            assert s.httpd.posts == before + 2, (
+                "a refused subtask still reached a worker")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # the model that plans is not a worker tasks can be handed to
+    boss = R.RosterEntry(name="boss", alias="stub", role="orchestrator",
+                         server_url="http://127.0.0.1:1", model=STUB_CFG)
+    roster = R.Roster(path="<test>", entries=(
+        delegation_roster("http://127.0.0.1:1", tmp).entries[0], boss))
+    state = replayed_state(tmp, "execute_caps", tok, mdl, roster=roster)
+    try:
+        out = O.execute(state, plan_of(("plan it yourself", "boss")))
+        assert out[0].status == "refused" and "orchestrator" in out[0].error, (
+            out[0])
+
+        four = plan_of(("a", "w"), ("b", "w"), ("c", "w"), ("d", "w"))
+        with watched_delegate([made_result() for _ in range(4)]) as sent:
+            out = O.execute(state, four,
+                            O.AgentLimits(max_delegations_per_turn=2))
+        assert [r.status for r in out] == ["ok", "ok", "stopped",
+                                           "stopped"], out
+        assert len(sent) == 2, "a cap that was reached still sent work out"
+        assert "2 delegations" in out[2].error, out[2].error
+        assert out[3].task == "d", "a stopped subtask lost which one it was"
+
+        with watched_delegate([made_result(out=25) for _ in range(4)]) as sent:
+            out = O.execute(state, four,
+                            O.AgentLimits(max_total_delegated_tokens=10))
+        assert [r.status for r in out] == ["ok", "stopped", "stopped",
+                                           "stopped"], out
+        assert len(sent) == 1 and "tokens" in out[1].error, out[1].error
+
+        with watched_delegate([made_result() for _ in range(4)]) as sent:
+            out = O.execute(state, four, O.AgentLimits(max_wall_s=0))
+        assert [r.status for r in out] == ["stopped"] * 4, out
+        assert not sent, "a round with no time to spend still spent some"
+
+        aborted = [made_result(status="aborted")] + [made_result()] * 3
+        with watched_delegate(aborted) as sent:
+            out = O.execute(state, four)
+        assert [r.status for r in out] == ["aborted", "stopped", "stopped",
+                                           "stopped"], out
+        assert len(sent) == 1 and "interrupted" in out[1].error, out[1].error
+
+        try:
+            O.execute(state, four, O.AgentLimits(depth=2))
+            raise AssertionError("a round agreed to delegate two deep")
+        except O.OrchestratorError as exc:
+            assert "one round deep" in str(exc), exc
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+    print("41. the execute step: a 3 subtask plan run in order with each "
+          "one's budget and reply cap honoured, an invented worker refused "
+          "mid plan while the rest ran, and every cap stopping the round "
+          "with the pieces that never ran saying so")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -3709,6 +3860,7 @@ def main():
         check_think_handling(tmp, tok, mdl)
         check_deep_probe(tmp, tok, mdl)
         check_plan_call(tmp, tok, mdl)
+        check_execute_step(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

@@ -32,11 +32,15 @@ TASK_HEADER = "TASK: "
 # only used to size the FIRST cut when a context has to be trimmed; the
 # loop that follows measures, so a wrong guess costs a pass, not accuracy
 TOKENS_PER_WORD = 1.6
+# refused: the plan named a worker this session does not have. stopped: a
+# cap ended the round before this one's turn came. Neither reached a
+# worker, which is why they are told apart from the ways one can fail
+NOT_RUN = ("refused", "stopped")
 # ok: the worker answered. timeout: it went quiet mid-reply and is still
 # usable. dead: it is not answering at all. aborted: the person asking
 # changed their mind. error: everything else, including a server that
 # rejected the request
-STATUSES = ("ok", "timeout", "dead", "aborted", "error")
+STATUSES = ("ok", "timeout", "dead", "aborted", "error") + NOT_RUN
 # how many times a severing close is retried against arriving interrupts
 CLOSE_ATTEMPTS = 3
 
@@ -103,6 +107,14 @@ class DelegationResult:
     @property
     def ok(self):
         return self.status == "ok"
+
+    @property
+    def ran(self):
+        """Whether a worker was asked at all. A subtask that named nobody
+        this session has, or that a cap stopped before its turn, is a
+        result with no call behind it: nothing to count, nothing to
+        file, and nothing the round should present as an attempt."""
+        return self.status not in NOT_RUN
 
     @property
     def seconds(self):

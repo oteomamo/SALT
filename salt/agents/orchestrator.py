@@ -21,21 +21,48 @@ to a schema however capable the server behind it is: it is shown a
 worked directive instead of being handed one to fill.
 """
 
+import time
 from dataclasses import dataclass
 
 from salt.agents import protocol
-from salt.agents.delegate import close_quietly
-from salt.agents.roster import GUIDED_CAPABLE, GUIDED_PLAIN
+from salt.agents.delegate import (DelegationRequest, DelegationResult,
+                                  close_quietly, delegate)
+from salt.agents.roster import GUIDED_CAPABLE, GUIDED_PLAIN, RosterError
 
 ASK_HEADER = "ASK: "
 # a plan is a decision rather than prose: the same session asked the same
 # thing twice should decide the same way
 PLANNING_GEN = {"temperature": 0.0}
 MAIN_LABEL = "the chat model"
+REFUSED = "refused"
+STOPPED = "stopped"
 
 
 class OrchestratorError(Exception):
     """A round could not be planned at all, for want of a model."""
+
+
+@dataclass(frozen=True)
+class AgentLimits:
+    """What one round of delegating is allowed to cost.
+
+    Three ceilings, each of which stops the round rather than the
+    subtask that crossed it: what has been answered already is worth
+    keeping, and the pieces that never ran say so in their own results.
+
+    Tokens are counted as what the helpers generated. A prompt is mostly
+    context this session would have selected anyway, and counting it
+    would make one large conversation spend the whole round's allowance
+    on its first subtask.
+    """
+
+    max_delegations_per_turn: int = 4
+    max_wall_s: float = 600.0
+    max_total_delegated_tokens: int = 8192
+    # one round of delegation and no deeper: a worker cannot start a
+    # round of its own. Version 1 refuses anything else rather than
+    # pretending to enforce a depth it does not implement
+    depth: int = 1
 
 
 @dataclass(frozen=True)
@@ -141,3 +168,113 @@ def plan(state, ask, memory_block="", endpoint=None):
                                  targets_for(state))
     return protocol.ask_directive(endpoint.send, messages,
                                   guided=endpoint.guided)
+
+
+def not_run(subtask, status, why):
+    """A subtask that never reached a worker, as a result all the same.
+
+    The round has to be able to say what it did not do. A missing entry
+    would be indistinguishable from a subtask the plan never had, and
+    the synthesis that follows must be able to tell the model which
+    pieces of its own plan came back empty. No id: ids are handed out by
+    delegations that happened.
+    """
+    now = time.time()
+    return DelegationResult(id=0, target=subtask.target, task=subtask.task,
+                            status=status, error=why, t_start=now, t_end=now)
+
+
+def delegated_tokens(result):
+    return int((result.usage or {}).get("output_tokens") or 0)
+
+
+def stop_reason(limits, results, spent, started):
+    """Why this round should stop before the next subtask, or None.
+
+    Asked before each one rather than after, so a cap that has been
+    reached costs nothing further, and the subtask that would have
+    crossed it is reported as stopped rather than half done.
+    """
+    ran = [r for r in results if r.ran]
+    if any(r.status == "aborted" for r in ran):
+        return "the round was interrupted"
+    if len(ran) >= limits.max_delegations_per_turn:
+        return (f"this turn's limit of {limits.max_delegations_per_turn} "
+                f"delegations is used up")
+    if spent >= limits.max_total_delegated_tokens:
+        return (f"the helpers have generated {spent} tokens for this turn, "
+                f"which is its budget of {limits.max_total_delegated_tokens}")
+    waited = time.time() - started
+    if waited >= limits.max_wall_s:
+        return (f"this turn has spent {waited:.0f}s delegating, which is "
+                f"its limit of {limits.max_wall_s:.0f}s")
+    return None
+
+
+def request_timeout(state, entry):
+    """How long a subtask's worker may go quiet. The roster's number is a
+    fact about that model, so the session's own timeout stands in only
+    for workers nothing was said about."""
+    if entry.timeout_s is not None:
+        return None
+    return getattr(state, "offload_timeout", None)
+
+
+def subtask_request(state, subtask, entry):
+    """One subtask as a delegation this session can send."""
+    return DelegationRequest(task=subtask.task, target=subtask.target,
+                             context_query=subtask.query,
+                             budget_pct=subtask.budget_pct,
+                             max_tokens=subtask.max_tokens,
+                             ingest=bool(getattr(state, "offload_ingest",
+                                                 False)),
+                             timeout_s=request_timeout(state, entry))
+
+
+def worker_entry(state, name):
+    """The roster entry a subtask names, refused by name when the plan
+    invented one or reached for the model doing the planning."""
+    entry = state.worker(name).entry
+    if entry.role != "worker":
+        raise RosterError(f"{name!r} is this roster's {entry.role}, not a "
+                          f"worker a task can be handed to.")
+    return entry
+
+
+def execute(state, directive, limits=None, on_result=None):
+    """Run a directive's subtasks in the order it put them.
+
+    One at a time, on this thread, because the trie is read on it: every
+    subtask's context is selected, sent and answered before the next one
+    is looked at. What comes back is a result per subtask in plan order,
+    always the same length as the plan, so a round can account for every
+    piece of what it decided to do.
+
+    Nothing here ends the round early by raising. A worker that does not
+    exist, one that is down, a cap that has been reached and an
+    interrupted call are each a result with a status on it, and the
+    synthesis that follows is told about all of them.
+    """
+    limits = AgentLimits() if limits is None else limits
+    if limits.depth != 1:
+        raise OrchestratorError(
+            f"this salt delegates one round deep, and these limits ask for "
+            f"{limits.depth}")
+    results, spent, started = [], 0, time.time()
+    for subtask in directive.subtasks:
+        reason = stop_reason(limits, results, spent, started)
+        if reason:
+            result = not_run(subtask, STOPPED, reason)
+        else:
+            try:
+                entry = worker_entry(state, subtask.target)
+            except RosterError as exc:
+                result = not_run(subtask, REFUSED, str(exc))
+            else:
+                result = delegate(state, subtask_request(state, subtask,
+                                                         entry))
+                spent += delegated_tokens(result)
+        results.append(result)
+        if on_result is not None:
+            on_result(result)
+    return results
