@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.71
+## 2.10.0 - 2.10.81
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -119,6 +119,17 @@ Patch releases, grouped where several versions shipped one thing:
   model is then given instructions matched to that: fill the schema, or
   copy this object. The [agents](agents.md) page describes how a
   planning model talks back.
+- **2.10.74 - 2.10.80** A turn planned out. `/agent <task>` answers one
+  turn by planning it first: the chat model splits the task and names
+  the helper each piece goes to, every piece is sent with the
+  conversation's memory selected for it alone, and the chat model writes
+  the reply from what came back. A piece that never answered is shown to
+  it as a gap rather than left out, and a helper's words are quoted on
+  the way in, as material to use rather than instructions to follow. The
+  turn itself is an ordinary turn, kept and remembered like any other.
+  `--agent-max-delegations` and `--agent-max-wall` bound what one round
+  may cost, and every planned turn leaves a line in `agent_trace.jsonl`
+  that `/stats` reads back.
 
 ## 2.9.0 - 2.9.123
 

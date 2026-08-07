@@ -83,6 +83,7 @@ can be resumed here. The [MCP server](mcp.md) page has the setup.
 | `/offload <task>` | hand a task to a worker, `/offload @NAME <task>` picks one |
 | `/offload! @NAME` | put the last delegated task to another worker as well |
 | `@NAME <question>` | let that worker answer this turn instead |
+| `/agent <task>` | answer this turn by planning it out and handing the pieces to workers |
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
 | `/exit` | leave (the session is saved and resumable by id) |
 
