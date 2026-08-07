@@ -1,0 +1,28 @@
+{
+  "version": "salt-switch-rules/1",
+  "rules": [
+    {
+      "id": "files-profiled-apart",
+      "when": "n_attachments > 0",
+      "then": {"per_source_themes": true},
+      "expected": "a conversation with files attached profiles each file apart from the conversation, so a file's own themes are not read as themes of the conversation",
+      "evidence": "the switch can do nothing at all in a session with no files attached, so this turns it on exactly where it has something to act on and leaves it off everywhere else"
+    },
+    {
+      "id": "long-session-half-life",
+      "example": true,
+      "when": "session_age_s > 3600 and n_turns > 40",
+      "then": {"coverage_half_life": 8},
+      "expected": "in a long conversation, a theme that was suppressed early stops being suppressed forever",
+      "evidence": "unproven, and here to be read rather than run. The value matters more than the switch does, and a half-life set too short costs more than the staleness it fixes. Try it against your own conversations before you trust it."
+    },
+    {
+      "id": "orphan-mass-stable-keys",
+      "example": true,
+      "when": "orphan_mass > 0.2",
+      "then": {"stable_coverage_keys": true},
+      "expected": "when much of what a session has suppressed no longer matches anything it still holds, freeze the keyword order so the suppression survives the session growing",
+      "evidence": "unproven, and here to be read rather than run. The threshold is a guess, and this switch changes what a session writes down rather than only what it selects."
+    }
+  ]
+}

@@ -2131,8 +2131,13 @@ def build_switch_policy(args):
         print("--switch-agent needs --switch-rules FILE to decide by, so "
               "this session selects under its own settings.")
         return policy.NullPolicy()
-    loaded = rules.load(path, allow_examples=getattr(
-        args, "switch_rules_allow_examples", False))
+    examples = getattr(args, "switch_rules_allow_examples", False)
+    loaded = rules.load(path, allow_examples=examples)
+    n = sum(1 for rule in loaded if rule.example)
+    if n:
+        print(f"--switch-rules-allow-examples: {n} unproven "
+              f"{'rule' if n == 1 else 'rules'} from {path} will decide "
+              f"this session's switches.")
     if not loaded:
         print(f"{path} has no rules in it, so this session selects under "
               f"its own settings.")
@@ -2766,6 +2771,12 @@ def build_parser():
                         "of sentences about the session and the switch each "
                         "one changes while it is true. A sample ships as "
                         "salt/agents/switch_rules_sample.json")
+    p.add_argument("--switch-rules-allow-examples", action="store_true",
+                   help="load the rules a file marks as examples too. They "
+                        "are written down to be read rather than run, and "
+                        "an example that has not been measured on your own "
+                        "conversations is a guess (default: examples are "
+                        "skipped and the rest of the file still loads)")
     p.add_argument("--turns", metavar="FILE",
                    help="run a scripted conversation from a JSON array or "
                         "JSONL file instead of the interactive REPL. Each "

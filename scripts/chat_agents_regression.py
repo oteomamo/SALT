@@ -4732,6 +4732,101 @@ def check_switch_agent(tmp, tok, mdl):
           "not fire says nothing, and an empty file is off")
 
 
+# what a file that ships must never carry: a date, a measurement, or a
+# pointer at something only this repository has. The sample rules file is
+# read by strangers, and an internal reference in it is a leak that no
+# review catches twice
+PRIVATE_SHAPES = (
+    r"\d{4}-\d{2}-\d{2}",
+    r"[+-]?\d+(?:\.\d+)?\s*(?:pt|pts|%)\b",
+    r"\b\d+\s*(?:units|convs|conversations|probes|runs|sessions|samples)\b",
+    r"\bsigma\b", r"\bn\s*=\s*\d+", r"\bp\s*[<=>]\s*0?\.\d+",
+    r"PROGRESS|flag_map|arch_weakpoints|MCP_plan|plan/",
+    r"\bLoCoMo\b|\bLongMemEval\b|\bLME\b", r"\bmeasured\b|\bsweep\b",
+)
+
+
+def check_rules_sample(tmp, tok, mdl):
+    """The rules file that ships: it loads, its examples stay shut
+    unless asked for, and nothing internal rode out with it."""
+    import re
+
+    from salt.agents import rules as RU
+
+    path = Path(RU.__file__).resolve().parent / "switch_rules_sample.json"
+    assert path.is_file(), f"the sample rules file is not there: {path}"
+    assert path.name in (REPO / "pyproject.toml").read_text(
+        encoding="utf-8"), (
+        f"{path.name} is not package data, so an installed wheel would not "
+        f"have the file its own help points at")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["version"] == RU.SCHEMA, raw["version"]
+
+    shipped = RU.loads(raw)
+    assert [r.id for r in shipped] == ["files-profiled-apart"], (
+        f"the sample decides more than the one rule there is evidence for: "
+        f"{[r.id for r in shipped]}")
+    assert shipped[0].then == {"per_source_themes": True}, shipped[0]
+    every = RU.loads(raw, allow_examples=True)
+    assert len(every) == 3 and sum(r.example for r in every) == 2, every
+    for rule in every:
+        assert rule.expected and rule.evidence, (
+            f"{rule.id!r} ships with no word about what it is for")
+        assert (not rule.example) or "unproven" in rule.evidence.lower(), (
+            f"{rule.id!r} is an example without saying it is unproven")
+
+    # the one rule fires on a session with a file attached and not before
+    state = replayed_state(tmp, "sample_rules", tok, mdl)
+    try:
+        state.switch_policy = RU.RulePolicy(shipped, path)
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+        assert sent[0]["per_source_themes"] is False, (
+            "the sample profiled per source in a session with no files")
+        with redirect_stdout(io.StringIO()):
+            state.trie.add_turn("The roof faces south and was replaced "
+                                "under a ten year warranty.",
+                                role="doc", source="notes.txt",
+                                tokenizer=tok, model=mdl, device="cpu")
+            with watched_compress(state.trie) as sent:
+                cli.chat_turn(state, "and the roof?")
+        assert sent[0]["per_source_themes"] is True, (
+            "the sample did not fire on a session that has a file")
+        assert state.last_overrides == {"per_source_themes": True}, state
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # the tripwire: only the prose is scanned, since a threshold is a
+    # number a rule needs and a measurement is one nobody outside has
+    prose = " ".join(
+        str(entry.get(key, "")) for entry in raw["rules"]
+        for key in ("id", "expected", "evidence"))
+    for shape in PRIVATE_SHAPES:
+        found = re.search(shape, prose, re.I)
+        assert found is None, (
+            f"the shipped rules file says {found.group(0)!r}, which reads "
+            f"as an internal reference. That record lives elsewhere")
+
+    args = cli.build_parser().parse_args(
+        ["--device", "cpu", "--switch-agent", "--switch-rules", str(path)])
+    assert not args.switch_rules_allow_examples, args
+    with redirect_stdout(io.StringIO()):
+        chooser = cli.build_switch_policy(args)
+    assert [r.id for r in chooser.rules] == ["files-profiled-apart"], chooser
+    args.switch_rules_allow_examples = True
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chooser = cli.build_switch_policy(args)
+    assert len(chooser.rules) == 3, chooser.rules
+    assert "2 unproven rules" in buf.getvalue(), buf.getvalue()
+    print("49. the sample rules file: one rule with evidence behind it "
+          "loads, two written down as unproven stay shut until a session "
+          "asks for them out loud, the shipped rule fires only where its "
+          "switch can act, and nothing internal is anywhere in the prose")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -4792,6 +4887,7 @@ def main():
         check_switch_seam(tmp, tok, mdl)
         check_rules_language(tmp, tok, mdl)
         check_switch_agent(tmp, tok, mdl)
+        check_rules_sample(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
