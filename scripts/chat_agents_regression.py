@@ -4204,6 +4204,80 @@ def check_agent_trace(tmp, tok, mdl):
           "counting them, and an unreadable line costing only itself")
 
 
+def timeless(rec):
+    """A trace line with the clock taken out of it, so two runs of the
+    same round can be compared for everything else."""
+    rec = json.loads(json.dumps(rec))
+    for key in ("t_start", "t_end", "seconds"):
+        rec.pop(key, None)
+    for p in rec.get("pieces") or []:
+        p.pop("seconds", None)
+    return rec
+
+
+def check_scripted_round(tmp, tok, mdl):
+    """The same scripted round twice over: the same calls, the same
+    reply, the same record, and nothing that needs a card to run."""
+    from salt.agents import protocol as P
+    from salt.agents import trace as T
+
+    ask = "what size battery does that argue for"
+    plan_json = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [{"id": "1", "task": "size the bank", "target": "w"},
+                      {"id": "2", "task": "check the inverter",
+                       "target": "nope"}]})
+    final = "A 9 kWh bank covers the evening."
+    said = "Nine kilowatt hours of storage covers the evening draw."
+
+    runs = []
+    with Stub(cards=CARDS, pieces=(said,)) as s:
+        roster = delegation_roster(s.url, tmp)
+        for cid in ("round_a", "round_b"):
+            state = canned_state(tmp, cid, tok, mdl, [plan_json, final],
+                                 roster)
+            try:
+                runs.append({
+                    "printed": agent_line(state, f"/agent {ask}"),
+                    "trace": timeless(
+                        T.read(state.trie.cache_dir).rounds[0]),
+                    "prompts": json.loads(json.dumps(state.runner.prompts)),
+                    "reply": state.tail[-1]["content"],
+                    "ledger": [dict(r, t_start=0, t_end=0) for r
+                               in L.read(state.trie.cache_dir).records],
+                    "device": str(state.bge_device),
+                    "attach": state.worker("w").entry.attach,
+                    "url": state.worker("w").entry.server_url,
+                    "runner": type(state.runner).__name__})
+            finally:
+                with redirect_stdout(io.StringIO()):
+                    cli.close_ingest(state)
+
+    a, b = runs
+    assert a["reply"] == b["reply"] == final, (a["reply"], b["reply"])
+    assert a["prompts"] == b["prompts"], (
+        "the same round asked the chat model two different things")
+    assert a["trace"] == b["trace"], (
+        f"the same round left two different records:\n{a['trace']}\n"
+        f"{b['trace']}")
+    assert a["ledger"] == b["ledger"], (
+        "the same round filed two different delegations")
+    assert a["printed"] == b["printed"], (
+        f"the same round read differently on screen:\n{a['printed']!r}\n"
+        f"{b['printed']!r}")
+
+    # what the whole area costs to run: an encoder on the cpu, an http
+    # stub on loopback, and a chat model that is not a model
+    assert a["device"] == "cpu", a["device"]
+    assert a["runner"] == "_FakeRunner", a["runner"]
+    assert a["attach"] and "127.0.0.1" in a["url"], (
+        f"the suite reached a worker it would have had to start: {a['url']}")
+    print("45. a scripted round, twice: the same two calls to the chat "
+          "model, the same pieces handed out, the same reply and the same "
+          "record down to the byte once the clock is out of it, on a cpu "
+          "encoder and a loopback stub")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -4260,6 +4334,7 @@ def main():
         check_synthesis_call(tmp, tok, mdl)
         check_agent_turn(tmp, tok, mdl)
         check_agent_trace(tmp, tok, mdl)
+        check_scripted_round(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
