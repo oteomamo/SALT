@@ -2810,7 +2810,8 @@ def check_import_purity():
     heavy = ("torch", "transformers", "requests", "vllm", "salt.mcp",
              "salt.chat.runner_serve")
     for module in ("salt.agents", "salt.agents.roster", "salt.agents.worker",
-                   "salt.agents.delegate", "salt.agents.orchestrator"):
+                   "salt.agents.delegate", "salt.agents.orchestrator",
+                   "salt.agents.trace"):
         pulled = imports_pulled(module, heavy)
         assert not pulled, (
             f"importing {module} pulled {pulled}: the agent layer must cost "
@@ -4084,6 +4085,102 @@ def check_agent_turn(tmp, tok, mdl):
           "anything")
 
 
+def check_agent_trace(tmp, tok, mdl):
+    """One line per agent turn, what /stats makes of them, and the two
+    additive keys the turn's own event grew."""
+    from salt.agents import protocol as P
+    from salt.agents import trace as T
+
+    assert T.SCHEMA == "salt-agent-trace/1", T.SCHEMA
+    ask = "what size battery does that argue for"
+    plan_json = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [{"id": "1", "task": "size the bank", "target": "w"},
+                      {"id": "2", "task": "check the inverter",
+                       "target": "nope"}]})
+    final = "A 9 kWh bank covers the evening."
+    said = "Nine kilowatt hours of storage covers the evening draw."
+
+    with Stub(cards=CARDS, pieces=(said,)) as s:
+        roster = delegation_roster(s.url, tmp)
+        # the plan is refused once, so the round carries a repair
+        state = canned_state(tmp, "agent_trace", tok, mdl,
+                             ["I will ask w.", plan_json, final], roster)
+        try:
+            path = T.trace_path(state.trie.cache_dir)
+            assert not path.exists(), "a session traced a round it never ran"
+            agent_line(state, f"/agent {ask}")
+            found = T.read(state.trie.cache_dir)
+            assert len(found.rounds) == 1 and not found.warnings, found
+            rec = found.rounds[0]
+            assert set(rec) == set(T.FIELDS), (
+                f"the trace line and its own field list disagree: "
+                f"{sorted(set(rec) ^ set(T.FIELDS))}")
+            assert (rec["ask"], rec["action"]) == (ask, "delegate"), rec
+            assert [t["target"] for t in rec["subtasks"]] == ["w", "nope"], rec
+            assert [p["status"] for p in rec["pieces"]] == ["ok",
+                                                            "refused"], rec
+            assert [p["ran"] for p in rec["pieces"]] == [True, False], rec
+            assert rec["pieces"][0]["usage"]["output_tokens"] > 0, rec
+            assert rec["protocol_failures"] == 1 and not rec["fell_back"], rec
+            assert rec["reply_words"] == len(final.split()), rec
+            assert rec["seconds"] >= 0 and rec["t_end"] >= rec["t_start"], rec
+            assert final not in json.dumps(rec) and said not in \
+                json.dumps(rec), "the trace kept the prose as well as the "\
+                                 "accounting"
+
+            event = events_of(state)[-1]
+            assert event["agent_turn"] is True, event
+            assert event["agent_protocol_failures"] == 1, event
+            assert event["agent_delegations"] == 1, event
+
+            # an ordinary turn after it carries neither key
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+            plain = events_of(state)[-1]
+            assert "agent_turn" not in plain and "agent_protocol_failures" \
+                not in plain, (
+                f"an ordinary turn was recorded as an agent turn: {plain}")
+            assert len(T.read(state.trie.cache_dir).rounds) == 1, (
+                "an ordinary turn was written to the agent trace")
+
+            summary = state.agent_stats
+            assert summary == {"turns": 1, "pieces": 2, "delegated": 1,
+                               "failed": 0, "protocol_failures": 1,
+                               "seconds": summary["seconds"]}, summary
+            assert cli.resume_rounds(state.trie.cache_dir) == summary, (
+                "a resumed session would not count what this one did")
+            out = stats_output(state)
+            assert "agent turns: 1, 1 of 2 pieces handed out" in out, out
+            assert "1 plan repairs" in out and "agent_trace.jsonl" in out, out
+
+            # a line this salt cannot read costs that line and no more
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write("{not json\n")
+                fh.write(json.dumps({"schema": "salt-agent-trace/2"}) + "\n")
+            after = T.read(state.trie.cache_dir)
+            assert len(after.rounds) == 1 and len(after.warnings) == 2, after
+            assert T.summarize(after.rounds) == summary, (
+                "an unreadable line changed what the readable ones say")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # a session with no rounds says nothing about rounds
+        quiet = replayed_state(tmp, "agent_quiet", tok, mdl, roster=roster)
+        try:
+            assert quiet.agent_stats == T.blank_summary(), quiet.agent_stats
+            assert "agent turns:" not in stats_output(quiet), (
+                "a session that planned nothing reported on planning")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(quiet)
+    print("44. the agent trace: one line per planned turn holding what it "
+          "decided and what each piece cost and none of the prose, the "
+          "turn's own event carrying the two additive keys, /stats "
+          "counting them, and an unreadable line costing only itself")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -4139,6 +4236,7 @@ def main():
         check_execute_step(tmp, tok, mdl)
         check_synthesis_call(tmp, tok, mdl)
         check_agent_turn(tmp, tok, mdl)
+        check_agent_trace(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

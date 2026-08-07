@@ -403,6 +403,7 @@ class Round:
     directive: object = None
     results: tuple = field(default_factory=tuple)
     text: str = ""
+    synthesis: dict = field(default_factory=dict)
     protocol_failures: int = 0
     fell_back: bool = False
     t_start: float = 0.0
@@ -421,12 +422,13 @@ class Round:
         return tuple(r for r in self.results if r.ok)
 
 
-def round_record(ask, directive, results, text, outcome=None, started=None):
+def round_record(ask, directive, results, text, outcome=None, started=None,
+                 synthesis=None):
     """One round as the thing a session keeps. Built in one place because
     a round written up all at once and one written up as it is generated
     are the same round, and must be recorded as the same round."""
     return Round(ask=ask, directive=directive, results=tuple(results),
-                 text=text,
+                 text=text, synthesis=dict(synthesis or {}),
                  protocol_failures=getattr(outcome, "failures", 0),
                  fell_back=bool(getattr(outcome, "fell_back", False)),
                  t_start=time.time() if started is None else started,

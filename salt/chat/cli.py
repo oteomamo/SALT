@@ -35,7 +35,7 @@ from pathlib import Path
 
 import torch
 
-from salt.agents import ledger, orchestrator, protocol
+from salt.agents import ledger, orchestrator, protocol, trace
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   close_quietly, delegate)
 from salt.agents.roster import (GUIDED_CAPABLE, UNPROBED, RosterError,
@@ -215,6 +215,14 @@ def resume_delegations(session_dir):
     return found.last_id, ledger.summarize(found.records)
 
 
+def resume_rounds(session_dir):
+    """What this session has already planned out, as /stats reports it."""
+    found = trace.read(session_dir)
+    for note in found.warnings:
+        print(note)
+    return trace.summarize(found.rounds)
+
+
 def resume_workers(state):
     """Take stock of what an earlier run of this session left behind.
 
@@ -275,8 +283,11 @@ class ChatState:
         # the last task handed over, so it can be put to another worker
         # without typing it twice
         self.last_task = None
-        # the last agent turn this session took, whole
+        # the last agent turn this session took, whole, and the one the
+        # turn being recorded now belongs to
         self.last_round = None
+        self.pending_round = None
+        self.agent_stats = resume_rounds(self.trie.cache_dir)
         self.offload_ingest = args.offload_ingest
         self.agent_keep_think = args.agent_keep_think
         self.offload_context_cap = args.offload_context_cap
@@ -418,7 +429,8 @@ class ChatState:
         self.delegation_seq, self.delegation_stats = resume_delegations(
             self.trie.cache_dir)
         self.pending_delegations = []
-        self.last_round = None
+        self.last_round = self.pending_round = None
+        self.agent_stats = resume_rounds(self.trie.cache_dir)
         resume_workers(self)
         self.load_full_attachments()
         self.load_tail()
@@ -1283,7 +1295,9 @@ class AgentRound:
             # it is what says how far it got
             self.record = orchestrator.round_record(
                 self.task, directive, self.results, "".join(pieces).strip(),
-                outcome, started)
+                outcome, started,
+                synthesis=getattr(state.runner, "last_engine_stats", None))
+            state.last_round = state.pending_round = self.record
 
 
 def agent_turn(state, rest):
@@ -1301,8 +1315,39 @@ def agent_turn(state, rest):
         return
     round_ = AgentRound(task)
     reply = chat_turn(state, task, reply_fn=round_, reply_label=AGENT_LABEL)
-    state.last_round = round_.record
+    file_trace(state, round_.record)
     return reply
+
+
+def file_trace(state, record):
+    """File one round in the session's trace and count it. Written after
+    the reply is on screen and best effort like the delegation ledger:
+    losing the history of a turn must not take the turn with it. The
+    counting is not conditional on the write, because the round
+    happened either way."""
+    if record is None:
+        return
+    rec = trace.record(record)
+    trace.tally(state.agent_stats, rec)
+    try:
+        trace.append(state.trie.cache_dir, rec)
+    except OSError as exc:
+        print(f"[agent] recording this round failed: {exc}")
+
+
+def agent_extra(state):
+    """The round this turn was, as kvtrace keys.
+
+    Empty on an ordinary turn, so the event keeps exactly the shape it
+    has always had. The pending round is cleared here for the same
+    reason the delegations are: it belongs to the turn being recorded
+    now, and holding it back would file it against a later one.
+    """
+    record, state.pending_round = state.pending_round, None
+    if record is None:
+        return {}
+    return {"agent_turn": True,
+            "agent_protocol_failures": int(record.protocol_failures)}
 
 
 def delegation_extra(state):
@@ -1345,6 +1390,23 @@ def print_delegation_stats(state, stats=None):
               f"{'call' if w['calls'] == 1 else 'calls'}, {w['ok']} ok, "
               f"{w['prompt_tokens']} in / {w['output_tokens']} out tokens, "
               f"{mean:.1f}s mean, last {w['last_status']}")
+
+
+def print_agent_stats(state, stats=None):
+    """What this session has planned out rather than answered. Silent
+    until it has planned something: a session that never ran a round has
+    nothing to report that /roster does not already say."""
+    stats = state.agent_stats if stats is None else stats
+    if not stats["turns"]:
+        return
+    mean = stats["seconds"] / stats["turns"]
+    unanswered = (f", {stats['failed']} unanswered" if stats["failed"]
+                  else "")
+    repairs = (f", {stats['protocol_failures']} plan repairs"
+               if stats["protocol_failures"] else "")
+    print(f"agent turns: {stats['turns']}, {stats['delegated']} of "
+          f"{stats['pieces']} pieces handed out{unanswered}, "
+          f"{mean:.1f}s mean{repairs} (agent_trace.jsonl has each turn)")
 
 
 def build_stats(state):
@@ -1390,6 +1452,7 @@ def build_stats(state):
                          or state.stable_coverage_keys)},
         "memory": {"n_near_dups": t.n_near_dups, "n_masked": t.n_masked},
         "delegations": state.delegation_stats,
+        "rounds": state.agent_stats,
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -1505,6 +1568,7 @@ def print_stats(state, payload=None):
         print(f"session cap: off this launch; {n_masked} sentences "
               f"masked earlier in this session")
     print_delegation_stats(state, d["delegations"])
+    print_agent_stats(state, d["rounds"])
     ing = d["ingest"]
     fail_note = (f", {ing['failures']} failed (ingest_failures.jsonl)"
                  if ing["failures"] else "")
@@ -2112,6 +2176,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     extra = dict(drift_extra or {})
     extra.update(getattr(state.runner, "last_engine_stats", None) or {})
     extra.update(delegation_extra(state))
+    extra.update(agent_extra(state))
     try:
         state.kvtrace.record_turn(
             tokenizer=reply_tokenizer or state.runner.tokenizer,
