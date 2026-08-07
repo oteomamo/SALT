@@ -3209,6 +3209,15 @@ def check_think_handling(tmp, tok, mdl):
         ("<think>a</think>   ", "", "a reply that is empty after the cut"),
         ("no tags at all", "no tags at all", "a model that does not think"),
         ("pre <think>x</think> post", "pre  post", "a thought in the middle"),
+        # QwQ-32B and its family: the chat template writes the opening
+        # tag into the prompt, so the model only ever emits the closer
+        ("Okay, let me work this out.</think>ANSWER", "ANSWER",
+         "a closer with no opener, the tag having been in the prompt"),
+        ("thinking</think>a</think>b", "b",
+         "a template-opened thought followed by a closed one"),
+        ("thinking</think>   ", "",
+         "a template-opened reply that is nothing but working"),
+        ("</think>ANSWER", "ANSWER", "the closer first, with nothing before"),
     )
     for text, want, why in cases:
         assert P.strip_think(text) == want, (

@@ -100,6 +100,26 @@ class Directive:
         return tuple(seen)
 
 
+def _template_opened(text):
+    """What is left of a reply whose opening think tag was never the
+    model's to write, or None when this is not that shape.
+
+    Some reasoning models have the opening tag baked into their chat
+    template, so it sits in the prompt and the model only ever emits the
+    closer. Counting tags reads that reply as having no thought in it at
+    all and keeps the entire thought as the answer, which is the one
+    outcome the cut exists to prevent. A closer with no opener before it
+    means everything up to it was working.
+    """
+    closed = _THINK_CLOSE.search(text)
+    if closed is None:
+        return None
+    opened = _THINK_OPEN.search(text)
+    if opened is not None and opened.start() < closed.start():
+        return None
+    return text[closed.end():]
+
+
 def strip_think(text, reasoning_content=None):
     """Reasoning removed, answer kept.
 
@@ -115,6 +135,9 @@ def strip_think(text, reasoning_content=None):
     """
     if not text:
         return ""
+    rest = _template_opened(text)
+    if rest is not None:
+        return strip_think(rest)
     out, depth, i = [], 0, 0
     while i < len(text):
         opened = _THINK_OPEN.match(text, i)
