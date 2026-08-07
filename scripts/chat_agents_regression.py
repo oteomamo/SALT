@@ -3230,6 +3230,32 @@ def check_think_handling(tmp, tok, mdl):
     out = P.ask_directive(send, [])
     assert out.fell_back and out.directive.answer == "", out.directive
 
+    # a turn ANSWERED by a reasoning model is cut too, wherever that
+    # model sits: the reply seam is how a worker answers a turn and how
+    # an orchestrator writes one up, and neither may put its working
+    # into the conversation
+    thinker = ("Okay, so they want the evening draw.</think>"
+               "A 9 kWh bank covers the evening at that draw.")
+    with Stub(cards=CARDS, pieces=(thinker,)) as s:
+        state = replayed_state(tmp, "think_turn", tok, mdl,
+                               roster=delegation_roster(s.url, tmp))
+        try:
+            before = state.trie.n_sentences
+            out = worker_turn_line(state, "@w what size battery")
+            assert "Okay, so they want" in out, (
+                f"the working was never shown to the person: {out}")
+            assert state.tail[-1]["content"] == (
+                "A 9 kWh bank covers the evening at that draw."), (
+                f"a reasoning model's working entered the verbatim tail: "
+                f"{state.tail[-1]['content'][:80]!r}")
+            kept = " ".join(state.trie.texts[before:])
+            assert "Okay, so they want" not in kept, (
+                f"the working was remembered: {kept[:120]!r}")
+            assert "9 kWh bank" in kept, kept
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
     # and a delegated answer is cut before it is remembered
     state = replayed_state(tmp, "think_ingest", tok, mdl)
     try:

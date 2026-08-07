@@ -2292,7 +2292,13 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     if commit is not None and gen_ok:
         commit(save=False)
 
-    reply = "".join(pieces).strip()
+    # what the model said, not what it thought. The working was printed
+    # as it arrived, so nobody loses it, and a conversation must not be
+    # able to recall something a model considered and dropped. The same
+    # cut a delegated answer gets, made here because a reasoning model
+    # can answer a turn directly: through @NAME, or as the orchestrator
+    # writing an /agent turn up
+    reply = protocol.reply_text("".join(pieces))
     # no drain here (it would put a big paste's leftover encode back on
     # the prompt path): record_turn reads only pre-turn rows, and
     # appends never move them
