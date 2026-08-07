@@ -4374,8 +4374,9 @@ def check_switch_seam(tmp, tok, mdl):
     try:
         assert isinstance(state.switch_policy, PL.NullPolicy), (
             "a session decides about its own switches by default")
-        values, overrides = turn_switches_of(state)
-        assert overrides == {} and set(values) == set(PL.KWARGS), values
+        values, overrides, audit = turn_switches_of(state)
+        assert overrides == {} and audit == (), (overrides, audit)
+        assert set(values) == set(PL.KWARGS), values
         for name in PL.KWARGS:
             assert values[name] == getattr(state, name), name
 
@@ -4614,6 +4615,123 @@ def check_rules_language(tmp, tok, mdl):
           f"that could stack two cancelling switches refused whole")
 
 
+def rules_file(tmp, name, *entries):
+    path = tmp / name
+    path.write_text(json.dumps(rules_doc(*entries)), encoding="utf-8")
+    return path
+
+
+def quiet_state(tmp, cid, tok, mdl, **kw):
+    with redirect_stdout(io.StringIO()):
+        return replayed_state(tmp, cid, tok, mdl, **kw)
+
+
+def check_switch_agent(tmp, tok, mdl):
+    """The two flags that turn a decision on, and the trail it leaves."""
+    from salt.agents import policy as PL
+    from salt.agents import rules as RU
+
+    args = cli.build_parser().parse_args(["--device", "cpu"])
+    assert not args.switch_agent and args.switch_rules is None, args
+    assert isinstance(cli.build_switch_policy(args), PL.NullPolicy)
+
+    # the switch without the file decides nothing, out loud
+    half = cli.build_parser().parse_args(["--device", "cpu", "--switch-agent"])
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chooser = cli.build_switch_policy(half)
+    assert isinstance(chooser, PL.NullPolicy), chooser
+    assert "--switch-rules" in buf.getvalue(), buf.getvalue()
+
+    fires = rules_file(tmp, "fire.json",
+                       {"id": "always", "when": "n_sentences > 0",
+                        "then": {"per_source_themes": True},
+                        "expected": "files profiled apart"})
+    on = ["--switch-agent", "--switch-rules", str(fires)]
+    chooser = cli.build_switch_policy(
+        cli.build_parser().parse_args(["--device", "cpu", *on]))
+    assert isinstance(chooser, RU.RulePolicy) and chooser.decides, chooser
+
+    broken = tmp / "broken.json"
+    broken.write_text(json.dumps(rules_doc({"id": "x", "when": "nope > 0",
+                                            "then": {"coverage_gc": True}})),
+                      encoding="utf-8")
+    try:
+        cli.build_switch_policy(cli.build_parser().parse_args(
+            ["--device", "cpu", "--switch-agent", "--switch-rules",
+             str(broken)]))
+        raise AssertionError("a session started under rules it cannot read")
+    except RU.RuleError as exc:
+        assert "nope" in str(exc), exc
+
+    state = quiet_state(tmp, "switch_on", tok, mdl, flags=on)
+    try:
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+        assert sent[0]["per_source_themes"] is True, sent[0]
+        assert state.per_source_themes is False, (
+            "a decision for one turn was written into the session")
+        assert state.last_overrides == {"per_source_themes": True}, \
+            state.last_overrides
+        assert [row["id"] for row in state.last_audit] == ["always"], \
+            state.last_audit
+        event = events_of(state)[-1]
+        assert event["switch_overrides"] == {"per_source_themes": True}, event
+        assert event["switch_rules_fired"] == ["always"], event
+        out = stats_output(state)
+        assert "switch agent: rules" in out and "fire.json" in out, out
+        assert "always (n_sentences > 0): per_source_themes=True" in out, out
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # a rule that does not fire leaves the turn and its event alone
+    quiet = rules_file(tmp, "quiet.json",
+                       {"id": "never", "when": "n_attachments > 5",
+                        "then": {"coverage_gc": True}})
+    state = quiet_state(tmp, "switch_quiet", tok, mdl,
+                        flags=["--switch-agent", "--switch-rules",
+                               str(quiet)])
+    try:
+        with redirect_stdout(io.StringIO()):
+            cli.chat_turn(state, "and the inverter?")
+        assert state.last_overrides == {} and state.last_audit == (), state
+        event = events_of(state)[-1]
+        assert "switch_overrides" not in event, event
+        assert "switch_rules_fired" not in event, event
+        assert "switch agent:" not in stats_output(state), (
+            "a turn nothing decided about was explained anyway")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    # D2 under the flag: a rules file with nothing in it is off
+    none = rules_file(tmp, "none.json")
+    runs = []
+    for cid, flags in (("d2_off", ()),
+                       ("d2_on", ("--switch-agent", "--switch-rules",
+                                  str(none)))):
+        state = quiet_state(tmp, cid, tok, mdl, flags=flags)
+        try:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+            runs.append({"prompt": json.loads(json.dumps(
+                             state.runner.prompts[-1])),
+                         "stats": json.loads(json.dumps(state.last_stats)),
+                         "trie": trie_snapshot(state.trie)})
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    assert runs[0] == runs[1], (
+        "a session under an empty rules file did not select as one without")
+    print("48. the switch agent: --switch-agent and --switch-rules turn a "
+          "decision on together and neither alone, a fired rule reaches "
+          "that turn's selection and nothing else, /stats and the turn's "
+          "event both say which rule and what it changed, a rule that did "
+          "not fire says nothing, and an empty file is off")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -4673,6 +4791,7 @@ def main():
         check_scripted_round(tmp, tok, mdl)
         check_switch_seam(tmp, tok, mdl)
         check_rules_language(tmp, tok, mdl)
+        check_switch_agent(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

@@ -35,7 +35,7 @@ from pathlib import Path
 
 import torch
 
-from salt.agents import ledger, orchestrator, policy, protocol, trace
+from salt.agents import ledger, orchestrator, policy, protocol, rules, trace
 from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   close_quietly, delegate)
@@ -290,8 +290,9 @@ class ChatState:
         self.pending_round = None
         # who decides how a turn selects. Nobody, until something says
         # otherwise: the default is not asked and changes nothing
-        self.switch_policy = policy.NullPolicy()
+        self.switch_policy = build_switch_policy(args)
         self.last_overrides = {}
+        self.last_audit = ()
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         self.offload_ingest = args.offload_ingest
         self.agent_keep_think = args.agent_keep_think
@@ -1409,6 +1410,37 @@ def print_delegation_stats(state, stats=None):
               f"{mean:.1f}s mean, last {w['last_status']}")
 
 
+def switch_extra(state):
+    """What a decision changed about this turn, as kvtrace keys. Empty
+    on a turn nothing decided about, so the event keeps the shape it has
+    always had."""
+    if not state.last_overrides:
+        return {}
+    return {"switch_overrides": dict(state.last_overrides),
+            "switch_rules_fired": [row["id"] for row in state.last_audit]}
+
+
+def print_switch_audit(state, decided=None):
+    """Why the last turn selected the way it did. Silent unless
+    something was decided: a session whose policy left every switch
+    alone has nothing to explain."""
+    decided = ({"policy": state.switch_policy.name,
+                "path": getattr(state.switch_policy, "path", ""),
+                "overrides": dict(state.last_overrides),
+                "audit": list(state.last_audit)}
+               if decided is None else decided)
+    if not decided["overrides"]:
+        return
+    where = f" ({decided['path']})" if decided["path"] else ""
+    print(f"switch agent: {decided['policy']}{where} changed "
+          f"{len(decided['overrides'])} switch"
+          f"{'' if len(decided['overrides']) == 1 else 'es'} for the last "
+          f"turn only")
+    for row in decided["audit"]:
+        changed = ", ".join(f"{k}={v}" for k, v in sorted(row["then"].items()))
+        print(f"  {row['id']} ({row['when']}): {changed}")
+
+
 def print_agent_stats(state, stats=None):
     """What this session has planned out rather than answered. Silent
     until it has planned something: a session that never ran a round has
@@ -1470,6 +1502,10 @@ def build_stats(state):
         "memory": {"n_near_dups": t.n_near_dups, "n_masked": t.n_masked},
         "delegations": state.delegation_stats,
         "rounds": state.agent_stats,
+        "decided": {"policy": state.switch_policy.name,
+                    "path": getattr(state.switch_policy, "path", ""),
+                    "overrides": dict(state.last_overrides),
+                    "audit": list(state.last_audit)},
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -1586,6 +1622,7 @@ def print_stats(state, payload=None):
               f"masked earlier in this session")
     print_delegation_stats(state, d["delegations"])
     print_agent_stats(state, d["rounds"])
+    print_switch_audit(state, d["decided"])
     ing = d["ingest"]
     fail_note = (f", {ing['failures']} failed (ingest_failures.jsonl)"
                  if ing["failures"] else "")
@@ -2082,8 +2119,29 @@ def handle_command(line, state):
     return True
 
 
+def build_switch_policy(args):
+    """Who decides this session's switches, from what it was launched
+    with. Nobody unless both halves are there: the switch turns the
+    layer on and the file is what it would decide by, and one without
+    the other decides nothing rather than guessing."""
+    if not getattr(args, "switch_agent", False):
+        return policy.NullPolicy()
+    path = getattr(args, "switch_rules", None)
+    if not path:
+        print("--switch-agent needs --switch-rules FILE to decide by, so "
+              "this session selects under its own settings.")
+        return policy.NullPolicy()
+    loaded = rules.load(path, allow_examples=getattr(
+        args, "switch_rules_allow_examples", False))
+    if not loaded:
+        print(f"{path} has no rules in it, so this session selects under "
+              f"its own settings.")
+    return rules.RulePolicy(loaded, path)
+
+
 def turn_switches(state):
-    """What this turn selects under, and what a policy changed about it.
+    """What this turn selects under, what a policy changed about it, and
+    why.
 
     The session's own settings are read fresh every turn, so nothing a
     policy decided last turn survives into this one. A session with the
@@ -2093,10 +2151,10 @@ def turn_switches(state):
     values = {name: getattr(state, name) for name in policy.KWARGS}
     chooser = getattr(state, "switch_policy", None)
     if chooser is None or not chooser.decides:
-        return values, {}
+        return values, {}, ()
     overrides = policy.check(chooser.decide(snapshot(state)))
     values.update(overrides)
-    return values, overrides
+    return values, overrides, chooser.explain()
 
 
 def compress_kwargs(state, line, excl, switches):
@@ -2144,8 +2202,11 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     # (selection honors that division while a sentence still rides in
     # the tail, unless --no-tail-exclude)
     memory_block, selected_idx, drift_extra, commit = "", [], None, None
+    # cleared per turn: a decision belongs to the turn it was made for,
+    # and a turn with nothing to select makes none
+    state.last_overrides, state.last_audit = {}, ()
     if state.trie.n_sentences > 0:
-        switches, state.last_overrides = turn_switches(state)
+        switches, state.last_overrides, state.last_audit = turn_switches(state)
         excl = (tail_resident_sent_idx(state.trie, state.tail)
                 if switches["tail_exclude"] else None)
         comp = state.trie.compress(
@@ -2221,6 +2282,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     extra.update(getattr(state.runner, "last_engine_stats", None) or {})
     extra.update(delegation_extra(state))
     extra.update(agent_extra(state))
+    extra.update(switch_extra(state))
     try:
         state.kvtrace.record_turn(
             tokenizer=reply_tokenizer or state.runner.tokenizer,
@@ -2693,6 +2755,17 @@ def build_parser():
                         "out before it stops and answers with what it has "
                         f"(default: "
                         f"{orchestrator.AgentLimits.max_wall_s:.0f})")
+    p.add_argument("--switch-agent", action="store_true",
+                   help="let a policy decide this session's memory "
+                        "switches per turn instead of leaving them at what "
+                        "the flags set. Needs --switch-rules to decide by "
+                        "(default: off, and every turn selects under the "
+                        "session's own settings)")
+    p.add_argument("--switch-rules", metavar="FILE",
+                   help="the rules --switch-agent decides by: a JSON file "
+                        "of sentences about the session and the switch each "
+                        "one changes while it is true. A sample ships as "
+                        "salt/agents/switch_rules_sample.json")
     p.add_argument("--turns", metavar="FILE",
                    help="run a scripted conversation from a JSON array or "
                         "JSONL file instead of the interactive REPL. Each "
@@ -2826,6 +2899,15 @@ def main(argv=None):
             roster = load_roster(args.roster)
         except RosterError as exc:
             print(f"--roster: {exc}", file=sys.stderr)
+            return 1
+
+    # and the same reason again: a rules file that will not load must
+    # say so before a conversation starts selecting under it
+    if args.switch_agent and args.switch_rules:
+        try:
+            build_switch_policy(args)
+        except (OSError, rules.RuleError) as exc:
+            print(f"--switch-rules: {exc}", file=sys.stderr)
             return 1
 
     models = list_models()

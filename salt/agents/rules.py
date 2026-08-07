@@ -365,3 +365,11 @@ class RulePolicy(SwitchPolicy):
                 fired.append(rule.id)
         self.fired = tuple(fired)
         return check(overrides)
+
+    def explain(self):
+        """The rules that fired last, each with the sentence that was
+        true and what it changed. What the audit trail is made of."""
+        by_id = {rule.id: rule for rule in self.rules}
+        return tuple({"id": rule_id, "when": by_id[rule_id].when,
+                      "then": dict(by_id[rule_id].then)}
+                     for rule_id in self.fired if rule_id in by_id)

@@ -62,6 +62,12 @@ class SwitchPolicy:
     def decide(self, snapshot):
         return {}
 
+    def explain(self):
+        """Why the last decision came out as it did, one entry per
+        reason. Empty from a policy that has no reasons to give, which
+        is every policy that is not written down."""
+        return ()
+
 
 class NullPolicy(SwitchPolicy):
     """Nobody decides. The session's own settings, every turn."""

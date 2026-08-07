@@ -63,6 +63,8 @@ Agents:
 | `--agent-keep-think` | off | keep a worker's reasoning when its answer is remembered, instead of cutting it |
 | `--agent-max-delegations N` | 4 | how many pieces one `/agent` turn may hand out before the rest are reported as not attempted |
 | `--agent-max-wall SECONDS` | 600 | how long one `/agent` turn may spend handing pieces out before it answers with what it has |
+| `--switch-agent` | off | let a policy decide the memory switches per turn instead of leaving them where the flags set them |
+| `--switch-rules FILE` | none | the rules `--switch-agent` decides by, as sentences about the session and the switch each one changes |
 
 Memory sizing:
 
