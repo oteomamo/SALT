@@ -106,12 +106,14 @@ def _age(trie):
 
 def _tail_occupancy(state):
     """How full the verbatim tail is, 0 to 1. None where there is no
-    tail at all, which is every session the MCP server holds."""
+    tail at all, which is every session the MCP server holds. The tail
+    list holds messages and compacts past two per tail_max exchange, so
+    two per exchange is the capacity the fill is measured against."""
     tail = getattr(state, "tail", None)
     cap = getattr(state, "tail_max", None)
     if tail is None or not cap:
         return None
-    return round(min(1.0, len(tail) / float(cap)), 3)
+    return round(min(1.0, len(tail) / (2.0 * cap)), 3)
 
 
 def _window(state):
