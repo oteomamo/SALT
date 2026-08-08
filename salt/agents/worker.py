@@ -322,6 +322,17 @@ class WorkerHandle:
         with self._lock:
             if self.process is not None and self.process.poll() is None:
                 return self.process
+            d = Path(workers_dir)
+            # a record with a live pid is a server a PREVIOUS run left
+            # serving. Spawning over it would overwrite the only trace
+            # of that process, and nothing would ever stop it again
+            stale = self._previous_run(d)
+            if stale:
+                raise WorkerError(
+                    f"worker {self.name!r} looks alive from a previous "
+                    f"run ({stale}). Probe it with /worker probe "
+                    f"{self.name} and attach the entry to it with "
+                    f"server_url, or stop that process first.")
             port = self.entry.spawn.get("port", "auto")
             if port == "auto":
                 port = free_port()
@@ -331,7 +342,6 @@ class WorkerHandle:
                     f"Point the entry at it with server_url to attach "
                     f"instead, or give spawn a free port.")
             argv = spawn_argv(self.entry, port)
-            d = Path(workers_dir)
             d.mkdir(parents=True, exist_ok=True)
             log_path = d / f"{self.name}.log"
             try:
@@ -357,6 +367,23 @@ class WorkerHandle:
             # and an exit path that skips /worker stop is still an exit
             atexit.register(self.stop)
             return self.process
+
+    def _previous_run(self, d):
+        """A one-line description of a still-running server this handle's
+        record file names from an earlier session, or empty."""
+        if self.record_path is not None:
+            return ""  # this session's own record; start() already checked
+        path = d / f"{self.name}.json"
+        if not path.is_file():
+            return ""
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return ""
+        if not isinstance(rec, dict) or not pid_alive(rec.get("pid")):
+            return ""
+        where = rec.get("url") or f"port {rec.get('port')}"
+        return f"pid {rec.get('pid')} at {where}"
 
     @property
     def ready_timeout(self):
@@ -463,11 +490,15 @@ class WorkerHandle:
                 proc.wait(grace)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait(grace)
+                try:
+                    proc.wait(grace)
+                except subprocess.TimeoutExpired:
+                    pass  # unkillable (D-state): the record still goes
         # the client outlived its server, and a call in flight has already
         # broken on the closed connection - a bounded wait, because this
         # also runs at interpreter exit
-        if self._lock.acquire(timeout=grace):
+        released = self._lock.acquire(timeout=grace)
+        if released:
             try:
                 runner, self.runner = self.runner, None
                 if runner is not None:
@@ -482,10 +513,22 @@ class WorkerHandle:
             except OSError:
                 pass
             self.record_path = None
-        self.url, self.port = None, None
-        self.state = DECLARED
-        self.probe_result = UNPROBED
-        self.last_error = ""
+        if released:
+            self.url, self.port = None, None
+            self.state = DECLARED
+            self.probe_result = UNPROBED
+            self.last_error = ""
+        else:
+            # a call is still holding the handle. The reference is dropped
+            # so the next open builds a fresh client instead of reusing
+            # one pointed at the dead server (the in-flight call keeps its
+            # own and breaks on the closed connection), but the client is
+            # not unloaded under it and the state says what happened
+            self.runner = None
+            self.state = DEAD
+            self.last_error = (f"worker {self.name!r} was stopped while a "
+                               f"call was still holding it; probe it "
+                               f"before using it again")
         return proc.returncode
 
     def _write_record(self, d, argv):
@@ -549,10 +592,15 @@ class WorkerHandle:
 
         For callers that want what the runner knows - its window, its
         tokenizer - rather than to send on it. Reporting a worker that
-        cannot be reached is the sending call's job, and it says why.
+        cannot be reached is the sending call's job, and it says why -
+        which is also why a failure HERE is not counted against the
+        worker: one delegation to a cold dead endpoint looks first and
+        then calls, and counting both halves would spend the whole
+        two-failure allowance on a single attempt.
         """
         try:
-            return self.ready()
+            with self._lock:
+                return self._open(note=False)
         except WorkerError:
             return None
 
@@ -684,7 +732,7 @@ class WorkerHandle:
                 if self.state == BUSY:
                     self.state = READY
 
-    def _open(self):
+    def _open(self, note=True):
         if self.runner is not None:
             return self.runner
         if self.url is None:
@@ -703,7 +751,8 @@ class WorkerHandle:
             self.runner = VLLMServeChatRunner(self.cfg, server_url=self.url,
                                               read_timeout=self.timeout_s)
         except Exception as exc:
-            self._note_failure(f"{type(exc).__name__}: {exc}")
+            if note:
+                self._note_failure(f"{type(exc).__name__}: {exc}")
             raise WorkerError(f"worker {self.name!r}: {exc}") from exc
         self.state = READY
         self.last_error = ""
