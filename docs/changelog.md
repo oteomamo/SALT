@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.89
+## 2.10.0 - 2.10.101
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -146,6 +146,23 @@ Patch releases, grouped where several versions shipped one thing:
   `--switch-rules-allow-examples` asks for them.
   `--switch-policy model` is the same seam with the chat model
   proposing instead, experimental, and held to the same refusals.
+- **2.10.90 - 2.10.101** A reasoning model in the loop. A roster can
+  name a model for the planning job with `"role": "orchestrator"`, and
+  a turn then plans with it, under that entry's own settings and under
+  a schema when its server accepts one, with the reply stamped with the
+  model that wrote it. One that is not running costs nothing, since the
+  session's own model plans instead. Pieces bound for different helpers
+  now go out together and come back in the plan's order however they
+  arrived. `--agent` plans every turn instead of one at a time and
+  marks the reply with a line `--agent-quiet` drops. `--agent-rounds 2`
+  lets the orchestrator ask once for one more thing under what is left
+  of the turn's limits. A round where nothing came back answers the
+  turn from the conversation instead of writing up nothing, and one
+  where some pieces failed is told how many before it reads any of
+  them. `--offload-ingest-cap` bounds what a helper's answer may add to
+  memory. Two fixes for reasoning models: a reply whose opening think
+  tag was never in it is cut correctly, and a turn now keeps what a
+  model said rather than what it thought wherever that model sits.
 
 ## 2.9.0 - 2.9.123
 
