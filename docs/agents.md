@@ -488,11 +488,13 @@ one, and nothing a rule decides is written into the session.
 reason for. Per-source theme profiles have nothing to act on in a
 session with no files attached, so the rule turns them on exactly where
 they can act. It also carries two rules marked as examples, one about
-long sessions and one about stale coverage. Those are written down to be
-read rather than run, they say so in the file, and they stay unloaded
-unless `--switch-rules-allow-examples` asks for them out loud. Whether
-they help is an open question, and the honest answer today is that it
-has not been measured.
+long sessions with a light recent window and one about stale coverage.
+Those are written down to be read rather than run, they say so in the
+file, and they stay unloaded unless `--switch-rules-allow-examples`
+asks for them out loud. Their thresholds speak the signals' real
+language, orphan mass being a weight of words rather than a share, but
+whether they help your conversations is still yours to judge, which is
+what the unproven marking means.
 
 ### The audit trail
 
