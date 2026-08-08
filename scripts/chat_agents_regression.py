@@ -843,14 +843,23 @@ def check_placement_rules():
     assert "this entry declares" in refusal, (
         f"the refusal does not say which side failed to declare a share: "
         f"{refusal}")
-    refusal, notes = check_placement(placement_entry(gpu="0", util=0.10),
-                                     chat_gpus=[0], chat_mem_util=0.85)
-    assert refusal is None and notes == [], (refusal, notes)
-    refusal, notes = check_placement(placement_entry(gpu="0", util=0.30),
-                                     chat_gpus=[0], chat_mem_util=0.85)
-    assert refusal is None, "an over-subscription became a refusal"
-    assert len(notes) == 1 and "1.15 in total" in notes[0], notes
-    assert f"{PLACEMENT_CEILING:g}" in notes[0], notes
+    # vLLM's real precondition is FREE >= util * TOTAL, and a server
+    # holds about PLACEMENT_MARGIN of the card beyond its declared
+    # share (0.62 measured resident at 0.70). Declared 0.10 beside a
+    # 0.85 chat model is 1.11 of the card once overhead is counted,
+    # which is the measured die-at-load shape, so it refuses now
+    refusal, _ = check_placement(placement_entry(gpu="0", util=0.10),
+                                 chat_gpus=[0], chat_mem_util=0.85)
+    assert refusal and "1.11" in refusal and "dies at load" in refusal, refusal
+    refusal, _ = check_placement(placement_entry(gpu="0", util=0.30),
+                                 chat_gpus=[0], chat_mem_util=0.85)
+    assert refusal and "1.31" in refusal, refusal
+    # the measured working split stays allowed: 0.20 beside 0.62 ran on
+    # the dev box, and its 0.98 total is a knife-edge note, not a stop
+    refusal, notes = check_placement(placement_entry(gpu="0", util=0.20),
+                                     chat_gpus=[0], chat_mem_util=0.62)
+    assert refusal is None and len(notes) == 1, (refusal, notes)
+    assert "0.98" in notes[0] and f"{PLACEMENT_CEILING:g}" in notes[0], notes
     refusal, _ = check_placement(placement_entry(gpu="0", util=0.10),
                                  chat_gpus=[0], chat_mem_util=None)
     assert refusal and "the chat model does not declare" in refusal, refusal
@@ -866,11 +875,29 @@ def check_placement_rules():
                                      chat_gpus=[0],
                                      running=[("first", (1,), 0.4)])
     assert refusal is None and notes == [], (refusal, notes)
-    refusal, notes = check_placement(placement_entry("third", gpu="1",
-                                                     util=0.4),
-                                     running=[("first", (1,), 0.4),
-                                              ("second", (1,), 0.3)])
-    assert refusal is None and "1.10 in total" in notes[0], (refusal, notes)
+    refusal, _ = check_placement(placement_entry("third", gpu="1",
+                                                 util=0.4),
+                                 running=[("first", (1,), 0.4),
+                                          ("second", (1,), 0.3)])
+    assert refusal and "1.34" in refusal, refusal
+    # a card of its own over-claimed is a note, never a refusal: a solo
+    # start is vLLM's own error surface and 0.90 solo is its default
+    refusal, notes = check_placement(placement_entry(gpu="1", util=0.9),
+                                     chat_gpus=[0])
+    assert refusal is None and len(notes) == 1 and "0.98" in notes[0], (
+        refusal, notes)
+    # the live reading wins over the declared arithmetic when it is there
+    refusal, _ = check_placement(placement_entry(gpu="1", util=0.2),
+                                 chat_gpus=[0], free_fractions={1: 0.15})
+    assert refusal and "0.15" in refusal and "free" in refusal, refusal
+    refusal, notes = check_placement(placement_entry(gpu="1", util=0.2),
+                                     chat_gpus=[0],
+                                     free_fractions={1: 0.30})
+    assert refusal is None, refusal
+    free = R.gpu_free_fractions()
+    assert isinstance(free, dict), free
+    assert all(isinstance(k, int) and 0 <= v <= 1
+               for k, v in free.items()), free
 
     refusal, notes = check_placement(placement_entry(gpu="1"), chat_gpus=[0],
                                      bge_gpu=1)
@@ -6248,6 +6275,188 @@ def check_acceptance(tmp, tok, mdl):
           "twice")
 
 
+def check_hardening_fixes(tmp, tok, mdl):
+    """The audited seams, pinned: the parallel round's token allowance,
+    a per-call timeout that cannot leak across queued calls, a cold
+    worker's failure arithmetic, a previous run's live server protected
+    from a spawn over its record, degenerate reasoning output, and a
+    decision that would combine badly with the session's own switches."""
+    import os as _os
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+    from salt.agents import rules as RU
+    from salt.agents import worker as W
+    from salt.agents.delegate import RoundStop, TokenMeter
+    from salt.agents.snapshot import snapshot as snap
+
+    # the meter and the flag, alone: the estimate crosses the cap and
+    # the flag carries the first reason and status it was raised with
+    stop = RoundStop()
+    meter = TokenMeter(10, stop)
+    meter.add("x" * 39)
+    assert not stop.is_set(), "the meter tripped a token early"
+    meter.add("x")
+    assert stop.is_set() and "budget of 10" in stop.why, stop.why
+    other = RoundStop()
+    other.set("first", status="aborted")
+    other.set("second")
+    assert other.why == "first" and other.status == "aborted", (
+        other.why, other.status)
+
+    # a parallel round streams until the shared allowance runs out, and
+    # every call still going is cut with the budget named, keeping what
+    # arrived. Two helpers, endless pieces, a cap a few pieces deep
+    chatter = tuple("words and words " for _ in range(400))
+    with Stub(cards=CARDS, pieces=chatter, delay=0.01) as one, \
+            Stub(cards=CARDS, pieces=chatter, delay=0.01) as two:
+        roster = three_worker_roster((("w", one.url), ("x", two.url)), tmp)
+        state = replayed_state(tmp, "meter_run", tok, mdl, roster=roster)
+        try:
+            out = O.execute(state, plan_of(("a", "w"), ("b", "x")),
+                            O.AgentLimits(max_total_delegated_tokens=40,
+                                          max_wall_s=30))
+            assert [r.status for r in out] == ["timeout", "timeout"], out
+            assert all("budget of 40" in r.error for r in out), out
+            assert all(r.text for r in out), (
+                "a call cut by the meter lost what had arrived")
+            kept = sum(len(r.text) for r in out)
+            assert kept < len(chatter[0]) * 200, (
+                f"the meter never bit: {kept} characters streamed")
+            # a second round arriving with nothing left hands out no work
+            out = O.execute(state, plan_of(("a", "w"), ("b", "x")),
+                            O.AgentLimits(max_total_delegated_tokens=0),
+                            parallel=True)
+            assert all(r.status == "stopped" and not r.ran for r in out), out
+            assert "budget" in out[0].error, out[0].error
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # a request's own timeout is applied under the handle's lock and
+    # put back before the next call: it cannot leak onto the handle,
+    # and the stall it catches names the request's number, not the
+    # roster's
+    with Stub(cards=CARDS, pieces=("a", "b"), stall=5.0) as stalled:
+        entry = R.RosterEntry(name="w", alias="stub", role="worker",
+                              server_url=stalled.url,
+                              model={"alias": "stub", "hf_id": "some/model",
+                                     "path": BGE_MODEL})
+        handle = W.WorkerHandle(entry)
+        try:
+            list(handle.call([{"role": "user", "content": "hi"}],
+                             read_timeout_s=0.5))
+            raise AssertionError("a stalled call returned")
+        except W.WorkerError as exc:
+            assert "0.5s" in str(exc), exc
+        assert handle.runner.read_timeout == W.CALL_TIMEOUT, (
+            "the request's timeout leaked onto the handle")
+        assert handle.state != W.DEAD, "a stall counted toward DEAD"
+        handle.close()
+
+    # one delegation to a cold dead endpoint is ONE failure: looking at
+    # the worker (opened) is free, only the call itself counts, so the
+    # two-in-a-row rule means two delegations, not one
+    gone = R.RosterEntry(name="w", alias="stub", role="worker",
+                         server_url=f"http://127.0.0.1:{W.free_port()}",
+                         model={"alias": "stub", "hf_id": "some/model",
+                                "path": BGE_MODEL})
+    cold = W.WorkerHandle(gone)
+    assert cold.opened() is None and cold.failures == 0, (
+        "looking at a dead worker counted against it")
+    for expect_dead in (False, True):
+        try:
+            list(cold.call([{"role": "user", "content": "hi"}]))
+            raise AssertionError("a dead endpoint answered")
+        except W.WorkerError:
+            pass
+        assert (cold.state == W.DEAD) == expect_dead, (
+            f"failures={cold.failures} state={cold.state}")
+
+    # a record naming a live pid from a previous run refuses the spawn
+    # instead of overwriting the only trace of that server; a dead pid
+    # reads as nothing
+    prev = Path(tmp) / "workers_prev"
+    prev.mkdir(exist_ok=True)
+    record = {"name": "s", "pid": _os.getpid(), "port": 1234,
+              "url": "http://127.0.0.1:1234"}
+    (prev / "s.json").write_text(json.dumps(record))
+    spawn = R.RosterEntry(name="s", alias="stub", role="worker",
+                          spawn={"port": "auto"}, model=STUB_CFG)
+    keeper = W.WorkerHandle(spawn)
+    try:
+        keeper.start(prev)
+        raise AssertionError("started over a previous run's live server")
+    except W.WorkerError as exc:
+        assert "previous run" in str(exc) and str(_os.getpid()) in str(exc)
+    record["pid"] = 2 ** 30
+    (prev / "s.json").write_text(json.dumps(record))
+    assert keeper._previous_run(prev) == "", (
+        "a dead previous run blocked the spawn")
+
+    # degenerate reasoning output is an answer or a refusal, never a
+    # crash, and NaN never reaches a switch or the engine's math
+    assert P.strip_think("<think>" * 2500) == ""
+    assert P.strip_think("</think>" * 2500) == ""
+    assert P.strip_think("<think>a</think>b<think>c<think>d") == "b"
+    for hostile in (
+            '{"action": "delegate", "subtasks": [{"id": "1", "task": "t", '
+            '"target": "w", "budget_pct": NaN}]}',
+            '{"action": "answer", "answer": "x", '
+            '"switches": {"shift_margin": Infinity}}',
+            "{" * 20000):
+        try:
+            P.parse_directive(hostile)
+            raise AssertionError(f"parsed: {hostile[:40]}")
+        except P.ProtocolError:
+            pass
+    try:
+        RU.parse("not " * 4000 + "n_turns")
+        raise AssertionError("a bottomless expression parsed")
+    except RU.RuleError:
+        pass
+    try:
+        RU.read_rule({"id": "r", "when": "n_turns > 0",
+                      "then": {"coverage_half_life": float("nan")}}, 0)
+        raise AssertionError("a NaN switch value loaded")
+    except RU.RuleError:
+        pass
+
+    # a decision that would combine into a conflict with the session's
+    # OWN settings is dropped whole, with the reason in the audit; the
+    # same decision applies once the session side of the pair is off
+    rule = RU.read_rule({"id": "always", "when": "n_turns >= 0",
+                         "then": {"stable_coverage_keys": True}}, 0)
+    state = replayed_state(tmp, "merge_guard", tok, mdl)
+    try:
+        state.coverage_gc = True
+        state.switch_policy = RU.RulePolicy([rule]).bind(state)
+        values, overrides, audit = cli.turn_switches(state)
+        assert overrides == {} and audit, (overrides, audit)
+        assert audit[0]["id"] == "conflict-guard", audit
+        assert values["coverage_gc"] is True, values
+        assert not values["stable_coverage_keys"], values
+        state.coverage_gc = False
+        values, overrides, _ = cli.turn_switches(state)
+        assert overrides == {"stable_coverage_keys": True}, overrides
+        assert values["stable_coverage_keys"] is True, values
+        # the tail is measured against its true capacity of two
+        # messages per exchange, so full is full, not half
+        occ = snap(state)["tail_occupancy"]
+        assert occ == round(len(state.tail) / (2.0 * state.tail_max), 3), (
+            occ, len(state.tail), state.tail_max)
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    print("61. hardening fixes: a parallel round stops at its token "
+          "budget keeping what arrived, a request's timeout is applied "
+          "and restored under the lock, a cold dead worker costs one "
+          "failure per delegation, a live previous-run server refuses "
+          "the spawn that would erase it, degenerate think tags and NaN "
+          "are refused not crashed on, and a decision that conflicts "
+          "with the session's own switches is dropped with the reason")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -6320,6 +6529,7 @@ def main():
         check_ingest_cap(tmp, tok, mdl)
         check_chaos(tmp, tok, mdl)
         check_acceptance(tmp, tok, mdl)
+        check_hardening_fixes(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
