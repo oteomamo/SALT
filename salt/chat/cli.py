@@ -40,7 +40,8 @@ from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   close_quietly, delegate)
 from salt.agents.roster import (GUIDED_CAPABLE, UNPROBED, RosterError,
-                                check_placement, entry_cards, load_roster)
+                                check_placement, entry_cards,
+                                gpu_free_fractions, load_roster)
 from salt.agents.worker import (BUSY, DEAD, WorkerError, WorkerHandle,
                                 capability_line, check_records,
                                 schema_smoke)
@@ -928,7 +929,8 @@ def start_worker(state, handle):
     refusal, notes = check_placement(
         handle.entry, chat_gpus=state.chat_gpus,
         chat_mem_util=state.chat_mem_util, bge_gpu=state.bge_gpu,
-        running=state.running_workers(skip=handle))
+        running=state.running_workers(skip=handle),
+        free_fractions=gpu_free_fractions())
     for note in notes:
         print(f"  {handle.name}: note: {note}")
     if refusal:

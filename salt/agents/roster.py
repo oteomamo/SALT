@@ -357,6 +357,40 @@ def probe_guided(entry, url=None, timeout=10, served_model=None):
 
 PLACEMENT_CEILING = 0.95
 BGE_CARD_MB = 130
+# what a vLLM server actually holds beyond its declared budget: CUDA
+# context, NCCL and capture graphs live outside the util * TOTAL the
+# server sizes itself to. Measured on 24 GB cards: a model declared at
+# 0.62 sat at 0.70 of the card and one at 0.75 sat at 0.83, about two
+# GiB either way. The check reads a share as its declaration plus this
+PLACEMENT_MARGIN = 0.08
+
+
+def gpu_free_fractions(timeout=5):
+    """FREE over TOTAL per card, asked of nvidia-smi. Empty when there
+    is nothing to ask - no tool, no driver, a machine with no cards.
+
+    The ground truth the static arithmetic cannot see: processes no
+    roster declares, another session's servers, a desktop. Read at spawn
+    time, because vLLM refuses to start unless the card's free memory
+    covers its whole declared budget."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.free,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if out.returncode != 0:
+        return {}
+    free = {}
+    for line in out.stdout.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        try:
+            free[int(parts[0])] = round(float(parts[1]) / float(parts[2]), 3)
+        except (IndexError, ValueError, ZeroDivisionError):
+            continue
+    return free
 
 
 def entry_cards(entry):
@@ -369,19 +403,26 @@ def entry_cards(entry):
 
 
 def check_placement(entry, chat_gpus=(), chat_mem_util=None, bge_gpu=None,
-                    running=()):
+                    running=(), free_fractions=None):
     """Whether this worker may take the cards it asks for. Returns
     (refusal, notes): a refusal string when starting it would fight
     another server for the same memory, else None, plus notes worth
     printing either way.
 
     ``running`` is (name, cards, gpu_mem_util) per worker already up.
-    The rule is narrow on purpose. Two servers CAN share a card, and
-    that is a normal way to run a small worker beside a big model. What
-    cannot work is two servers each claiming their default share of the
-    same card, because vLLM reserves that fraction up front and the
-    second one dies at load. So sharing is allowed exactly when both
-    sides say in writing how much they take."""
+    Two servers CAN share a card, and that is a normal way to run a
+    small worker beside a big model. What cannot work is two servers
+    whose real footprints together do not fit, because vLLM refuses to
+    start unless the card's FREE memory covers util * TOTAL, and a
+    server that squeaks past that dies warming up. So sharing needs
+    both sides to say in writing how much they take, and the shares
+    plus what a server holds beyond its share (PLACEMENT_MARGIN each)
+    have to fit inside the card.
+
+    ``free_fractions`` is {card: FREE/TOTAL} measured now, the
+    gpu_free_fractions() reading. When it covers a card it is the
+    ground truth: it sees what no roster declares. None skips the live
+    rule, which is what keeps this callable with no GPU at all."""
     cards = entry_cards(entry)
     notes = []
     if not cards:
@@ -411,11 +452,32 @@ def check_placement(entry, chat_gpus=(), chat_mem_util=None, bge_gpu=None,
         # this far is alone on its card, so there is nothing to overrun.
         if mine is None:
             break
-        claimed = mine + sum(u for _, u in occupants.get(c, []) if u)
+        shared = occupants.get(c, [])
+        claimed = (mine + PLACEMENT_MARGIN
+                   + sum(u + PLACEMENT_MARGIN for _, u in shared if u))
+        if shared and claimed > 1.0:
+            return (f"GPU {c} would hold {claimed:.2f} of the card once "
+                    f"every server's resident overhead (about "
+                    f"{PLACEMENT_MARGIN:g} each) is counted beside its "
+                    f"declared share. vLLM refuses to start unless the "
+                    f"card's free memory covers its whole share, so this "
+                    f"one dies at load. Give the big model a smaller "
+                    f"gpu_mem_util, or place this worker on another "
+                    f"card.", notes)
         if claimed > PLACEMENT_CEILING:
-            notes.append(f"GPU {c} would be claimed {claimed:.2f} in total, "
-                         f"over the {PLACEMENT_CEILING:g} that leaves the "
-                         f"card room to work")
+            notes.append(f"GPU {c} would be claimed {claimed:.2f} in total "
+                         f"with resident overhead counted, over the "
+                         f"{PLACEMENT_CEILING:g} that leaves the card room "
+                         f"to work")
+        live = (free_fractions or {}).get(int(c))
+        if live is not None and mine + PLACEMENT_MARGIN > live:
+            return (f"GPU {c} has {live:.2f} of its memory free right now, "
+                    f"and this worker needs {mine + PLACEMENT_MARGIN:.2f} "
+                    f"({mine:g} declared plus about {PLACEMENT_MARGIN:g} "
+                    f"resident overhead). vLLM refuses to start unless the "
+                    f"free memory covers the whole share. Free the card, or "
+                    f"give this worker a smaller gpu_mem_util it can still "
+                    f"serve under.", notes)
     if bge_gpu is not None and int(bge_gpu) in cards:
         notes.append(f"GPU {bge_gpu} also holds this session's BGE encoder "
                      f"(about {BGE_CARD_MB} MB)")
