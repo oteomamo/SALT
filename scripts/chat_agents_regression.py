@@ -3960,7 +3960,9 @@ def check_synthesis_call(tmp, tok, mdl):
         f"the ask is not the last thing under the pieces: {body[-120:]!r}")
     assert block in body, "the pieces were rewritten on their way in"
     assert O.synthesis_messages(ask, results)[1]["content"].startswith(
-        "PIECE 1 of 4"), "a round with no memory block leads with nothing"
+        O.results_header(results)), (
+        "a round with no memory block leads with something other than how "
+        "it went")
 
     final = "A 9 kWh bank covers the evening, with the inverter unchecked."
     directive = plan_of(("size the bank", "w"), ("check the inverter", "nope"),
@@ -4247,6 +4249,7 @@ def check_agent_trace(tmp, tok, mdl):
             summary = state.agent_stats
             assert summary == {"turns": 1, "pieces": 2, "delegated": 1,
                                "failed": 0, "protocol_failures": 1,
+                               "direct": 0,
                                "seconds": summary["seconds"]}, summary
             assert cli.resume_rounds(state.trie.cache_dir) == summary, (
                 "a resumed session would not count what this one did")
@@ -5443,6 +5446,109 @@ def check_parallel_fanout(tmp, tok, mdl):
           "types it without killing the worker")
 
 
+def check_partial_failure(tmp, tok, mdl):
+    """A round that half worked says so, and one that did not work at
+    all answers the turn anyway."""
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+    from salt.agents import trace as T
+
+    good = made_result(task="size it", text="Nine kilowatt hours of storage.")
+    empty = made_result(task="tally it", text="")
+    dead = made_result(task="check it", status="dead", text="",
+                       target="x")
+    refused = D.DelegationResult(id=0, target="nope", task="ask nobody",
+                                 status="refused", error="'nope' is unknown")
+
+    assert [r.task for r in O.usable([good, empty, dead, refused])] == \
+        ["size it"], "a piece with nothing in it counted as an answer"
+    assert O.usable([]) == () and O.usable([dead, refused]) == ()
+
+    header = O.results_header([good, dead, refused])
+    assert "3 pieces, 1 answered and 2 not" in header, header
+    assert "say plainly what is missing" in header, header
+    assert O.results_header([good]) == "1 piece, all answered.", header
+    none = O.results_header([dead, refused])
+    assert "none of them answered" in none, none
+    assert "rather than answer anyway" in none, none
+
+    # the header leads the pieces, so the model is told before it reads
+    block = O.results_block([good, dead, refused])
+    assert block.startswith("3 pieces, 1 answered and 2 not"), block[:80]
+    assert block.index("PIECE 1 of 3") < block.index("PIECE 2 of 3"), block
+    assert "outcome: never answered" in block.splitlines(), block
+    body = O.synthesis_messages("q", [good, dead, refused])[1]["content"]
+    assert body.startswith(O.results_header([good, dead, refused])), body[:80]
+
+    ask = "what size battery does that argue for"
+    plan_json = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [{"id": "1", "task": "size the bank", "target": "w"},
+                      {"id": "2", "task": "check it", "target": "nope"}]})
+    direct = "About 9 kWh, from the draw we measured."
+
+    # every piece fails, so the turn is answered the way an ordinary one
+    # would have been: the session loses the delegation, never the reply
+    with Stub(cards=CARDS, post_status=503) as broken:
+        state = canned_state(tmp, "all_fail", tok, mdl, [plan_json, direct],
+                             delegation_roster(broken.url, tmp))
+        try:
+            out = agent_line(state, f"/agent {ask}")
+            assert "nothing came back" in out, out
+            assert "writing it up" not in out, (
+                "a round with nothing in hand still wrote it up")
+            assert direct in out, out
+            assert state.tail[-1]["content"] == direct, state.tail[-1]
+            assert len(state.runner.prompts) == 2, (
+                f"the fallback cost {len(state.runner.prompts)} calls "
+                f"rather than the plan and the turn")
+            # the fallback is the ORDINARY turn's own prompt, not a new one
+            asked = state.runner.prompts[-1]
+            assert asked[-1]["content"].endswith(ask), asked[-1]
+            assert any("SALT memory" in m["content"] for m in asked), (
+                "the turn was answered without this session's memory")
+            rec = T.read(state.trie.cache_dir).rounds[0]
+            assert rec["answered_directly"] is True, rec
+            assert [p["status"] for p in rec["pieces"]] == ["error",
+                                                            "refused"], rec
+            assert state.agent_stats["direct"] == 1, state.agent_stats
+            assert "1 answered without helpers" in stats_output(state), \
+                stats_output(state)
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # one piece answers and one does not: the round is written up, and
+    # the write-up is told which was which
+    said = "Nine kilowatt hours of storage covers the evening draw."
+    final = "It covers the evening. The inverter was not checked."
+    with Stub(cards=CARDS, pieces=(said,)) as w:
+        state = canned_state(tmp, "half_fail", tok, mdl, [plan_json, final],
+                             delegation_roster(w.url, tmp))
+        try:
+            out = agent_line(state, f"/agent {ask}")
+            assert "writing it up" in out and "nothing came back" not in out
+            assert final in out, out
+            written = state.runner.prompts[-1][1]["content"]
+            assert written.startswith("2 pieces, 1 answered and 1 not"), \
+                written[:80]
+            assert "outcome: was not attempted" in written.splitlines(), \
+                written
+            assert f"{O.QUOTE}{said}" in written.splitlines(), written
+            rec = T.read(state.trie.cache_dir).rounds[0]
+            assert rec["answered_directly"] is False, rec
+            assert state.agent_stats["direct"] == 0, state.agent_stats
+            assert "answered without helpers" not in stats_output(state)
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("55. partial failure: the write-up is told how many pieces "
+          "answered before it reads any of them, a round where none did "
+          "answers the turn from its own memory instead of writing up "
+          "nothing, and the trace and /stats both say which turns those "
+          "were")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5509,6 +5615,7 @@ def main():
         check_directive_schema(tmp, tok, mdl)
         check_roster_orchestrator(tmp, tok, mdl)
         check_parallel_fanout(tmp, tok, mdl)
+        check_partial_failure(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

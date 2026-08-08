@@ -22,8 +22,8 @@ from pathlib import Path
 SCHEMA = "salt-agent-trace/1"
 TRACE_NAME = "agent_trace.jsonl"
 FIELDS = ("schema", "ask", "action", "subtasks", "pieces", "synthesis",
-          "protocol_failures", "fell_back", "reply_words", "t_start",
-          "t_end", "seconds")
+          "protocol_failures", "fell_back", "answered_directly",
+          "reply_words", "t_start", "t_end", "seconds")
 PIECE_FIELDS = ("id", "target", "status", "ran", "usage", "seconds")
 
 
@@ -68,6 +68,7 @@ def record(round_):
             "synthesis": dict(round_.synthesis or {}),
             "protocol_failures": int(round_.protocol_failures),
             "fell_back": bool(round_.fell_back),
+            "answered_directly": bool(round_.answered_directly),
             "reply_words": len(round_.text.split()),
             "t_start": round(float(round_.t_start), 3),
             "t_end": round(float(round_.t_end), 3),
@@ -85,7 +86,7 @@ def append(session_dir, rec):
 
 def blank_summary():
     return {"turns": 0, "pieces": 0, "delegated": 0, "failed": 0,
-            "protocol_failures": 0, "seconds": 0.0}
+            "protocol_failures": 0, "direct": 0, "seconds": 0.0}
 
 
 def tally(summary, rec):
@@ -99,6 +100,7 @@ def tally(summary, rec):
     summary["delegated"] += len(ran)
     summary["failed"] += sum(1 for p in ran if p.get("status") != "ok")
     summary["protocol_failures"] += int(rec.get("protocol_failures") or 0)
+    summary["direct"] += bool(rec.get("answered_directly"))
     summary["seconds"] += max(0.0, float(rec.get("seconds") or 0.0))
     return summary
 

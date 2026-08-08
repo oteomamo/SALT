@@ -1262,6 +1262,9 @@ class AgentRound:
         self.results = []
         self.record = None
         self.done = 0
+        # whether the round gave up on its helpers and answered the turn
+        # itself, which the trace records and /stats counts
+        self.fell_through = False
 
     def note(self, result):
         self.done += 1
@@ -1295,6 +1298,22 @@ class AgentRound:
             self.results = orchestrator.execute(state, directive, self.limits,
                                                 self.note)
             file_round(state, self.results)
+            if not orchestrator.usable(self.results):
+                # nothing came back, so there is nothing to write up. The
+                # turn is answered the way it would have been if nobody
+                # had planned it, which is the whole fail-closed rule:
+                # the session loses the delegation, never the reply
+                self.fell_through = True
+                print("  nothing came back, so this turn is being answered "
+                      "directly", flush=True)
+                stream = state.runner.stream_chat(messages)
+                try:
+                    for piece in stream:
+                        pieces.append(piece)
+                        yield piece
+                finally:
+                    close_quietly(stream)
+                return
             print("  writing it up ...", flush=True)
             stream = orchestrator.synthesis_stream(state, self.task,
                                                    self.results)
@@ -1311,7 +1330,8 @@ class AgentRound:
             self.record = orchestrator.round_record(
                 self.task, directive, self.results, "".join(pieces).strip(),
                 outcome, started,
-                synthesis=getattr(state.runner, "last_engine_stats", None))
+                synthesis=getattr(state.runner, "last_engine_stats", None),
+                answered_directly=self.fell_through)
             state.last_round = state.pending_round = self.record
 
 
@@ -1464,9 +1484,12 @@ def print_agent_stats(state, stats=None):
                   else "")
     repairs = (f", {stats['protocol_failures']} plan repairs"
                if stats["protocol_failures"] else "")
+    direct = (f", {stats['direct']} answered without helpers"
+              if stats["direct"] else "")
     print(f"agent turns: {stats['turns']}, {stats['delegated']} of "
           f"{stats['pieces']} pieces handed out{unanswered}, "
-          f"{mean:.1f}s mean{repairs} (agent_trace.jsonl has each turn)")
+          f"{mean:.1f}s mean{repairs}{direct} (agent_trace.jsonl has each "
+          f"turn)")
 
 
 def build_stats(state):

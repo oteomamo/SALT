@@ -540,10 +540,41 @@ def result_block(index, n, result):
     return "\n".join(lines)
 
 
+def usable(results):
+    """The pieces that came back with something in them.
+
+    A piece that ran and failed and a piece nobody was asked are the
+    same to whatever has to write an answer: neither says anything. A
+    round with none of these has nothing to write up at all.
+    """
+    return tuple(r for r in results
+                 if r.ok and protocol.reply_text(r.text).strip())
+
+
+def results_header(results):
+    """How the round went, in one line above the pieces.
+
+    Said outright rather than left to be counted. A model given six
+    blocks of which two are empty will write as though it had six unless
+    it is told, and the instruction to name what is missing needs
+    something to attach to.
+    """
+    n = len(results)
+    answered = len(usable(results))
+    pieces = f"{n} piece{'' if n == 1 else 's'}"
+    if answered == n:
+        return f"{pieces}, all answered."
+    if not answered:
+        return (f"{pieces}, none of them answered. There is nothing here to "
+                f"answer from, so say that rather than answer anyway.")
+    return (f"{pieces}, {answered} answered and {n - answered} not. Answer "
+            f"from the ones that did and say plainly what is missing.")
+
+
 def results_block(results):
     n = len(results)
-    return "\n\n".join(result_block(i + 1, n, r)
-                       for i, r in enumerate(results))
+    blocks = [result_block(i + 1, n, r) for i, r in enumerate(results)]
+    return "\n\n".join([results_header(results)] + blocks)
 
 
 def synthesis_messages(ask, results, memory_block=""):
@@ -577,6 +608,8 @@ class Round:
     synthesis: dict = field(default_factory=dict)
     protocol_failures: int = 0
     fell_back: bool = False
+    # the round gave up on its helpers and answered the turn itself
+    answered_directly: bool = False
     t_start: float = 0.0
     t_end: float = 0.0
 
@@ -690,7 +723,7 @@ class ModelPolicy(SwitchPolicy):
 
 
 def round_record(ask, directive, results, text, outcome=None, started=None,
-                 synthesis=None):
+                 synthesis=None, answered_directly=False):
     """One round as the thing a session keeps. Built in one place because
     a round written up all at once and one written up as it is generated
     are the same round, and must be recorded as the same round."""
@@ -698,6 +731,7 @@ def round_record(ask, directive, results, text, outcome=None, started=None,
                  text=text, synthesis=dict(synthesis or {}),
                  protocol_failures=getattr(outcome, "failures", 0),
                  fell_back=bool(getattr(outcome, "fell_back", False)),
+                 answered_directly=bool(answered_directly),
                  t_start=time.time() if started is None else started,
                  t_end=time.time())
 
@@ -726,6 +760,11 @@ def synthesize(state, ask, directive, results, endpoint=None, outcome=None,
     them. A round that delegated nothing skips it: what the plan
     answered is the answer already, and asking a model to rewrite its
     own reply costs a call and loses wording.
+
+    A round where nothing came back is still written up here, and told
+    so in as many words. A caller with somewhere better to fall back to
+    should check `usable()` first and go there instead: the chat layer
+    does, because a turn can always just be answered.
     """
     t_start = time.time() if started is None else started
     if results:
