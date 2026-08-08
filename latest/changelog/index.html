@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-21089" class="md-nav__link">
+  <a href="#2100-210101" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.89
+        2.10.0 - 2.10.101
       
     </span>
   </a>
@@ -1250,10 +1250,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-21089" class="md-nav__link">
+  <a href="#2100-210101" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.89
+        2.10.0 - 2.10.101
       
     </span>
   </a>
@@ -1404,7 +1404,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2100-21089">2.10.0 - 2.10.89</h2>
+<h2 id="2100-210101">2.10.0 - 2.10.101</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
 releases, hand parts of its work to them with SALT memory in the loop.</p>
@@ -1545,6 +1545,23 @@ releases, hand parts of its work to them with SALT memory in the loop.</p>
   <code>--switch-rules-allow-examples</code> asks for them.
   <code>--switch-policy model</code> is the same seam with the chat model
   proposing instead, experimental, and held to the same refusals.</li>
+<li><strong>2.10.90 - 2.10.101</strong> A reasoning model in the loop. A roster can
+  name a model for the planning job with <code>"role": "orchestrator"</code>, and
+  a turn then plans with it, under that entry's own settings and under
+  a schema when its server accepts one, with the reply stamped with the
+  model that wrote it. One that is not running costs nothing, since the
+  session's own model plans instead. Pieces bound for different helpers
+  now go out together and come back in the plan's order however they
+  arrived. <code>--agent</code> plans every turn instead of one at a time and
+  marks the reply with a line <code>--agent-quiet</code> drops. <code>--agent-rounds 2</code>
+  lets the orchestrator ask once for one more thing under what is left
+  of the turn's limits. A round where nothing came back answers the
+  turn from the conversation instead of writing up nothing, and one
+  where some pieces failed is told how many before it reads any of
+  them. <code>--offload-ingest-cap</code> bounds what a helper's answer may add to
+  memory. Two fixes for reasoning models: a reply whose opening think
+  tag was never in it is cut correctly, and a turn now keeps what a
+  model said rather than what it thought wherever that model sits.</li>
 </ul>
 <h2 id="290-29123">2.9.0 - 2.9.123</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
