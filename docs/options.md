@@ -59,6 +59,7 @@ Agents:
 | `--offload-timeout SECONDS` | the standard call timeout | how long to wait on a quiet worker during a delegation, for workers whose roster entry names no timeout of its own |
 | `--offload-budget-pct` | the session budget | memory budget for a delegation's context, as a fraction like `--budget-pct` |
 | `--offload-context-cap N` | off | cap the memory handed to a worker at N words, on top of the memory budget that already sizes it |
+| `--offload-ingest-cap CHARS` | 2000 | how much of a worker's answer is remembered, cut at a sentence boundary (0 keeps all of it) |
 | `--offload-ingest` | off | remember what a worker answered, as a turn of its own labeled with the worker it came from |
 | `--agent-keep-think` | off | keep a worker's reasoning when its answer is remembered, instead of cutting it |
 | `--agent` | off | plan every turn out instead of answering it directly, the way `/agent` does one turn |

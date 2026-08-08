@@ -5805,6 +5805,102 @@ def check_second_round(tmp, tok, mdl):
           "the default")
 
 
+def check_ingest_cap(tmp, tok, mdl):
+    """How much of a helper's answer a session agrees to remember."""
+    args = cli.build_parser().parse_args(["--device", "cpu"])
+    assert args.offload_ingest_cap == 2000, args.offload_ingest_cap
+
+    sentence = "The bank holds nine kilowatt hours of usable storage. "
+    long = (sentence * 60).strip()
+    cut = cli.capped_answer(long, 200)
+    assert len(cut) < 400, len(cut)
+    assert cli.INGEST_MARKER in cut, cut
+    assert cut.endswith("."), cut
+    body = cut[:cut.index(cli.INGEST_MARKER)].rstrip()
+    assert body.endswith("storage"), (
+        f"the cut landed mid sentence: {body[-60:]!r}")
+    assert long.startswith(body), "the kept part was rewritten"
+    assert cli.capped_answer(long, 0) == long, "0 did not turn the cap off"
+    assert cli.capped_answer("Nine kWh.", 2000) == "Nine kWh.", (
+        "an answer under the cap was touched")
+    assert cli.INGEST_MARKER not in cli.capped_answer("Nine kWh.", 2000)
+    # a decimal point is not the end of a sentence
+    numbers = "The draw is 1.4 kW every evening. " * 40
+    marked = cli.capped_answer(numbers.strip(), 120)
+    assert marked[:marked.index(cli.INGEST_MARKER)].rstrip().endswith(
+        "evening"), marked[:140]
+
+    with Stub(cards=CARDS) as s:
+        roster = delegation_roster(s.url, tmp)
+        state = replayed_state(tmp, "ingest_cap", tok, mdl, roster=roster,
+                               flags=["--offload-ingest",
+                                      "--offload-ingest-cap", "200"])
+        try:
+            assert state.offload_ingest_cap == 200, state.offload_ingest_cap
+            before = state.trie.n_sentences
+            result = D.DelegationResult(id=1, target="w", task="t",
+                                        status="ok", text=long)
+            with redirect_stdout(io.StringIO()):
+                assert cli.keep_answer(state, result, True)
+                state.ingest.drain()
+            rows = state.trie.texts[before:]
+            assert rows, "the answer was not remembered at all"
+            assert sum(cli.INGEST_MARKER in r for r in rows) == 1, rows
+            assert not any(r.strip() == cli.INGEST_MARKER for r in rows), (
+                f"the marker was remembered as a row of its own, which a "
+                f"later turn could select instead of an answer: {rows}")
+            marker_row = next(r for r in rows if cli.INGEST_MARKER in r)
+            assert len(marker_row.split()) > 6, (
+                f"the marker's row carries nothing but the marker: "
+                f"{marker_row!r}")
+            assert sum(len(r) for r in rows) < 600, (
+                f"the cap let {sum(len(r) for r in rows)} characters into "
+                f"memory")
+            assert state.trie.roles[-1] == "worker", state.trie.roles[-1]
+
+            # the working is cut BEFORE the cap, so the cap is spent on
+            # the answer rather than on what the model thought
+            thinking = D.DelegationResult(
+                id=2, target="w", task="t", status="ok",
+                text="<think>" + ("weighing it up. " * 200) + "</think>"
+                     + "Nine kilowatt hours covers the evening draw.")
+            mark = state.trie.n_sentences
+            with redirect_stdout(io.StringIO()):
+                assert cli.keep_answer(state, thinking, True)
+                state.ingest.drain()
+            kept = " ".join(state.trie.texts[mark:])
+            assert "weighing it up" not in kept, kept[:120]
+            assert cli.INGEST_MARKER not in kept, (
+                "the cap was spent on the working and cut the answer")
+            assert "Nine kilowatt hours" in kept, kept
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # off: the whole answer, however long
+        whole = replayed_state(tmp, "ingest_uncapped", tok, mdl,
+                               roster=roster,
+                               flags=["--offload-ingest",
+                                      "--offload-ingest-cap", "0"])
+        try:
+            before = whole.trie.n_sentences
+            with redirect_stdout(io.StringIO()):
+                assert cli.keep_answer(
+                    whole, D.DelegationResult(id=1, target="w", task="t",
+                                              status="ok", text=long), True)
+                whole.ingest.drain()
+            rows = whole.trie.texts[before:]
+            assert not any(cli.INGEST_MARKER in r for r in rows), rows
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(whole)
+    print("58. the ingest cap: a long answer enters memory cut at a "
+          "sentence boundary with a marker riding inside the last "
+          "sentence rather than as a row of its own, a decimal point is "
+          "not a boundary, the working is cut before the cap is spent, "
+          "and 0 keeps all of it")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5874,6 +5970,7 @@ def main():
         check_partial_failure(tmp, tok, mdl)
         check_agent_mode(tmp, tok, mdl)
         check_second_round(tmp, tok, mdl)
+        check_ingest_cap(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

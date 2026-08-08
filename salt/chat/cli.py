@@ -295,6 +295,7 @@ class ChatState:
         self.last_audit = ()
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         self.offload_ingest = args.offload_ingest
+        self.offload_ingest_cap = args.offload_ingest_cap
         self.agent_keep_think = args.agent_keep_think
         self.agent_rounds = args.agent_rounds
         self.agent_mode = args.agent
@@ -1191,6 +1192,36 @@ def ingest_result(state, req, result):
     return keep_answer(state, result, req.ingest)
 
 
+INGEST_MARKER = "[the rest of this answer was not kept]"
+# a sentence ender, with any closing quote or bracket after it, followed
+# by whitespace. Not a bare full stop: a decimal point is not the end of
+# anything
+_SENTENCE_END = re.compile(r"[.!?][\"\')\]]*(?=\s)")
+
+
+def capped_answer(text, cap):
+    """A worker's answer cut to what this session agreed to remember.
+
+    A helper asked for a summary can return an essay, and every word of
+    it competes with the conversation for the same word budget forever
+    after. The cut lands on a sentence boundary inside the cap, so what
+    is kept still reads, and a marker says plainly that there was more.
+    """
+    if not cap or len(text) <= cap:
+        return text
+    window = text[:cap]
+    ends = list(_SENTENCE_END.finditer(window))
+    cut = ends[-1].end() if ends else window.rfind(" ")
+    kept = (window[:cut] if cut > 0 else window).rstrip()
+    # the marker rides INSIDE the last sentence kept, ahead of its full
+    # stop, so it is never a sentence of its own. A row saying only that
+    # something was cut is a row a later turn could select instead of an
+    # answer, and it has nothing in it to be an answer with
+    end = kept[-1] if kept[-1:] in (".", "!", "?") else ""
+    body = kept[:-1].rstrip() if end else kept
+    return f"{body} {INGEST_MARKER}{end or '.'}"
+
+
 def keep_answer(state, result, ingest):
     """Remember a worker's answer as a turn of this session, when the
     session was launched asking for that. Only an answer is remembered:
@@ -1206,6 +1237,7 @@ def keep_answer(state, result, ingest):
         return False
     text = (result.text if state.agent_keep_think
             else protocol.reply_text(result.text))
+    text = capped_answer(text.strip(), state.offload_ingest_cap)
     if not text.strip():
         return False
     submit_ingest(state, text, "worker", origin=result.target)
@@ -2876,6 +2908,12 @@ def build_parser():
                         "from (default: the answer is printed and recorded "
                         "in delegations.jsonl, and the conversation's "
                         "memory is left as it was)")
+    p.add_argument("--offload-ingest-cap", type=int, default=2000,
+                   metavar="CHARS",
+                   help="how much of a worker's answer is remembered when "
+                        "--offload-ingest is on. The cut lands on a "
+                        "sentence boundary and what is kept says there was "
+                        "more (default: 2000 characters, 0 for all of it)")
     p.add_argument("--agent-keep-think", action="store_true",
                    help="keep a worker's reasoning when its answer is "
                         "remembered (default: text between <think> tags is "
