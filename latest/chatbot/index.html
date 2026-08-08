@@ -1661,12 +1661,24 @@ puts a delegation in the middle of a scripted conversation:</p>
 <span class="w">               </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ingest&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}}</span>
 <span class="p">]</span>
 </code></pre></div>
+<p>A line can also attach a document before anything else runs, or hand a
+turn to the orchestrator to plan out:</p>
+<div class="highlight"><pre><span></span><code><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">&quot;doc&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt/files/SALT.pdf&quot;</span><span class="p">},</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;What does that paper claim, and does our sizing agree?&quot;</span><span class="p">}</span>
+<span class="p">]</span>
+</code></pre></div>
+<p><code>doc</code> ingests a file exactly as <code>/doc</code> does, and <code>agent</code> runs the turn
+exactly as <code>/agent</code> does, so a whole session is scriptable rather than
+only its conversation. Each line does one thing, and a line asking for
+several is refused when the file loads.</p>
 <p>The task goes to that worker with this session's memory as its context, the
 same way <code>/offload</code> does at the prompt. <code>target</code> picks the worker and can be
 left out when the roster has only one, and <code>ingest</code> decides whether the
 answer is remembered, defaulting to whatever the session was launched with.
-Delegated rows in <code>--turns-out</code> carry <code>{kind, status, worker}</code> as well, so a
-run can be told apart from the turns the chat model answered. The
+Rows in <code>--turns-out</code> carry <code>kind</code> whenever the line was not an ordinary
+turn, and a delegated row carries <code>status</code> and <code>worker</code> too, so a run can
+be told apart from the turns the chat model answered. The
 <a href="../agents/">Agents</a> page covers what a delegation is and what it leaves
 behind.</p>
 <h2 id="attachments">Attachments</h2>
