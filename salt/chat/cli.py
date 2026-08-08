@@ -1403,8 +1403,13 @@ class AgentRound:
             # built even when the round was cut short: an interrupted
             # turn is still a turn this session took, and the record of
             # it is what says how far it got
+            # the same cut the turn itself makes, so the record says
+            # what this turn kept rather than what streamed past. A
+            # reasoning orchestrator's working is most of the stream and
+            # none of the reply
             self.record = orchestrator.round_record(
-                self.task, directive, self.results, "".join(pieces).strip(),
+                self.task, directive, self.results,
+                protocol.reply_text("".join(pieces)),
                 outcome, started,
                 synthesis=getattr(state.runner, "last_engine_stats", None),
                 answered_directly=self.fell_through, rounds=self.rounds,

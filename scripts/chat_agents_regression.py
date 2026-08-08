@@ -5520,16 +5520,23 @@ def check_partial_failure(tmp, tok, mdl):
                 cli.close_ingest(state)
 
     # one piece answers and one does not: the round is written up, and
-    # the write-up is told which was which
+    # the write-up is told which was which. The orchestrator thinks out
+    # loud, so the record has to hold what the turn kept and not the
+    # working that streamed past on its way
     said = "Nine kilowatt hours of storage covers the evening draw."
     final = "It covers the evening. The inverter was not checked."
+    streamed = f"Weighing the pieces up, at some length.</think>{final}"
     with Stub(cards=CARDS, pieces=(said,)) as w:
-        state = canned_state(tmp, "half_fail", tok, mdl, [plan_json, final],
+        state = canned_state(tmp, "half_fail", tok, mdl,
+                             [plan_json, streamed],
                              delegation_roster(w.url, tmp))
         try:
             out = agent_line(state, f"/agent {ask}")
             assert "writing it up" in out and "nothing came back" not in out
             assert final in out, out
+            assert "Weighing the pieces up" in out, (
+                "the working was never shown to the person")
+            assert state.tail[-1]["content"] == final, state.tail[-1]
             written = state.runner.prompts[-1][1]["content"]
             assert written.startswith("2 pieces, 1 answered and 1 not"), \
                 written[:80]
@@ -5538,6 +5545,9 @@ def check_partial_failure(tmp, tok, mdl):
             assert f"{O.QUOTE}{said}" in written.splitlines(), written
             rec = T.read(state.trie.cache_dir).rounds[0]
             assert rec["answered_directly"] is False, rec
+            assert rec["reply_words"] == len(final.split()), (
+                f"the record counted {rec['reply_words']} words against a "
+                f"reply of {len(final.split())}")
             assert state.agent_stats["direct"] == 0, state.agent_stats
             assert "answered without helpers" not in stats_output(state)
         finally:
