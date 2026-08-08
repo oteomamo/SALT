@@ -32,7 +32,6 @@ threads do HTTP and nothing else.
 """
 
 import json
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
@@ -40,7 +39,8 @@ from pathlib import Path
 
 from salt.agents import protocol
 from salt.agents.delegate import (DelegationRequest, DelegationResult,
-                                  build_context, close_quietly, delegate)
+                                  RoundStop, TokenMeter, build_context,
+                                  close_quietly, delegate)
 from salt.agents.policy import KWARGS, PolicyError, SwitchPolicy, check
 from salt.agents.roster import GUIDED_CAPABLE, GUIDED_PLAIN, RosterError
 
@@ -456,15 +456,26 @@ def execute_together(state, subtasks, limits, on_result=None):
     the trace stay one implementation.
 
     The wall limit is the join here rather than a question asked between
-    pieces. What is still running when it expires is told to stop, keeps
-    whatever arrived and comes back as a timeout. The token budget is
-    not enforceable this way and is not pretended to be: a parallel
-    round is bounded by how many pieces it may hand out and how long it
-    may wait.
+    pieces, and the token budget is a meter the calls feed as they
+    stream. Either one running out raises the same stop flag: what is
+    still in flight severs at its next piece, keeps whatever arrived and
+    comes back as a timeout with the reason on it. A turn that arrives
+    here with nothing left - a second round after a first that spent the
+    allowance - hands out no work at all, exactly as the one-at-a-time
+    path would.
+
+    Ctrl-C raises that flag too instead of escaping: the pieces come
+    back as aborted with what they had, the same record a one-at-a-time
+    round keeps of an interrupt, rather than a turn that delegated work
+    and then lost every trace of it.
     """
     started = time.time()
     results, jobs = [None] * len(subtasks), []
+    preflight = stop_reason(limits, [], 0, started)
     for index, subtask in enumerate(subtasks):
+        if preflight:
+            results[index] = not_run(subtask, STOPPED, preflight)
+            continue
         if len(jobs) >= limits.max_delegations_per_turn:
             results[index] = not_run(
                 subtask, STOPPED,
@@ -478,22 +489,45 @@ def execute_together(state, subtasks, limits, on_result=None):
             continue
         request = subtask_request(state, subtask, entry)
         # the trie is read HERE and the id handed out HERE, on the one
-        # thread that owns them, before any worker is called at all
+        # thread that owns them, before any worker is called at all. A
+        # selection that fails is that piece's failure, never the
+        # round's: the one-at-a-time path reports it the same way
+        try:
+            context = build_context(state, request)
+        except Exception as exc:
+            results[index] = not_run(subtask, "error",
+                                     f"{type(exc).__name__}: {exc}")
+            continue
         state.delegation_seq += 1
-        jobs.append((index, request, build_context(state, request),
-                     state.delegation_seq))
+        jobs.append((index, request, context, state.delegation_seq))
     if jobs:
-        stop = threading.Event()
+        stop = RoundStop()
+        meter = TokenMeter(limits.max_total_delegated_tokens, stop)
         with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
             futures = {
                 pool.submit(delegate, state, request, context=context,
-                            seq=seq, off_thread=True, stop=stop): index
+                            seq=seq, off_thread=True, stop=stop,
+                            meter=meter): index
                 for index, request, context, seq in jobs}
-            left = limits.max_wall_s - (time.time() - started)
-            _, running = wait(futures, timeout=max(0.0, left))
-            if running:
-                stop.set()
-                wait(running)
+            try:
+                left = limits.max_wall_s - (time.time() - started)
+                _, running = wait(futures, timeout=max(0.0, left))
+                if running:
+                    stop.set(f"the round's time limit of "
+                             f"{limits.max_wall_s:g}s ended this call "
+                             f"before the worker finished")
+            except KeyboardInterrupt:
+                stop.set("the round was interrupted", status="aborted")
+            # bounded however it is reached: every call sees the flag at
+            # its next piece, and a worker sending nothing gives up at
+            # its own read timeout. A second Ctrl-C lands here and must
+            # not escape mid-join, or the round loses its results
+            while True:
+                try:
+                    wait(futures)
+                    break
+                except KeyboardInterrupt:
+                    stop.set("the round was interrupted", status="aborted")
             for future, index in futures.items():
                 results[index] = future.result()
     if on_result is not None:

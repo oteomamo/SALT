@@ -15,6 +15,7 @@ twice; a worker sees only what it is handed, which makes a tail-resident
 sentence ordinary context for it.
 """
 
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +33,9 @@ TASK_HEADER = "TASK: "
 # only used to size the FIRST cut when a context has to be trimmed; the
 # loop that follows measures, so a wrong guess costs a pass, not accuracy
 TOKENS_PER_WORD = 1.6
+# sizes the running estimate a parallel round keeps of what its helpers
+# have generated so far; the measured usage after the join is exact
+CHARS_PER_TOKEN = 4.0
 # refused: the plan named a worker this session does not have. stopped: a
 # cap ended the round before this one's turn came. Neither reached a
 # worker, which is why they are told apart from the ways one can fail
@@ -319,7 +323,7 @@ def failure_status(handle, exc):
 
 
 def delegate(state, req, context=None, seq=None, off_thread=False,
-             stop=None):
+             stop=None, meter=None):
     """Send `req` to its worker and wait for the whole reply.
 
     Blocking: the stream is consumed to completion before this returns,
@@ -333,8 +337,11 @@ def delegate(state, req, context=None, seq=None, off_thread=False,
     a worker refuses to be unless told. Everything that reads the trie
     has to have happened already then: `context` arrives built and `seq`
     arrives handed out, both by the thread that owns the session. `stop`
-    is how the round says it has run out of time, and a call that
-    notices it severs its response and keeps what arrived.
+    is how the round says it has run out of time or of tokens, and a
+    call that notices it severs its response and keeps what arrived.
+    `meter` counts what this call's worker generates into the round's
+    shared allowance as it streams, and it is the meter that trips
+    `stop` when the round as a whole has generated enough.
     """
     if not req.target:
         raise DelegationError(
@@ -368,12 +375,16 @@ def delegate(state, req, context=None, seq=None, off_thread=False,
     try:
         for piece in stream:
             pieces.append(piece)
+            if meter is not None:
+                meter.add(piece)
             if stop is not None and stop.is_set():
-                # the round ran out of time. Breaking here closes the
-                # stream below, which severs the response and frees the
-                # worker, and what arrived so far is kept
-                status = "timeout"
-                error = ("the round's time limit ended this call before "
+                # the round ran out of something - time, the helpers'
+                # shared token allowance, or the person asking. Breaking
+                # here closes the stream below, which severs the response
+                # and frees the worker, and what arrived so far is kept
+                status = getattr(stop, "status", "timeout")
+                error = (getattr(stop, "why", "") or
+                         "the round's time limit ended this call before "
                          "the worker finished")
                 break
     except WorkerError as exc:
@@ -397,3 +408,53 @@ def delegate(state, req, context=None, seq=None, off_thread=False,
                             error=error,
                             usage=call_usage(handle, text, engine_usage),
                             context=ctx, t_start=t_start, t_end=time.time())
+
+
+class RoundStop(threading.Event):
+    """The one flag a parallel round's calls all watch, carrying the
+    reason it was raised and the status a call cut short by it should
+    report. First reason wins: a round stops once, and every call that
+    notices reports the same why."""
+
+    def __init__(self):
+        super().__init__()
+        self.why = ""
+        self.status = "timeout"
+
+    def set(self, why="", status="timeout"):
+        if not self.is_set():
+            if why:
+                self.why = why
+            self.status = status
+        super().set()
+
+
+class TokenMeter:
+    """The round's shared generation allowance, counted as it streams.
+
+    Threads add what their worker just said; the estimate is characters
+    over CHARS_PER_TOKEN, because the exact count needs a tokenizer pass
+    nothing should pay per piece, and this is a runaway guard rather
+    than accounting - the trace still records the measured usage after
+    the join. Crossing the cap trips the round's stop flag, so every
+    call in flight severs at its next piece and keeps what arrived.
+    """
+
+    def __init__(self, cap, stop):
+        self.cap = int(cap)
+        self.stop = stop
+        self._lock = threading.Lock()
+        self._chars = 0
+
+    @property
+    def spent(self):
+        return int(self._chars / CHARS_PER_TOKEN)
+
+    def add(self, text):
+        with self._lock:
+            self._chars += len(text)
+            spent = self.spent
+        if spent >= self.cap:
+            self.stop.set(
+                f"the helpers have generated about {spent} tokens for "
+                f"this turn, which is its budget of {self.cap}")
