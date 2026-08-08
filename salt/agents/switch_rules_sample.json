@@ -1,28 +1,34 @@
 {
-  "version": "salt-switch-rules/1",
-  "rules": [
-    {
-      "id": "files-profiled-apart",
-      "when": "n_attachments > 0",
-      "then": {"per_source_themes": true},
-      "expected": "a conversation with files attached profiles each file apart from the conversation, so a file's own themes are not read as themes of the conversation",
-      "evidence": "the switch can do nothing at all in a session with no files attached, so this turns it on exactly where it has something to act on and leaves it off everywhere else"
-    },
-    {
-      "id": "quiet-tail-half-life",
-      "example": true,
-      "when": "tail_occupancy < 0.75 and n_turns > 40",
-      "then": {"coverage_half_life": 8},
-      "expected": "in a long conversation whose recent verbatim window is running light, a theme that was suppressed early stops being suppressed forever",
-      "evidence": "unproven, and here to be read rather than run. The value matters more than the switch does, and a half-life set too short costs more than the staleness it fixes. Try it against your own conversations before you trust it."
-    },
-    {
-      "id": "orphan-mass-stable-keys",
-      "example": true,
-      "when": "orphan_mass > 9000",
-      "then": {"stable_coverage_keys": true},
-      "expected": "when a heavy weight of suppressed material no longer matches anything the session still holds, freeze the keyword order so the suppression survives the session growing",
-      "evidence": "unproven, and here to be read rather than run. orphan_mass is a weight of words, not a share, so a threshold against it is a count in the thousands, and this switch changes what a session writes down rather than only what it selects."
-    }
-  ]
+ "version": "salt-switch-rules/1",
+ "rules": [
+  {
+   "id": "files-profiled-apart",
+   "when": "n_attachments > 0",
+   "then": {
+    "per_source_themes": true
+   },
+   "expected": "a conversation with files attached profiles each file apart from the conversation, so a file's own themes are not read as themes of the conversation",
+   "evidence": "the switch can do nothing at all in a session with no files attached, so this turns it on exactly where it has something to act on and leaves it off everywhere else"
+  },
+  {
+   "id": "quiet-tail-half-life",
+   "example": true,
+   "when": "tail_occupancy < 0.75 and n_turns > 40",
+   "then": {
+    "coverage_half_life": 8
+   },
+   "expected": "in a long conversation whose recent verbatim window is running light, a theme that was suppressed early stops being suppressed forever",
+   "evidence": "unproven, and here to be read rather than run. The value matters more than the switch does, and a half-life set too short costs more than the staleness it fixes. Try it against your own conversations before you trust it."
+  },
+  {
+   "id": "orphan-share-stable-keys",
+   "example": true,
+   "when": "orphan_share > 0.2",
+   "then": {
+    "stable_coverage_keys": true
+   },
+   "expected": "when a fifth of the suppressed material no longer matches anything the session still holds, freeze the keyword order so the suppression survives the session growing",
+   "evidence": "unproven, and here to be read rather than run. orphan_share is the orphaned suppression as a share of the whole coverage table, so the threshold means the same thing in a short conversation and a long one, and this switch changes what a session writes down rather than only what it selects."
+  }
+ ]
 }
