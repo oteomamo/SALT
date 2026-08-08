@@ -1336,6 +1336,11 @@ class AgentRound:
         """
         if self.limits.depth < 2 or not self.results:
             return
+        if any(r.status == "aborted" for r in self.results):
+            # the person asking ended the round. Asking the orchestrator
+            # for more pieces now would delegate new work AFTER the
+            # interrupt, which is the one thing an interrupt must stop
+            return
         more = orchestrator.follow_up(state, self.task, self.results,
                                       endpoint)
         self.extra_failures = more.failures
@@ -2431,6 +2436,15 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         # below, so its bookkeeping commits like a finished turn
         interrupted = True
         gen_ok = True
+    except BaseException:
+        # a turn that dies mid-round never reaches its ledger entry, so
+        # the agent records it filed must not sit waiting and attach to
+        # the NEXT turn's entry as though that turn had delegated. The
+        # delegations.jsonl lines it wrote stand: the work happened,
+        # only the turn that claimed it is gone
+        state.pending_delegations = []
+        state.pending_round = None
+        raise
     finally:
         # a borrowed answerer holds a connection, and closing the
         # generator is what tells it to stop. The chat model's own
