@@ -4937,6 +4937,22 @@ def check_rules_sample(tmp, tok, mdl):
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
 
+    # the examples' thresholds speak the signals' real language: both
+    # fire on a session shaped like the one they describe (long, its
+    # verbatim window running light, a heavy orphan mass) and neither
+    # fires on the opposite shape. A threshold written for a scale a
+    # signal does not have would sit at 100% or 0% and this would say so
+    from salt.agents.snapshot import KEYS as SNAP_KEYS
+    signals = {key: None for key in SNAP_KEYS}
+    signals.update(n_turns=300, tail_occupancy=0.5, orphan_mass=9500,
+                   n_attachments=0)
+    firing = sorted(r.id for r in every if r.fires(signals))
+    assert firing == ["orphan-mass-stable-keys", "quiet-tail-half-life"], (
+        f"the examples did not fire on the session they describe: {firing}")
+    signals.update(tail_occupancy=1.0, orphan_mass=100)
+    quiet = [r.id for r in every if r.fires(signals)]
+    assert quiet == [], f"an example fired on the opposite shape: {quiet}"
+
     # the tripwire: only the prose is scanned, since a threshold is a
     # number a rule needs and a measurement is one nobody outside has
     prose = " ".join(
