@@ -5901,6 +5901,168 @@ def check_ingest_cap(tmp, tok, mdl):
           "and 0 keeps all of it")
 
 
+@contextmanager
+def failing_append(exc=OSError("No space left on device")):
+    """A ledger that cannot be written to."""
+    real = L.append
+
+    def boom(session_dir, rec):
+        raise exc
+
+    L.append = boom
+    try:
+        yield
+    finally:
+        L.append = real
+
+
+def check_chaos(tmp, tok, mdl):
+    """Every way a round can go wrong at once, and the turn surviving
+    all of them."""
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+    from salt.agents import trace as T
+
+    ask = "what size battery does that argue for"
+    said = "Nine kilowatt hours of storage covers the evening draw."
+
+    # a worker whose server has stopped taking calls, beside two that
+    # answer: the round comes back whole, that piece typed, the rest
+    # intact
+    with Stub(cards=CARDS, post_status=503) as dying, \
+            Stub(cards=CARDS, pieces=(said,)) as alive, \
+            Stub(cards=CARDS, pieces=("Also true.",)) as other:
+        roster = three_worker_roster((("w", dying.url), ("x", alive.url),
+                                      ("y", other.url)), tmp)
+        state = replayed_state(tmp, "chaos_dies", tok, mdl, roster=roster)
+        try:
+            out = O.execute(state, plan_of(("a", "w"), ("b", "x"),
+                                           ("c", "y")))
+            assert len(out) == 3 and [r.target for r in out] == ["w", "x",
+                                                                  "y"], out
+            assert out[0].status in ("dead", "error", "timeout"), out[0]
+            assert not out[0].ok and out[0].error, out[0]
+            assert out[1].ok and out[1].text == said, out[1]
+            assert out[2].ok, out[2]
+            # the write-up is told which one did not make it
+            block = O.results_block(out)
+            assert "3 pieces, 2 answered and 1 not" in block, block[:80]
+            assert O.usable(out) and len(O.usable(out)) == 2, out
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # a port that vanishes between the probe and the call
+    gone = Stub(cards=CARDS, pieces=(said,))
+    roster = delegation_roster(gone.url, tmp)
+    state = replayed_state(tmp, "chaos_vanish", tok, mdl, roster=roster)
+    try:
+        assert state.worker("w").probe().state == "PROBED", "the probe failed"
+        gone.stop()
+        out = O.execute(state, plan_of(("a", "w")))
+        assert not out[0].ok and out[0].ran, out[0]
+        assert out[0].error, "a vanished server came back without a reason"
+        assert state.trie.n_sentences > 0, "the session lost its memory"
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    with Stub(cards=CARDS, pieces=(said,)) as s:
+        roster = delegation_roster(s.url, tmp)
+        plan_json = json.dumps(
+            {"version": P.SCHEMA, "action": "delegate",
+             "subtasks": [{"id": "1", "task": "size it", "target": "w"}]})
+        final = "A 9 kWh bank covers the evening."
+
+        # the ledger cannot be written: the answer is already on screen,
+        # so losing its record must not lose the turn with it
+        state = canned_state(tmp, "chaos_disk", tok, mdl,
+                             [plan_json, final], roster)
+        try:
+            with failing_append():
+                out = agent_line(state, f"/agent {ask}")
+            assert final in out, out
+            assert "recording #1 failed" in out, (
+                f"a ledger that could not be written said nothing: {out}")
+            assert "No space left" in out, out
+            assert state.tail[-1]["content"] == final, state.tail[-1]
+            assert state.delegation_stats["n"] == 1, (
+                "a delegation that happened was not counted because its "
+                "line could not be written")
+            assert events_of(state)[-1]["agent_delegations"] == 1, (
+                events_of(state)[-1])
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # and the same for the round's own trace
+        state = canned_state(tmp, "chaos_trace", tok, mdl,
+                             [plan_json, final], roster)
+        try:
+            real, T.append = T.append, lambda *a, **kw: (_ for _ in ()).throw(
+                OSError("No space left on device"))
+            try:
+                out = agent_line(state, f"/agent {ask}")
+            finally:
+                T.append = real
+            assert final in out and "recording this round failed" in out, out
+            assert state.agent_stats["turns"] == 1, (
+                "a round that happened was not counted")
+            assert state.tail[-1]["content"] == final, state.tail[-1]
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # a worker that answers with far too much: the cap holds and the
+    # session's memory does not grow without bound
+    huge = "The bank holds nine kilowatt hours of usable storage. " * 4000
+    with Stub(cards=CARDS, pieces=(huge,)) as s:
+        state = replayed_state(tmp, "chaos_huge", tok, mdl,
+                               roster=delegation_roster(s.url, tmp),
+                               flags=["--offload-ingest"])
+        try:
+            before = state.trie.n_sentences
+            with redirect_stdout(io.StringIO()):
+                out = O.execute(state, plan_of(("a", "w")))
+                cli.file_round(state, out)
+                state.ingest.drain()
+            assert out[0].ok and len(out[0].text) > 100_000, (
+                "the worker's own answer was truncated on the way back")
+            added = state.trie.texts[before:]
+            assert sum(len(r) for r in added) < 4000, (
+                f"{sum(len(r) for r in added)} characters of one answer "
+                f"entered memory")
+            assert any(cli.INGEST_MARKER in r for r in added), added[-1:]
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+    # two workers, one latency: order is the plan's, every time
+    with Stub(cards=CARDS, pieces=("first",), delay=0.2) as a, \
+            Stub(cards=CARDS, pieces=("second",), delay=0.2) as b:
+        roster = three_worker_roster((("w", a.url), ("x", b.url)), tmp)
+        state = replayed_state(tmp, "chaos_tie", tok, mdl, roster=roster)
+        try:
+            with redirect_stdout(io.StringIO()):
+                for name in ("w", "x"):
+                    state.worker(name).opened()
+            runs = [[(r.target, r.text) for r
+                     in O.execute(state, plan_of(("a", "w"), ("b", "x")))]
+                    for _ in range(4)]
+            assert all(r == [("w", "first"), ("x", "second")] for r in runs), \
+                runs
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("59. chaos: a worker whose server refuses the call leaves the "
+          "other pieces whole and the write-up told which one failed, a "
+          "port that vanishes after its own probe is a typed failure, a "
+          "ledger and a trace that cannot be written cost their records "
+          "and not the turn, an enormous answer is capped on its way into "
+          "memory, and two workers finishing together still come back in "
+          "plan order")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5971,6 +6133,7 @@ def main():
         check_agent_mode(tmp, tok, mdl)
         check_second_round(tmp, tok, mdl)
         check_ingest_cap(tmp, tok, mdl)
+        check_chaos(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
