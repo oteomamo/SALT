@@ -2491,7 +2491,17 @@ _TURN_TEXT_KEYS = ("prompt", "question", "puzzle", "text", "content",
 _OFFLOAD_KEYS = ("task", "target", "ingest")
 # a scripted item is one of two things: a message for the chat model, or a
 # task for a worker. offload is None for the first and the spec for the second
-ScriptedTurn = namedtuple("ScriptedTurn", "id text offload")
+# what one line of a scripted run is. `kind` says which of the four,
+# because a run is read long after it was written and "it has an offload
+# key" is not something a reader should have to work out
+ScriptedTurn = namedtuple("ScriptedTurn", "id text offload kind")
+TURN_KINDS = ("chat", "offload", "agent", "doc")
+
+
+# what each kind of scripted line prints as it runs, so a transcript
+# says which of them answered
+TURN_PROMPTS = {"chat": "you>", "offload": "offload>", "agent": "agent ask>",
+                "doc": "attach>"}
 
 
 def _parse_turns_file(raw):
@@ -2555,16 +2565,45 @@ def _turn_offload(item, i):
     return spec
 
 
+def _turn_named(item, key, i):
+    """The text an item's named key carries, or None when it has no such
+    key. Refused when the key is there and holds nothing usable, since a
+    scripted run must not quietly skip a line somebody wrote."""
+    if not isinstance(item, dict) or key not in item:
+        return None
+    text = item[key]
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"turn {i}: {key} is not text")
+    return text.strip()
+
+
 def load_turns(path, field=None):
-    """Read a --turns file into an ordered list of scripted items: a user
-    turn for the chat model, or a task for a worker."""
+    """Read a --turns file into an ordered list of scripted items.
+
+    Four kinds of line, and a run mixes them freely: a turn for the chat
+    model, a task for one worker, a turn the orchestrator plans out, and
+    a document to attach before any of it. The last two are what make a
+    whole session scriptable rather than only its conversation.
+    """
     items = _parse_turns_file(Path(path).read_text(encoding="utf-8"))
     turns = []
     for i, item in enumerate(items):
         turn_id = item.get("id") if isinstance(item, dict) else None
         spec = _turn_offload(item, i)
-        text = str(spec["task"]) if spec else _turn_text(item, field, i)
-        turns.append(ScriptedTurn(turn_id, text, spec))
+        agent = _turn_named(item, "agent", i)
+        doc = _turn_named(item, "doc", i)
+        if sum(x is not None for x in (spec, agent, doc)) > 1:
+            raise ValueError(f"turn {i}: a line does one thing, and this "
+                             f"one asks for several")
+        if spec:
+            text, kind = str(spec["task"]), "offload"
+        elif agent is not None:
+            text, kind = agent, "agent"
+        elif doc is not None:
+            text, kind = doc, "doc"
+        else:
+            text, kind = _turn_text(item, field, i), "chat"
+        turns.append(ScriptedTurn(turn_id, text, spec, kind))
     return turns
 
 
@@ -2578,11 +2617,15 @@ def run_turns(state, turns, out_path=None):
         for i, item in enumerate(turns):
             label = item.id if item.id is not None else i
             print(f"\n=== turn {i + 1}/{len(turns)} [{label}] ===")
-            print(f"{'offload>' if item.offload else 'you>'} {item.text}")
+            print(f"{TURN_PROMPTS[item.kind]} {item.text}")
             report_ingest_failures(state.ingest.drain())
             answer, result, stop = None, None, False
             try:
-                if item.offload:
+                if item.kind == "doc":
+                    ingest_doc(state, item.text)
+                elif item.kind == "agent":
+                    answer = run_agent_turn(state, item.text)
+                elif item.offload:
                     result = run_offload(state, item.text,
                                          item.offload.get("target"),
                                          item.offload.get("ingest"))
@@ -2600,8 +2643,9 @@ def run_turns(state, turns, out_path=None):
             if out is not None:
                 row = {"id": item.id, "turn": i, "question": item.text,
                        "answer": answer}
+                if item.kind != "chat":
+                    row["kind"] = item.kind
                 if item.offload:
-                    row["kind"] = "offload"
                     row["status"] = result.status if result else "error"
                     row["worker"] = (result.target if result
                                      else item.offload.get("target"))

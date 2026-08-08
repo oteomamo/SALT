@@ -140,12 +140,28 @@ puts a delegation in the middle of a scripted conversation:
 ]
 ```
 
+A line can also attach a document before anything else runs, or hand a
+turn to the orchestrator to plan out:
+
+```json
+[
+  {"doc": "salt/files/SALT.pdf"},
+  {"agent": "What does that paper claim, and does our sizing agree?"}
+]
+```
+
+`doc` ingests a file exactly as `/doc` does, and `agent` runs the turn
+exactly as `/agent` does, so a whole session is scriptable rather than
+only its conversation. Each line does one thing, and a line asking for
+several is refused when the file loads.
+
 The task goes to that worker with this session's memory as its context, the
 same way `/offload` does at the prompt. `target` picks the worker and can be
 left out when the roster has only one, and `ingest` decides whether the
 answer is remembered, defaulting to whatever the session was launched with.
-Delegated rows in `--turns-out` carry `{kind, status, worker}` as well, so a
-run can be told apart from the turns the chat model answered. The
+Rows in `--turns-out` carry `kind` whenever the line was not an ordinary
+turn, and a delegated row carries `status` and `worker` too, so a run can
+be told apart from the turns the chat model answered. The
 [Agents](agents.md) page covers what a delegation is and what it leaves
 behind.
 
