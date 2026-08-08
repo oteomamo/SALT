@@ -61,6 +61,8 @@ Agents:
 | `--offload-context-cap N` | off | cap the memory handed to a worker at N words, on top of the memory budget that already sizes it |
 | `--offload-ingest` | off | remember what a worker answered, as a turn of its own labeled with the worker it came from |
 | `--agent-keep-think` | off | keep a worker's reasoning when its answer is remembered, instead of cutting it |
+| `--agent` | off | plan every turn out instead of answering it directly, the way `/agent` does one turn |
+| `--agent-quiet` | off | leave out the one-line notice an agent-routed reply carries under `--agent` |
 | `--agent-max-delegations N` | 4 | how many pieces one `/agent` turn may hand out before the rest are reported as not attempted |
 | `--agent-max-wall SECONDS` | 600 | how long one `/agent` turn may spend handing pieces out before it answers with what it has |
 | `--switch-agent` | off | let a policy decide the memory switches per turn instead of leaving them where the flags set them |

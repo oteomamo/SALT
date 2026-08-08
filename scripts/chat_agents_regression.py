@@ -5549,6 +5549,123 @@ def check_partial_failure(tmp, tok, mdl):
           "were")
 
 
+def plain_line(state, line):
+    """One ordinary chat line, dispatched the way the REPL dispatches it."""
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        if state.agent_mode:
+            cli.agent_line(state, line)
+        else:
+            cli.chat_turn(state, line)
+    return buf.getvalue()
+
+
+def check_agent_mode(tmp, tok, mdl):
+    """Every turn planned out, and what that costs when there is nobody
+    to plan for."""
+    from salt.agents import protocol as P
+    from salt.agents import trace as T
+
+    args = cli.build_parser().parse_args(["--device", "cpu"])
+    assert not args.agent and not args.agent_quiet, args
+
+    ask = "what size battery does that argue for"
+    plan_json = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [{"id": "1", "task": "size the bank", "target": "w"}]})
+    final = "A 9 kWh bank covers the evening."
+    said = "Nine kilowatt hours of storage covers the evening draw."
+
+    # the fast path: mode on, nobody to hand anything to, so the turn is
+    # an ordinary turn and costs exactly one call
+    state = canned_state(tmp, "mode_alone", tok, mdl, [final], flags=["--agent"])
+    try:
+        assert state.agent_mode and not state.agent_quiet, state
+        assert not cli.workers_ready(state), (
+            "a session with no roster thinks it has helpers")
+        out = plain_line(state, ask)
+        assert len(state.runner.prompts) == 1, (
+            f"a turn with nobody to help cost {len(state.runner.prompts)} "
+            f"calls")
+        assert "planning with" not in out and "[agent:" not in out, out
+        assert not T.trace_path(state.trie.cache_dir).exists(), (
+            "a turn that was never planned left a round behind")
+        assert state.tail[-1]["content"] == final, state.tail[-1]
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    with Stub(cards=CARDS, pieces=(said,)) as s:
+        roster = delegation_roster(s.url, tmp)
+        # a roster whose worker is not answering is still no worker
+        down = canned_state(tmp, "mode_down", tok, mdl, [final],
+                            delegation_roster(f"http://127.0.0.1:"
+                                              f"{closed_port()}", tmp),
+                            flags=["--agent"])
+        try:
+            assert not cli.workers_ready(down), (
+                "a worker nobody is serving counted as one to plan for")
+            plain_line(down, ask)
+            assert len(down.runner.prompts) == 1, down.runner.prompts
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(down)
+
+        # mode on with a worker up: every plain line is a round, and the
+        # round keeps quiet apart from one line about itself
+        state = canned_state(tmp, "mode_on", tok, mdl, [plan_json, final],
+                             roster, flags=["--agent"])
+        try:
+            assert cli.workers_ready(state), "a live worker was not seen"
+            out = plain_line(state, ask)
+            assert "[agent: 1 delegation]" in out, out
+            assert "planning with" not in out, (
+                f"persistent mode narrated a turn it takes every time: "
+                f"{out}")
+            assert "pieces to hand out" not in out and "1. w:" not in out, out
+            assert final in out and s.httpd.posts == 1, out
+            assert len(state.runner.prompts) == 2, state.runner.prompts
+            assert state.tail[-1]["content"] == final, state.tail[-1]
+            rec = T.read(state.trie.cache_dir).rounds[0]
+            assert rec["ask"] == ask and len(rec["pieces"]) == 1, rec
+            assert events_of(state)[-1]["agent_turn"] is True, events_of(state)[-1]
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # --agent-quiet drops the notice and nothing else
+        quiet = canned_state(tmp, "mode_quiet", tok, mdl, [plan_json, final],
+                             roster, flags=["--agent", "--agent-quiet"])
+        try:
+            out = plain_line(quiet, ask)
+            assert "[agent:" not in out, out
+            assert final in out, out
+            assert len(T.read(quiet.trie.cache_dir).rounds) == 1, (
+                "a quiet round was not recorded")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(quiet)
+
+        # /agent still works one turn at a time, and says what it is doing
+        one = canned_state(tmp, "mode_one_shot", tok, mdl,
+                           [plan_json, final], roster)
+        try:
+            assert not one.agent_mode, one.agent_mode
+            out = agent_line(one, f"/agent {ask}")
+            assert "planning with fake ..." in out, out
+            assert "1 piece to hand out" in out, out
+            assert "[agent:" not in out, (
+                "a turn the person asked for by name announced itself too")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(one)
+    print("56. persistent agent mode: --agent plans every plain line, "
+          "keeps the running commentary to itself and says so in one line "
+          "a session can switch off, a turn with no worker ready costs "
+          "exactly what an ordinary turn costs, and /agent still plans "
+          "one turn at a time out loud")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5616,6 +5733,7 @@ def main():
         check_roster_orchestrator(tmp, tok, mdl)
         check_parallel_fanout(tmp, tok, mdl)
         check_partial_failure(tmp, tok, mdl)
+        check_agent_mode(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

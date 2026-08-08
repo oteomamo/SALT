@@ -296,6 +296,8 @@ class ChatState:
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         self.offload_ingest = args.offload_ingest
         self.agent_keep_think = args.agent_keep_think
+        self.agent_mode = args.agent
+        self.agent_quiet = args.agent_quiet
         self.agent_max_delegations = args.agent_max_delegations
         self.agent_max_wall = args.agent_max_wall
         self.offload_context_cap = args.offload_context_cap
@@ -1255,10 +1257,14 @@ class AgentRound:
     on is said out loud rather than left to a silent prompt.
     """
 
-    def __init__(self, task, limits=None, endpoint=None):
+    def __init__(self, task, limits=None, endpoint=None, quiet=False):
         self.task = task
         self.limits = limits
         self.endpoint = endpoint
+        # in persistent mode every turn is a round, so the running
+        # commentary that helps once is noise every time: the turn says
+        # one line about itself afterwards instead
+        self.quiet = quiet
         self.results = []
         self.record = None
         self.done = 0
@@ -1266,7 +1272,13 @@ class AgentRound:
         # itself, which the trace records and /stats counts
         self.fell_through = False
 
+    def say(self, text):
+        if not self.quiet:
+            print(text, flush=True)
+
     def note(self, result):
+        if self.quiet:
+            return
         self.done += 1
         said = orchestrator.OUTCOMES.get(result.status, result.status)
         if result.ok:
@@ -1283,7 +1295,7 @@ class AgentRound:
         # named out loud: with a roster orchestrator down, the round
         # falls back to the session's own model, and which model made
         # the plan is the first thing anybody reading this wants
-        print(f"planning with {endpoint.label} ...", flush=True)
+        self.say(f"planning with {endpoint.label} ...")
         outcome = orchestrator.plan(state, self.task, memory_block,
                                     endpoint=endpoint)
         directive = outcome.directive
@@ -1294,7 +1306,7 @@ class AgentRound:
                 yield pieces[0]
                 return
             n = len(directive.subtasks)
-            print(f"  {n} piece{'' if n == 1 else 's'} to hand out")
+            self.say(f"  {n} piece{'' if n == 1 else 's'} to hand out")
             self.results = orchestrator.execute(state, directive, self.limits,
                                                 self.note)
             file_round(state, self.results)
@@ -1304,8 +1316,8 @@ class AgentRound:
                 # had planned it, which is the whole fail-closed rule:
                 # the session loses the delegation, never the reply
                 self.fell_through = True
-                print("  nothing came back, so this turn is being answered "
-                      "directly", flush=True)
+                self.say("  nothing came back, so this turn is being "
+                         "answered directly")
                 stream = state.runner.stream_chat(messages)
                 try:
                     for piece in stream:
@@ -1314,7 +1326,7 @@ class AgentRound:
                 finally:
                     close_quietly(stream)
                 return
-            print("  writing it up ...", flush=True)
+            self.say("  writing it up ...")
             stream = orchestrator.synthesis_stream(state, self.task,
                                                    self.results)
             try:
@@ -1345,6 +1357,60 @@ def agent_limits(state):
         max_wall_s=state.agent_max_wall)
 
 
+AGENT_NOTICE = "[agent: {n} delegation{s}]"
+
+
+def workers_ready(state):
+    """Whether this session has a helper to hand anything to.
+
+    Asked before a turn is planned in persistent mode, because planning
+    a turn nobody can help with costs a whole extra call to say so. A
+    handle that opens is enough: whether that worker then answers is the
+    round's business, and a round is worth starting for.
+    """
+    roster = getattr(state, "roster", None)
+    if roster is None:
+        return False
+    return any(state.worker(entry.name).opened() is not None
+               for entry in roster.workers)
+
+
+def agent_notice(state, round_):
+    """One line saying this turn went through the agent.
+
+    In persistent mode a reply looks like any other reply, and a person
+    is owed the difference. Suppressible for a session that would rather
+    read the conversation than the machinery.
+    """
+    if state.agent_quiet or round_.record is None:
+        return
+    n = len(round_.record.delegated)
+    print(AGENT_NOTICE.format(n=n, s="" if n == 1 else "s"))
+
+
+def agent_line(state, line):
+    """One plain chat line under `--agent`: planned out, unless there is
+    nobody to plan for. With no worker ready this is an ordinary turn and
+    costs exactly what an ordinary turn costs."""
+    if not workers_ready(state):
+        return chat_turn(state, line)
+    return run_agent_turn(state, line, quiet=True)
+
+
+def run_agent_turn(state, task, quiet=False):
+    """One turn answered by planning it out first."""
+    endpoint = orchestrator.orchestrator_endpoint(state)
+    round_ = AgentRound(task, agent_limits(state), endpoint, quiet=quiet)
+    reply = chat_turn(state, task, reply_fn=round_,
+                      reply_model_id=getattr(endpoint, "model_id", None),
+                      reply_tokenizer=getattr(endpoint, "tokenizer", None),
+                      reply_label=AGENT_LABEL)
+    file_trace(state, round_.record)
+    if quiet:
+        agent_notice(state, round_)
+    return reply
+
+
 def agent_turn(state, rest):
     """`/agent TASK` - the same turn, planned out before it is answered.
 
@@ -1358,14 +1424,7 @@ def agent_turn(state, rest):
     if not task:
         print(AGENT_USAGE)
         return
-    endpoint = orchestrator.orchestrator_endpoint(state)
-    round_ = AgentRound(task, agent_limits(state), endpoint)
-    reply = chat_turn(state, task, reply_fn=round_,
-                      reply_model_id=getattr(endpoint, "model_id", None),
-                      reply_tokenizer=getattr(endpoint, "tokenizer", None),
-                      reply_label=AGENT_LABEL)
-    file_trace(state, round_.record)
-    return reply
+    return run_agent_turn(state, task)
 
 
 def file_trace(state, record):
@@ -2547,6 +2606,8 @@ def repl(state):
             elif line.startswith("/"):
                 if not handle_command(line, state):
                     break
+            elif state.agent_mode:
+                agent_line(state, line)
             else:
                 chat_turn(state, line)
         except KeyboardInterrupt:
@@ -2787,6 +2848,17 @@ def build_parser():
                         "cut before ingest, so a model that reasons out "
                         "loud does not fill this session's memory with "
                         "its own working)")
+    p.add_argument("--agent", action="store_true",
+                   help="plan every turn out instead of answering it "
+                        "directly: the orchestrator decides whether the "
+                        "turn needs helpers and which pieces go to whom. A "
+                        "turn with no worker ready is an ordinary turn and "
+                        "costs no extra call (default: off, and /agent "
+                        "plans one turn at a time)")
+    p.add_argument("--agent-quiet", action="store_true",
+                   help="leave out the one-line notice an agent-routed "
+                        "reply carries under --agent (default: off, so a "
+                        "reply that went through helpers says so)")
     p.add_argument("--agent-max-delegations", type=int,
                    default=orchestrator.AgentLimits.max_delegations_per_turn,
                    metavar="N",
