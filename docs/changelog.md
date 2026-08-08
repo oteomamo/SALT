@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.10.0 - 2.10.101
+## 2.10.0 - 2.10.123
 
 The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
@@ -163,6 +163,36 @@ Patch releases, grouped where several versions shipped one thing:
   memory. Two fixes for reasoning models: a reply whose opening think
   tag was never in it is cut correctly, and a turn now keeps what a
   model said rather than what it thought wherever that model sits.
+- **2.10.102 - 2.10.107** The whole scenario, run end to end and
+  pinned. Turns files gained `doc` and `agent` lines, so a scripted
+  conversation can attach a file and plan a turn the way a person
+  would, and `salt/agents/demo_turns.json` replays all four kinds of
+  line deterministically. A session with no roster is pinned to
+  consult nobody, file nothing and cost one call a turn, down to each
+  turn's own record. The architecture pages carry the agent layer.
+- **2.10.108 - 2.10.119** Hardening across the layer. A parallel round
+  now stops for its shared token budget the way it stops for its
+  clock, hands out nothing when a second round has nothing left, and
+  an interrupt comes back as recorded pieces that keep what arrived
+  instead of a frozen session. A request's timeout and its usage
+  numbers travel under the worker's own lock, one delegation to a dead
+  endpoint no longer condemns the worker, and a server still running
+  from an earlier session is protected from being spawned over.
+  Placement now checks the memory a server really takes, refusing a
+  shared card the declared shares plus resident overhead cannot fit
+  and reading the card's live free memory when `nvidia-smi` can be
+  asked. A reply of runaway think tags and JSON `NaN` or `Infinity`
+  are refused rather than crashed on, a switch decision cannot combine
+  with the session's own settings into two switches known to cancel,
+  and the tail-occupancy signal counts two messages per exchange. The
+  MCP server takes one call at a time however many arrive, its writes
+  refuse a conversation nobody made, `sync` waits the ingest queue out,
+  and every text one call carries meets the same size bound.
+- **2.10.120 - 2.10.123** The sample rules speak the signals' real
+  language. `switch_rules_sample.json`'s examples now key on the
+  verbatim window running light in a long conversation and on orphan
+  mass as the weight of words it is, both able to fire on a real
+  session, and the suite pins that they do.
 
 ## 2.9.0 - 2.9.123
 
