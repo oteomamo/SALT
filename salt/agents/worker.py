@@ -598,7 +598,8 @@ class WorkerHandle:
                     continue
                 raise
 
-    def call(self, messages, off_thread=False, **overrides):
+    def call(self, messages, off_thread=False, read_timeout_s=None,
+             usage_out=None, **overrides):
         """Stream one reply from the worker, yielding text pieces.
 
         A generator that holds the single-flight lock for its whole
@@ -606,6 +607,18 @@ class WorkerHandle:
         instead of interleaving on one HTTP session. Abandoning it
         (``close()`` on the generator, or Ctrl-C) severs the response,
         which aborts the request server-side and frees the handle.
+
+        ``read_timeout_s`` lets this one call wait out silence for
+        longer or shorter than the handle's own number. It is applied
+        and restored inside the lock, so two callers queued on one
+        handle each stream under the timeout they asked for and neither
+        can move the other's mid-reply.
+
+        ``usage_out`` is a dict this call's engine numbers are written
+        into before the lock is released. The client keeps them on
+        itself and the next queued call overwrites them, so a caller
+        that reads them off the runner afterwards can be handed the
+        other call's numbers; a caller that passes a dict cannot.
 
         Delegation is blocking here, and it runs on the session's own
         thread behind the dispatch barrier that keeps the ingest thread
@@ -622,6 +635,9 @@ class WorkerHandle:
                 f"runs on the session's own thread")
         with self._lock:
             runner = self._open()
+            prior_timeout = getattr(runner, "read_timeout", None)
+            if read_timeout_s is not None:
+                runner.read_timeout = read_timeout_s
             self.state = BUSY
             t0 = time.monotonic()
             stream = None
@@ -639,9 +655,11 @@ class WorkerHandle:
                     # finally below severs it, which frees the worker to
                     # take the next call, so this is not a DEAD worker and
                     # a stall never counts toward one.
+                    waited = (self.timeout_s if read_timeout_s is None
+                              else read_timeout_s)
                     self.last_error = (
                         f"worker {self.name!r} sent nothing for "
-                        f"{self.timeout_s:g}s, so the call was given up on")
+                        f"{waited:g}s, so the call was given up on")
                     raise WorkerError(self.last_error) from exc
                 self._note_failure(f"{type(exc).__name__}: {exc}")
                 raise
@@ -651,6 +669,16 @@ class WorkerHandle:
                 # has to happen the moment the caller walks away
                 if stream is not None:
                     stream.close()
+                if read_timeout_s is not None:
+                    runner.read_timeout = prior_timeout
+                if usage_out is not None:
+                    stats = getattr(runner, "last_engine_stats", None) or {}
+                    prompt = stats.get("apc_prompt_tokens")
+                    if prompt is None:
+                        prompt = getattr(runner, "last_prompt_tokens", None)
+                    usage_out["prompt_tokens"] = prompt
+                    usage_out["cached_tokens"] = stats.get(
+                        "apc_cached_tokens")
                 self.calls += 1
                 self.busy_s += time.monotonic() - t0
                 if self.state == BUSY:

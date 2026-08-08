@@ -280,15 +280,15 @@ def output_tokens(runner, text):
         return None
 
 
-def call_usage(handle, text):
-    """What this call cost, read off the worker's client afterwards."""
+def call_usage(handle, text, captured=None):
+    """What this call cost. ``captured`` is what the call itself wrote
+    down under the handle's lock; reading the client afterwards instead
+    would race the next call queued on the same worker, which resets
+    those numbers the moment it starts."""
     runner = handle.runner
-    stats = getattr(runner, "last_engine_stats", None) or {}
-    prompt = stats.get("apc_prompt_tokens")
-    if prompt is None:
-        prompt = getattr(runner, "last_prompt_tokens", None)
-    return {"prompt_tokens": prompt,
-            "cached_tokens": stats.get("apc_cached_tokens"),
+    captured = captured or {}
+    return {"prompt_tokens": captured.get("prompt_tokens"),
+            "cached_tokens": captured.get("cached_tokens"),
             "output_tokens": output_tokens(runner, text)}
 
 
@@ -356,12 +356,15 @@ def delegate(state, req, context=None, seq=None, off_thread=False,
         state.delegation_seq += 1
         seq = state.delegation_seq
     t_start = time.time()
-    pieces, status, error = [], "ok", ""
-    prior = _apply_request_timeout(handle, req)
+    pieces, status, error, engine_usage = [], "ok", "", {}
     # held in a name rather than left to the for loop, so Ctrl-C closes it
     # here and now: closing the generator is what severs the response and
-    # aborts the request on the worker
-    stream = handle.call(messages, off_thread=off_thread, **overrides)
+    # aborts the request on the worker. The request's own timeout rides
+    # the call and is applied under the handle's lock, so two pieces
+    # queued on one worker each wait under their own number
+    stream = handle.call(messages, off_thread=off_thread,
+                         read_timeout_s=req.timeout_s,
+                         usage_out=engine_usage, **overrides)
     try:
         for piece in stream:
             pieces.append(piece)
@@ -388,30 +391,9 @@ def delegate(state, req, context=None, seq=None, off_thread=False,
         error = f"{type(exc).__name__}: {exc}"
     finally:
         close_quietly(stream)
-        _restore_timeout(handle, prior)
     text = "".join(pieces)
     return DelegationResult(id=seq, target=handle.name,
                             task=req.task, status=status, text=text,
-                            error=error, usage=call_usage(handle, text),
+                            error=error,
+                            usage=call_usage(handle, text, engine_usage),
                             context=ctx, t_start=t_start, t_end=time.time())
-
-
-def _apply_request_timeout(handle, req):
-    """Let one request go quiet for longer or shorter than the roster
-    allows this worker. Returns what to put back."""
-    if req.timeout_s is None:
-        return None
-    try:
-        runner = handle.ready()
-    except WorkerError:
-        # opening failed, so the call below will fail too and say why
-        return None
-    prior = getattr(runner, "read_timeout", None)
-    runner.read_timeout = req.timeout_s
-    return runner, prior
-
-
-def _restore_timeout(handle, prior):
-    if prior is not None:
-        runner, value = prior
-        runner.read_timeout = value
