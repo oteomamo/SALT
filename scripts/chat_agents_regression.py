@@ -249,7 +249,8 @@ def refuses(path, fragment):
 
 def run_arm(tmp, cid, tok, mdl, roster):
     """Replay TRANSCRIPT through the real turn path. Returns the per-turn
-    trace and the trie, so two arms can be compared column by column."""
+    trace, the trie and the session's own ledger entries with the clock
+    taken out, so two arms can be compared column by column."""
     args = cli.build_parser().parse_args(["--device", "cpu", "--sync-ingest"])
     trie = SessionTrie(cid, cache_dir=tmp, model_name=BGE_MODEL,
                        budget_pct_default=args.budget_pct)
@@ -265,10 +266,15 @@ def run_arm(tmp, cid, tok, mdl, roster):
                               "stats": dict(state.last_stats or {}),
                               "coverage": dict(trie.coverage),
                               "tail": list(state.tail)})
+        # the clock and the session's own name are what the two arms
+        # differ by on purpose; everything else has to match
+        events = [{k: v for k, v in e.items()
+                   if k not in ("ts_start", "ts_end", "conversation_id")}
+                  for e in events_of(state)]
     finally:
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
-    return trace, trie
+    return trace, trie, events
 
 
 def check_validation(tmp):
@@ -2763,8 +2769,8 @@ def check_identity(tmp, tok, mdl):
                       server_url="http://127.0.0.1:8081",
                       model={"alias": SAMPLE_ALIAS, "hf_id": "test/fake",
                              "path": "-"}),))
-    off_trace, off = run_arm(tmp, "agents_off", tok, mdl, None)
-    on_trace, on = run_arm(tmp, "agents_on", tok, mdl, roster)
+    off_trace, off, off_events = run_arm(tmp, "agents_off", tok, mdl, None)
+    on_trace, on, on_events = run_arm(tmp, "agents_on", tok, mdl, roster)
 
     assert len(off_trace) == len(on_trace) == len(TRANSCRIPT), (
         "an arm did not run the whole transcript")
@@ -2782,9 +2788,23 @@ def check_identity(tmp, tok, mdl):
     assert np.array_equal(off.embeddings, on.embeddings), (
         "the embeddings diverged with a roster loaded")
     assert off.n_sentences > 0, "the fixture built no memory to compare"
+
+    # what the session RECORDS about itself is identical too, not only
+    # what it sends. A roster that changed a token count would change
+    # every downstream reading of this conversation
+    assert len(off_events) == len(on_events) == len(TRANSCRIPT), (
+        f"an arm recorded {len(off_events)} and {len(on_events)} turns")
+    for i, (a, b) in enumerate(zip(off_events, on_events), 1):
+        assert a == b, (
+            f"turn {i}: a loaded roster changed what the ledger records: "
+            f"{sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))}")
+    for key in ("agent_turn", "agent_delegations", "switch_overrides"):
+        assert not any(key in e for e in on_events), (
+            f"an idle roster put {key} on a turn that did none of it")
     print(f"27. identity: {len(TRANSCRIPT)} turns over {off.n_sentences} "
           f"sentences byte-identical with and without a roster loaded "
-          f"({len(off_trace)} prompts compared in full)")
+          f"({len(off_trace)} prompts and {len(on_events)} ledger entries "
+          f"compared in full)")
 
 
 def imports_pulled(module, watch):
@@ -2807,7 +2827,7 @@ def imports_pulled(module, watch):
     return out.stdout.split()
 
 
-def check_import_purity():
+def check_import_purity(tmp, tok, mdl):
     heavy = ("torch", "transformers", "requests", "vllm", "salt.mcp",
              "salt.chat.runner_serve")
     for module in ("salt.agents", "salt.agents.roster", "salt.agents.worker",
@@ -2819,14 +2839,45 @@ def check_import_purity():
             f"nothing to import, so a roster can name workers a session "
             f"never uses")
     # the chat entry point carries the encoder stack either way, so only
-    # the pieces this ladder could newly drag in are pinned here
-    cli_pulled = imports_pulled("salt.chat.cli",
-                                ("vllm", "salt.mcp",
-                                 "salt.chat.runner_serve"))
+    # the pieces this ladder could newly drag in are pinned here.
+    # `requests` and `concurrent.futures` are NOT among them: transformers
+    # pulls both before any of this is reached, so pinning them would pin
+    # somebody else's import list rather than our own restraint
+    cli_watch = ("vllm", "salt.mcp", "salt.chat.runner_serve")
+    cli_pulled = imports_pulled("salt.chat.cli", cli_watch)
     assert not cli_pulled, f"importing salt.chat.cli pulled {cli_pulled}"
+
+    # and a session that was given no roster does no roster work at all
+    args = cli.build_parser().parse_args(["--device", "cpu"])
+    assert args.roster is None and not args.agent, args
+    trie = SessionTrie("purity_off", cache_dir=tmp, model_name=BGE_MODEL)
+    state = cli.ChatState(args, tok, mdl, _FakeRunner(tok, REPLIES), trie,
+                          None)
+    try:
+        assert state.roster is None and state.worker_handles() == [], state
+        assert not cli.workers_ready(state), (
+            "a session with no roster believes it has helpers")
+        assert isinstance(state.switch_policy, cli.policy.NullPolicy)
+        assert not state.switch_policy.decides, (
+            "the default policy is asked something every turn")
+        with counted_snapshot() as asked, redirect_stdout(io.StringIO()):
+            cli.chat_turn(state, "and the inverter?")
+        assert not asked, "a session with no roster described itself anyway"
+        assert len(state.runner.prompts) == 1, (
+            f"one turn cost {len(state.runner.prompts)} calls")
+        assert state.last_overrides == {} and state.last_round is None
+        assert not L.ledger_path(trie.cache_dir).exists(), (
+            "a session with no roster filed a delegation")
+        assert not TRACE.trace_path(trie.cache_dir).exists(), (
+            "a session with no roster recorded a round")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
     print("28. import purity: the agent layer pulls none of "
-          f"{len(heavy)} heavy imports, and saltChat still reaches neither "
-          f"the serve client nor an MCP server")
+          f"{len(heavy)} heavy imports, saltChat still reaches neither the "
+          f"serve client nor an MCP server, and a session with no roster "
+          f"asks nobody anything, describes itself to nobody and costs "
+          f"one call a turn")
 
 
 def check_frozen_core():
@@ -6236,7 +6287,7 @@ def main():
         check_resume(tmp, tok, mdl)
         check_delegation_identity(tmp, tok, mdl)
         check_identity(tmp, tok, mdl)
-        check_import_purity()
+        check_import_purity(tmp, tok, mdl)
         check_frozen_core()
         check_command_surfaces()
         check_offload_ergonomics(tmp, tok, mdl)
