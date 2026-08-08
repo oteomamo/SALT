@@ -601,12 +601,14 @@ def check_hardening(root):
     """Closing under load, opening after damage, and dying on a signal."""
     import select
     from salt.mcp.pool import SessionPool
-    from salt.mcp.server import Engine, add_turns, session_payload
+    from salt.mcp.server import (Engine, add_turns, create_session,
+                                 session_payload)
 
     engine = Engine("cpu").ready()
     pool = SessionPool(root, capacity=1)
     # a session closed with its queue still full: eviction has to drain
     # before it drops, or the rows nobody waited for are simply lost
+    create_session(pool, "mcp-evicted")
     add_turns(engine, pool, "mcp-evicted",
               [{"role": r, "text": t} for r, t in TALK], sync=False)
     pending = pool.open["mcp-evicted"].ingest.pending
@@ -821,8 +823,9 @@ def sent_prompt(runtime, stub):
 def check_delegation(root):
     from salt.agents.roster import RosterError
     from salt.mcp.agents import AgentRuntime, roster_payload, run_delegation
+    from salt.mcp.errors import ToolError
     from salt.mcp.pool import SessionPool
-    from salt.mcp.server import Engine, add_turns
+    from salt.mcp.server import Engine, add_turns, create_session
 
     engine = Engine("cpu").ready()
     pool = SessionPool(root)
@@ -845,6 +848,14 @@ def check_delegation(root):
         assert row["endpoint"] == stub.url and row["state"] == "DECLARED", row
 
         cid = "mcp-delegate"
+        # a conversation nobody made refuses now, for turns exactly as
+        # for memory: a typo'd id must not quietly fork a session
+        try:
+            add_turns(engine, pool, cid, [{"role": "user", "text": "hey"}])
+            raise AssertionError("add_turns invented a conversation")
+        except ToolError as exc:
+            assert exc.code == "not_found", exc
+        create_session(pool, cid)
         add_turns(engine, pool, cid,
                   [{"role": r, "text": t} for r, t in TALK], sync=True)
         session = pool.get(cid)
@@ -929,6 +940,57 @@ def check_delegation(root):
           "conversation itself is byte for byte unchanged by either")
 
 
+def check_serial_and_sync(root):
+    """One tool call at a time whatever the SDK dispatches, and `sync`
+    that waits for the queue instead of rewiring the session's worker."""
+    import threading
+    import time as _time
+    from concurrent.futures import ThreadPoolExecutor
+    from salt.mcp.errors import guarded
+    from salt.mcp.pool import SessionPool
+    from salt.mcp.server import Engine, add_turns, create_session
+
+    # the SDK runs every sync tool on a thread of its own, so two
+    # pipelined calls arrive as two threads. The guard serializes them:
+    # at no moment are two tool bodies inside at once
+    inside, overlap = [], []
+
+    def body(i):
+        inside.append(i)
+        if len(inside) > 1:
+            overlap.append(list(inside))
+        _time.sleep(0.02)
+        inside.remove(i)
+        return i
+
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        out = sorted(workers.map(lambda i: guarded(body, i), range(8)))
+    assert out == list(range(8)) and not overlap, (
+        f"tool bodies overlapped: {overlap}")
+
+    # sync waits the queue out on the worker thread that owns the trie.
+    # The session's worker is never rewired, so the call after a sync
+    # one still ingests in the background like every call before it
+    engine = Engine("cpu").ready()
+    pool = SessionPool(root)
+    create_session(pool, "mcp-sync")
+    out = add_turns(engine, pool, "mcp-sync",
+                    [{"role": "user",
+                      "text": "The winter meter read nine kilowatt hours "
+                              "through the evening and the panels covered "
+                              "the rest of the day."}],
+                    sync=True)
+    assert out["sync"] and out["pending"] == 0, out
+    assert out["new_sentences"] >= 1, out
+    session = pool.open["mcp-sync"]
+    assert session.ingest.synchronous is False, (
+        "one sync call rewired the session's ingest worker for good")
+    pool.close_all()
+    print("14. serial and sync: 8 concurrent tool calls ran one at a "
+          "time, and a sync add waited the queue out without rewiring "
+          "the session's worker")
+
+
 def main():
     sessions = Path(tempfile.mkdtemp(prefix="salt_mcp_regression_"))
     try:
@@ -940,6 +1002,7 @@ def main():
         check_delegation(sessions)
         check_hardening(sessions)
         check_scenario(sessions)
+        check_serial_and_sync(sessions)
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
     print("PASS")
