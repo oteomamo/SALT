@@ -1,0 +1,1861 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Salience-Aware Lexical Trie for Long-Context Compression">
+      
+      
+      
+        <link rel="canonical" href="https://oteomamo.github.io/SALT/2.11.0/changelog/">
+      
+      
+        <link rel="prev" href="../results/">
+      
+      
+        <link rel="next" href="../roadmap/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Changelog - SALT</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="SALT" class="md-header__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            SALT
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../chatbot/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../architecture/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../datasets/" class="md-tabs__link">
+          
+  
+  
+  Evaluation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Project
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="SALT" class="md-nav__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    SALT
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chatbot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chatbot mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Evaluation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#2110-2110" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.11.0 - 2.11.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2100-210123" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.10.0 - 2.10.123
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#290-29123" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.9.0 - 2.9.123
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#280" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.8.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#270" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.7.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#260-267" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6.0 - 2.6.7
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#250" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#240" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#230-231" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3.0 - 2.3.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#220-221" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2.0 - 2.2.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#210" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#200" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.0.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#100" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.0.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#2110-2110" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.11.0 - 2.11.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2100-210123" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.10.0 - 2.10.123
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#290-29123" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.9.0 - 2.9.123
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#280" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.8.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#270" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.7.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#260-267" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6.0 - 2.6.7
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#250" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#240" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#230-231" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3.0 - 2.3.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#220-221" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2.0 - 2.2.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#210" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#200" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.0.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#100" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.0.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="changelog">📄 Changelog</h1>
+<p>What each version added. Versions match the git tags on the
+<a href="https://github.com/oteomamo/SALT">repository</a>.</p>
+<h2 id="2110-2110">2.11.0 - 2.11.0</h2>
+<p>The MCP milestone. SALT is a working memory layer for any MCP client:
+<code>salt-mcp</code> serves compression, conversations and delegation over the
+Model Context Protocol, and behind it saltChat can plan a turn with a
+reasoning model, fan the pieces out to helper models in parallel, and
+remember what a helper answered under that helper's own name. Every
+agent behavior ships off by default and is bounded and recorded when
+switched on. The <a href="../mcp/">MCP server</a> and <a href="../agents/">agents</a> pages
+cover the tools, the roster and the limits.</p>
+<h2 id="2100-210123">2.10.0 - 2.10.123</h2>
+<p>The agent line. saltChat is growing an agent layer: a session can name
+smaller helper models beside the chat model and, over the 2.10.z
+releases, hand parts of its work to them with SALT memory in the loop.</p>
+<p>Patch releases, grouped where several versions shipped one thing:</p>
+<ul>
+<li><strong>2.10.0</strong> Model roster. A <code>salt.agents</code> package that reads a
+  validated roster file naming helper models and how to reach them,
+  with a sample at <code>salt/agents/roster_sample.json</code>. Groundwork only,
+  nothing in the chat changes yet.</li>
+<li><strong>2.10.1 - 2.10.9</strong> Workers in a session. <code>--roster FILE</code> loads the
+  roster at launch, <code>/roster</code> and <code>/worker</code> list what is there and probe
+  it for the model each endpoint is actually serving, and <code>/stats</code> names
+  the workers. A session with a roster loaded chats exactly as one
+  without.</li>
+<li><strong>2.10.10 - 2.10.17</strong> Starting and stopping workers. <code>/worker start</code>
+  launches a <code>saltServe</code> worker as a child of the session, <code>/worker
+  stop</code> takes it down, and <code>--workers-autostart</code> starts the roster with
+  the session. A worker is refused onto a card another server already
+  claims unless both sides declare their share. A worker that goes quiet
+  mid-reply is given up on, a refused connection is retried once, and
+  one that fails twice in a row is left alone until a probe revives it.</li>
+<li><strong>2.10.18 - 2.10.26</strong> Offload. <code>/offload &lt;task&gt;</code> hands one task to a
+  worker together with this conversation's memory, selected for the task
+  the way a chat turn selects it and committing nothing, so the session
+  is the same after a delegation as before it. Every delegation is
+  recorded in <code>delegations.jsonl</code>. With <code>--offload-ingest</code> the answer is
+  remembered as a turn of its own, headed with the worker it came from
+  rather than shown as something you or the model said.</li>
+<li><strong>2.10.27 - 2.10.34</strong> Bounds, resume and scripted delegations.
+  <code>--offload-context-cap</code>, <code>--offload-budget-pct</code> and
+  <code>--offload-timeout</code> bound what a delegation is handed, selects under
+  and waits for. <code>/stats</code> reports per-worker totals, and a reopened
+  session carries its numbering and totals on while retiring a worker
+  record no live process backs. A <code>--turns</code> file can carry an
+  <code>{"offload": ...}</code> item, so a scripted conversation delegates where it
+  needs to.</li>
+<li><strong>2.10.35 - 2.10.41</strong> Delegating with fewer keystrokes. TAB completes
+  <code>@NAME</code> from the roster, <code>/offload! @NAME</code> puts the last task to a
+  second worker so two models answer one question from the same memory,
+  and asking with no roster loaded prints the recipe for having one. A
+  mixed chat and delegation conversation ships as
+  <code>salt/agents/demo_turns.json</code>, and the sample roster now shows both an
+  attach and a spawn entry. A delegation runs on the session's own
+  thread, and interrupting one twice still leaves its record behind.</li>
+<li><strong>2.10.42</strong> A worker can answer a turn. A line typed as <code>@NAME
+  question</code> sends that turn's own prompt to a worker and keeps the
+  answer as the session's own, remembered and recorded like any other,
+  stamped with the model that gave it. This is changing model in the
+  middle of a conversation without ending it, including under
+  <code>--backend vllm-serve</code>, where the server holds one model and
+  <code>/model</code> cannot switch it.</li>
+<li><strong>2.10.44 - 2.10.52</strong> MCP server. <code>pip install "salt[mcp]"</code> adds a
+  <code>salt-mcp</code> command that speaks the Model Context Protocol over
+  stdio, so an editor or an agent runtime reaches SALT directly.
+  <code>salt_compress</code> compresses one text under a budget, optionally
+  biased to a query. Conversations are the other half:
+  <code>session_create</code>, <code>session_resume</code>, <code>session_list</code> and
+  <code>session_stats</code> open and report the same sessions saltChat keeps,
+  <code>session_add_turn</code> remembers a message or a whole exchange in one
+  call, <code>session_memory</code> returns the labeled memory block a chat turn
+  would be given, and <code>salt_ingest_document</code> reads a file or a text
+  into a conversation under its own source name. Open sessions are
+  held warm up to a cap, and the one used longest ago is written to
+  disk before it is closed. A server started with <code>--read-only</code>
+  answers every read and refuses every write, leaving the
+  conversations it was pointed at exactly as it found them. The
+  <a href="../mcp/">MCP server</a> page covers the install, the client entry and
+  every tool.</li>
+<li><strong>2.10.54</strong> Helper models over MCP. Started with <code>--roster FILE</code>, the
+  server can reach the smaller models that file names: <code>roster_list</code>
+  returns what is in the roster and, on request, which endpoints are
+  actually answering, and <code>salt_delegate</code> hands one task over with a
+  conversation's memory selected for it. Selecting it commits nothing,
+  so a conversation is the same after a delegation as before it, and
+  every delegation is filed beside the conversation it ran under.</li>
+<li><strong>2.10.55</strong> A conversation as numbers. <code>session_stats</code> now carries a
+  snapshot block describing the conversation in one flat set of
+  signals, from how much of it is still selectable to what its last
+  read measured, and <code>salt_switches</code> lists the memory switches, what
+  the server has each one set to, and which measured number says
+  whether it did anything.</li>
+<li><strong>2.10.56</strong> Refusals a client can act on. Every refused call now opens
+  with a fixed phrase naming what kind of refusal it is, from a bad
+  argument to a conversation nobody made, and an unexpected fault is
+  reported as one rather than as a traceback over the wire.
+  <code>--max-ingest-chars</code> bounds how long a text one call may carry.</li>
+<li><strong>2.10.57</strong> Closing down safely. A conversation closed to make room
+  finishes what it was still encoding before it is let go, a
+  conversation whose files disagree after a crash opens repaired and
+  says so in a <code>warnings</code> list on the reply, and a server told to stop
+  writes every open conversation before it goes.</li>
+<li><strong>2.10.59</strong> A contract a client can check. <code>salt_contract</code> reports
+  which version of the tool surface the server speaks, alongside the
+  SALT version and every tool in order. The surface is written down in
+  the server itself, so a renamed or dropped tool stops it at startup
+  instead of surfacing as a broken client.</li>
+<li><strong>2.10.64 - 2.10.67</strong> Planning in a form a session can act on. A model
+  asked to decide what to delegate answers with one JSON object, read
+  through the prose, fences and reasoning a local model wraps it in and
+  held strictly to its shape inside. A reply that is not one is
+  repaired once, quoting the actual fault, and a second failure keeps
+  the model's own words as the answer instead of ending the round. A
+  worker is asked once whether its server accepts a schema at all,
+  since a version string does not answer that. Reasoning between
+  <code>&lt;think&gt;</code> tags is cut before an answer is remembered, and
+  <code>--agent-keep-think</code> keeps it.</li>
+<li><strong>2.10.68 - 2.10.71</strong> Knowing what a helper can be asked for.
+  <code>/roster probe --deep NAME</code> asks one helper to return three small
+  objects exactly as given and reports whether it is schema-native,
+  plain or flaky, remembering the answer beside the session. A planning
+  model is then given instructions matched to that: fill the schema, or
+  copy this object. The <a href="../agents/">agents</a> page describes how a
+  planning model talks back.</li>
+<li><strong>2.10.74 - 2.10.80</strong> A turn planned out. <code>/agent &lt;task&gt;</code> answers one
+  turn by planning it first: the chat model splits the task and names
+  the helper each piece goes to, every piece is sent with the
+  conversation's memory selected for it alone, and the chat model writes
+  the reply from what came back. A piece that never answered is shown to
+  it as a gap rather than left out, and a helper's words are quoted on
+  the way in, as material to use rather than instructions to follow. The
+  turn itself is an ordinary turn, kept and remembered like any other.
+  <code>--agent-max-delegations</code> and <code>--agent-max-wall</code> bound what one round
+  may cost, and every planned turn leaves a line in <code>agent_trace.jsonl</code>
+  that <code>/stats</code> reads back.</li>
+<li><strong>2.10.82 - 2.10.89</strong> A session that decides its own switches.
+  <code>--switch-agent</code> with <code>--switch-rules FILE</code> lets a rules file decide
+  the memory switches per turn. A rule is a sentence about the session
+  and the switch it changes while that sentence is true, read by a
+  parser that only compares the numbers a session reports about itself
+  and never runs anything. A file that names a signal nobody reports, a
+  switch a turn cannot set, or two switches known to cancel each other
+  is refused before the session starts. Every decision lasts one turn
+  and is written into nothing, and a turn a rule changed says which
+  rule, what was true and what it set, in <code>/stats</code> and in that turn's
+  own record. A sample ships as
+  <code>salt/agents/switch_rules_sample.json</code> with one rule there is a
+  reason for and two marked as examples that stay unloaded unless
+  <code>--switch-rules-allow-examples</code> asks for them.
+  <code>--switch-policy model</code> is the same seam with the chat model
+  proposing instead, experimental, and held to the same refusals.</li>
+<li><strong>2.10.90 - 2.10.101</strong> A reasoning model in the loop. A roster can
+  name a model for the planning job with <code>"role": "orchestrator"</code>, and
+  a turn then plans with it, under that entry's own settings and under
+  a schema when its server accepts one, with the reply stamped with the
+  model that wrote it. One that is not running costs nothing, since the
+  session's own model plans instead. Pieces bound for different helpers
+  now go out together and come back in the plan's order however they
+  arrived. <code>--agent</code> plans every turn instead of one at a time and
+  marks the reply with a line <code>--agent-quiet</code> drops. <code>--agent-rounds 2</code>
+  lets the orchestrator ask once for one more thing under what is left
+  of the turn's limits. A round where nothing came back answers the
+  turn from the conversation instead of writing up nothing, and one
+  where some pieces failed is told how many before it reads any of
+  them. <code>--offload-ingest-cap</code> bounds what a helper's answer may add to
+  memory. Two fixes for reasoning models: a reply whose opening think
+  tag was never in it is cut correctly, and a turn now keeps what a
+  model said rather than what it thought wherever that model sits.</li>
+<li><strong>2.10.102 - 2.10.107</strong> The whole scenario, run end to end and
+  pinned. Turns files gained <code>doc</code> and <code>agent</code> lines, so a scripted
+  conversation can attach a file and plan a turn the way a person
+  would, and <code>salt/agents/demo_turns.json</code> replays all four kinds of
+  line deterministically. A session with no roster is pinned to
+  consult nobody, file nothing and cost one call a turn, down to each
+  turn's own record. The architecture pages carry the agent layer.</li>
+<li><strong>2.10.108 - 2.10.119</strong> Hardening across the layer. A parallel round
+  now stops for its shared token budget the way it stops for its
+  clock, hands out nothing when a second round has nothing left, and
+  an interrupt comes back as recorded pieces that keep what arrived
+  instead of a frozen session. A request's timeout and its usage
+  numbers travel under the worker's own lock, one delegation to a dead
+  endpoint no longer condemns the worker, and a server still running
+  from an earlier session is protected from being spawned over.
+  Placement now checks the memory a server really takes, refusing a
+  shared card the declared shares plus resident overhead cannot fit
+  and reading the card's live free memory when <code>nvidia-smi</code> can be
+  asked. A reply of runaway think tags and JSON <code>NaN</code> or <code>Infinity</code>
+  are refused rather than crashed on, a switch decision cannot combine
+  with the session's own settings into two switches known to cancel,
+  and the tail-occupancy signal counts two messages per exchange. The
+  MCP server takes one call at a time however many arrive, its writes
+  refuse a conversation nobody made, <code>sync</code> waits the ingest queue out,
+  and every text one call carries meets the same size bound.</li>
+<li><strong>2.10.120 - 2.10.123</strong> The sample rules speak the signals' real
+  language. <code>switch_rules_sample.json</code>'s examples now key on the
+  verbatim window running light in a long conversation and on orphan
+  mass as the weight of words it is, both able to fire on a real
+  session, and the suite pins that they do.</li>
+</ul>
+<h2 id="290-29123">2.9.0 - 2.9.123</h2>
+<p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
+passes moved off the REPL's critical path onto a worker thread, so long
+pasted messages never delay the next prompt. Failed ingests keep the message
+text in <code>ingest_failures.jsonl</code>. The session is saved once per turn instead
+of once per message. <code>--sync-ingest</code> restores the old inline behavior.</p>
+<p>Patch releases, grouped where several versions shipped one thing:</p>
+<ul>
+<li><strong>2.9.4 - 2.9.9</strong> Persistent serving. <code>saltServe</code> launches a
+  long-lived <code>vllm serve</code> process, <code>saltChat --backend vllm-serve</code>
+  connects to it, and a resumed session renders the same prompt bytes
+  (attach order and recent exchanges saved), so it picks up warm.
+  Server errors surface instead of passing off truncated replies.</li>
+<li><strong>2.9.12 - 2.9.16</strong> Multi-GPU. <code>--gpu 0,1</code> splits a model across
+  cards on <code>saltServe</code> and both chat backends, the encoder rides the
+  last card, and card order is pinned so an index always means the
+  same physical card.</li>
+<li><strong>2.9.19</strong> Scripted turns. <code>--turns FILE</code> replays a JSON or JSONL
+  conversation into one session and <code>--turns-out</code> records each answer.</li>
+<li><strong>2.9.21 - 2.9.27</strong> Provenance-aware memory. Every excerpt is labeled
+  with its turn, speaker and age, and a conversation map (one line per
+  turn, <code>--conversation-map</code> to put it in the prompt) shows what a long
+  session has covered. Refinements keep short sentences from dominating
+  the map and make a partial map say so.</li>
+<li><strong>2.9.31 - 2.9.32</strong> Short turns. Terse decisions like "go with
+  option B" stay in conversation memory, and <code>--short-turns fuse</code>
+  stores a bare "yes" together with the question it answers.</li>
+<li><strong>2.9.34 - 2.9.36</strong> Verbatim conversation text. Pasted code keeps its
+  generics, tables and pipelines keep their pipes, link sentences keep
+  their prose with the URL as <code>&lt;url&gt;</code>. Older sessions keep their stored
+  text as is.</li>
+<li><strong>2.9.37 - 2.9.38</strong> Interrupted saves. A session whose files disagree
+  after a crash rolls back to the last complete state on the next open,
+  with a notice and a record in <code>load_repairs.jsonl</code>.</li>
+<li><strong>2.9.41</strong> Theme scope. <code>--per-source-themes</code> profiles the
+  conversation and each attached file separately, so one large
+  attachment cannot crowd the conversation out of memory.</li>
+<li><strong>2.9.43 - 2.9.47</strong> Memory ceiling. <code>--memory-cap auto</code> (the default)
+  fits the memory block to the model's window instead of a percentage
+  that grows without bound, and the overflow warning counts the whole
+  prompt.</li>
+<li><strong>2.9.49 - 2.9.53</strong> Stable coverage keys. <code>/stats</code> counts remembered
+  keys that matched or orphaned each turn, and the opt-in
+  <code>--stable-coverage-keys</code> freezes the keyword order so remembered
+  discounts survive as the session grows.</li>
+<li><strong>2.9.55 - 2.9.58</strong> Bounded bookkeeping. <code>/stats</code> splits remembered
+  keys into live and orphaned, <code>--coverage-gc</code> collects the orphans,
+  <code>--coverage-max-keys</code> puts a hard limit on the dictionary, and the
+  code stops claiming a bound the defaults never delivered.</li>
+<li><strong>2.9.76 - 2.9.78</strong> Failure-safe bookkeeping. The per-turn theme
+  discounts, freshness stamps and topic baseline now commit only after
+  the model answers. A turn that errors out leaves memory as it was,
+  so the retry is not fighting a discount from the failed attempt.</li>
+<li><strong>2.9.82 - 2.9.87</strong> Bounded long sessions. <code>--max-sentences</code> caps how
+  many conversation sentences stay in memory, masking the oldest out of
+  selection instead of deleting them, so their text, their numbering
+  and the saved record all survive. Attached files are never masked.
+  <code>/stats</code> reports how many sentences are still live.</li>
+<li><strong>2.9.94 - 2.9.96</strong> Incremental compression. Each sentence's lexical
+  tokens and the session's keyword profile are worked out once, when
+  the text arrives, and carried forward instead of being rebuilt from
+  the whole conversation every turn. What memory selects is unchanged,
+  only the work behind it is smaller.</li>
+<li><strong>2.9.102</strong> Repeating a capped sentence. With <code>--max-sentences</code> on,
+  saying something again after the cap masked the old copy away stores
+  it again, instead of dropping it as a copy of a sentence no longer in
+  memory.</li>
+<li><strong>2.9.104</strong> Failure-safe frozen keys. With <code>--stable-coverage-keys</code>
+  on, a turn whose model call fails leaves the frozen keyword order and
+  its sticky theme set exactly as they were, so a retry does not build
+  on a discarded attempt.</li>
+<li><strong>2.9.106</strong> Corrections in memory. With <code>--dedup-cos</code> on, a fused
+  acknowledgement (<code>--short-turns fuse</code>) is exempt from the gate, so a
+  bare "no" is not dropped as a near-duplicate of the "yes" it corrects.
+  A short reversal built from the same words on the default path stays a
+  documented limit of the cosine gate.</li>
+<li><strong>2.9.108 - 2.9.111</strong> Tail-aware memory selection. The memory block
+  no longer spends its budget on sentences the model is already reading
+  verbatim in the recent messages, so the budget buys older context
+  instead of repeating what is on screen. A sentence's themes start
+  counting as shown once it leaves the recent messages. On by default,
+  <code>--no-tail-exclude</code> restores the old overlapping selection, and
+  <code>/stats</code> reports how many sentences were left out.</li>
+</ul>
+<h2 id="280">2.8.0</h2>
+<p>Near-duplicate memory gate. Opt-in <code>--dedup-cos</code> skips a new conversation
+sentence too similar to an earlier one from the same speaker, so
+restatements stop inflating theme statistics. Each suppression is logged to
+<code>near_dups.jsonl</code> and counted in <code>/stats</code>.</p>
+<h2 id="270">2.7.0</h2>
+<p>PDF tables reach the model: table and pseudocode rows are grouped under
+their captions as caption-prefixed units, so numbers stay readable against
+their column names. Sturdier PDF extraction overall.</p>
+<h2 id="260-267">2.6.0 - 2.6.7</h2>
+<p>vLLM chat backend. <code>saltChat --backend vllm</code> serves registered weights
+through an in-process vLLM engine with automatic prefix caching, streaming
+tokens through the same REPL. Real prefix-cache hits are recorded in the
+kvtrace ledger next to the selection split. <code>--gpu-mem-util</code> and
+<code>--max-model-len</code> control the engine. Includes a regression harness.</p>
+<h2 id="250">2.5.0</h2>
+<p>Topic-shift damping. Opt-in <code>--shift-damping</code> detects when a question pivots
+away from the recent conversation and scales down stale theme suppression
+for that turn only, with <code>--shift-margin</code> and <code>--shift-query-boost</code> as
+tuning knobs. Drift readings always show in <code>/stats</code>.</p>
+<h2 id="240">2.4.0</h2>
+<p>Coverage decay. Opt-in <code>--coverage-half-life</code> lets a surfaced theme's
+suppression fade over turns of silence, so topics the conversation returns
+to can resurface. <code>--coverage-decay-docs</code> opts attached files in.</p>
+<h2 id="230-231">2.3.0 - 2.3.1</h2>
+<p>kvtrace: a per-conversation KV read/write ledger (<code>events.jsonl</code> plus a
+per-token matrix) recording reused, fresh, and output tokens every turn.</p>
+<ul>
+<li><strong>2.3.1</strong> PDF-to-sentence pipeline (headers, ligatures, reflow,
+  reference filtering), source-labeled memory blocks, and the
+  KV-cache-shaped prompt layout with block-wise tail compaction.</li>
+</ul>
+<h2 id="220-221">2.2.0 - 2.2.1</h2>
+<p><code>salt@</code> attachments: staged files ingest into their own trie branch so
+multiple attachments never crowd each other out.</p>
+<ul>
+<li><strong>2.2.1</strong> <code>attach@</code> full-context attachments: a file's whole text
+  rides uncompressed in every prompt.</li>
+</ul>
+<h2 id="210">2.1.0</h2>
+<p>Chatbot mode. The <code>saltChat</code> REPL with a persistent per-conversation trie,
+plus the <code>salt</code> console command.</p>
+<h2 id="200">2.0.0</h2>
+<p>CELF coverage selection became the default selector.</p>
+<h2 id="100">1.0.0</h2>
+<p>First release: LongBench compression and evaluation.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../results/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Results">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Results
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../roadmap/" class="md-footer__link md-footer__link--next" aria-label="Next: Roadmap">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Roadmap
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../assets/versions.js"></script>
+      
+    
+  </body>
+</html>

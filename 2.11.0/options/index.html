@@ -1,0 +1,1850 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Salience-Aware Lexical Trie for Long-Context Compression">
+      
+      
+      
+        <link rel="canonical" href="https://oteomamo.github.io/SALT/2.11.0/options/">
+      
+      
+        <link rel="prev" href="../mcp/">
+      
+      
+        <link rel="next" href="../architecture/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Options - SALT</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#options" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="SALT" class="md-header__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            SALT
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Options
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../chatbot/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../architecture/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../datasets/" class="md-tabs__link">
+          
+  
+  
+  Evaluation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../changelog/" class="md-tabs__link">
+          
+  
+  
+  Project
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="SALT" class="md-nav__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    SALT
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chatbot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chatbot mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Options
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#saltchat-quality-switches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltChat quality switches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saltchat-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltChat reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saltserve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltServe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#salt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Evaluation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#saltchat-quality-switches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltChat quality switches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saltchat-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltChat reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saltserve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        saltServe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#salt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="options">🎛 Options</h1>
+<p>Every flag of the three commands, one line each. The concepts live on
+the <a href="../chatbot/">Chatbot mode</a>, <a href="../serving/">Serving</a>,
+<a href="../agents/">Agents</a> and <a href="../architecture/">Architecture</a> pages, and the
+full detail lives in the code. Defaults shown are what a plain run
+uses.</p>
+<h2 id="saltchat-quality-switches">saltChat quality switches</h2>
+<p>Off by default. Each one changes what the conversation memory keeps or
+resurfaces, and <code>/stats</code> reports what it did, so it can be judged on a
+real session before it is trusted.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>What it does</th>
+<th>Turn it on when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--conversation-map</code></td>
+<td>opens the memory block with a one line per turn index of the conversation</td>
+<td>the model should see a topic came up even when none of its sentences were selected</td>
+</tr>
+<tr>
+<td><code>--dedup-cos 0.92</code></td>
+<td>skips a new sentence too similar to an earlier one from the same speaker</td>
+<td>restatements are inflating what counts as a theme</td>
+</tr>
+<tr>
+<td><code>--coverage-half-life 8</code></td>
+<td>fades a shown theme's discount over turns of silence</td>
+<td>topics the conversation returns to should resurface</td>
+</tr>
+<tr>
+<td><code>--coverage-decay-docs</code></td>
+<td>applies that fading to attached files too</td>
+<td>selection keeps circling a document's head instead of advancing</td>
+</tr>
+<tr>
+<td><code>--shift-damping 0.25</code></td>
+<td>on a detected topic pivot, lifts stale discounts for that turn only</td>
+<td>pivots back to an old topic are fought by its accumulated discount</td>
+</tr>
+<tr>
+<td><code>--per-source-themes</code></td>
+<td>profiles the conversation and each attached file separately</td>
+<td>a large attachment crowds the conversation out of memory</td>
+</tr>
+<tr>
+<td><code>--stable-coverage-keys</code></td>
+<td>freezes the session's keyword order so remembered discounts keep matching their branches</td>
+<td>long sessions re-show material because themes reshuffled</td>
+</tr>
+<tr>
+<td><code>--coverage-gc</code></td>
+<td>collects remembered keys that no longer match any branch of the memory tree</td>
+<td>long sessions carry dead suppression in every save</td>
+</tr>
+<tr>
+<td><code>--coverage-max-keys 500</code></td>
+<td>hard limit on remembered theme keys</td>
+<td>you want a strict bound no matter what else is on</td>
+</tr>
+<tr>
+<td><code>--max-sentences 400</code></td>
+<td>keeps the most recent conversation sentences in memory and masks older ones instead of deleting them</td>
+<td>a long session keeps slowing down as its memory grows</td>
+</tr>
+<tr>
+<td><code>--short-turns fuse</code></td>
+<td>stores a bare "yes" together with the question it answers</td>
+<td>terse decisions should be findable by the question's own words</td>
+</tr>
+</tbody>
+</table>
+<h2 id="saltchat-reference">saltChat reference</h2>
+<p>Models:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--model NAME</code></td>
+<td>none</td>
+<td>load a registered model and start the REPL</td>
+</tr>
+<tr>
+<td><code>--add HF_ID</code></td>
+<td>none</td>
+<td>download and register a model</td>
+</tr>
+<tr>
+<td><code>--alias NAME</code></td>
+<td>derived</td>
+<td>short name for <code>--add</code></td>
+</tr>
+<tr>
+<td><code>--dtype T</code></td>
+<td><code>bfloat16</code></td>
+<td>weight dtype at registration</td>
+</tr>
+<tr>
+<td><code>--force</code></td>
+<td>off</td>
+<td>re-register over an existing alias</td>
+</tr>
+<tr>
+<td><code>--list</code></td>
+<td>off</td>
+<td>list registered models and exit</td>
+</tr>
+</tbody>
+</table>
+<p>Session:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--conversation-id ID</code></td>
+<td>fresh id</td>
+<td>resume or name the session</td>
+</tr>
+<tr>
+<td><code>--doc PATH</code></td>
+<td>none</td>
+<td>ingest a text or PDF into the trie at startup, repeatable</td>
+</tr>
+<tr>
+<td><code>--tail N</code></td>
+<td><code>4</code></td>
+<td>exchanges kept verbatim after compaction</td>
+</tr>
+<tr>
+<td><code>--turns FILE</code></td>
+<td>none</td>
+<td>replay a JSON or JSONL file of user turns into one session</td>
+</tr>
+<tr>
+<td><code>--turns-field KEY</code></td>
+<td>auto</td>
+<td>which key holds the message in <code>--turns</code> items</td>
+</tr>
+<tr>
+<td><code>--turns-out FILE</code></td>
+<td>none</td>
+<td>append each <code>--turns</code> answer as JSONL</td>
+</tr>
+</tbody>
+</table>
+<p>Agents:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--roster FILE</code></td>
+<td>none</td>
+<td>JSON file naming the worker models this session may reach, listed by <code>/roster</code></td>
+</tr>
+<tr>
+<td><code>--workers-autostart</code></td>
+<td>off</td>
+<td>start the roster's spawn entries once the chat model is loaded, instead of waiting for <code>/worker start</code></td>
+</tr>
+<tr>
+<td><code>--offload-timeout SECONDS</code></td>
+<td>the standard call timeout</td>
+<td>how long to wait on a quiet worker during a delegation, for workers whose roster entry names no timeout of its own</td>
+</tr>
+<tr>
+<td><code>--offload-budget-pct</code></td>
+<td>the session budget</td>
+<td>memory budget for a delegation's context, as a fraction like <code>--budget-pct</code></td>
+</tr>
+<tr>
+<td><code>--offload-context-cap N</code></td>
+<td>off</td>
+<td>cap the memory handed to a worker at N words, on top of the memory budget that already sizes it</td>
+</tr>
+<tr>
+<td><code>--offload-ingest-cap CHARS</code></td>
+<td>2000</td>
+<td>how much of a worker's answer is remembered, cut at a sentence boundary (0 keeps all of it)</td>
+</tr>
+<tr>
+<td><code>--offload-ingest</code></td>
+<td>off</td>
+<td>remember what a worker answered, as a turn of its own labeled with the worker it came from</td>
+</tr>
+<tr>
+<td><code>--agent-keep-think</code></td>
+<td>off</td>
+<td>keep a worker's reasoning when its answer is remembered, instead of cutting it</td>
+</tr>
+<tr>
+<td><code>--agent</code></td>
+<td>off</td>
+<td>plan every turn out instead of answering it directly, the way <code>/agent</code> does one turn</td>
+</tr>
+<tr>
+<td><code>--agent-quiet</code></td>
+<td>off</td>
+<td>leave out the one-line notice an agent-routed reply carries under <code>--agent</code></td>
+</tr>
+<tr>
+<td><code>--agent-rounds N</code></td>
+<td>1</td>
+<td>how many rounds of delegating one turn may take, at most 2: the second lets the orchestrator ask for one more thing</td>
+</tr>
+<tr>
+<td><code>--agent-max-delegations N</code></td>
+<td>4</td>
+<td>how many pieces one <code>/agent</code> turn may hand out before the rest are reported as not attempted</td>
+</tr>
+<tr>
+<td><code>--agent-max-wall SECONDS</code></td>
+<td>600</td>
+<td>how long one <code>/agent</code> turn may spend handing pieces out before it answers with what it has</td>
+</tr>
+<tr>
+<td><code>--switch-agent</code></td>
+<td>off</td>
+<td>let a policy decide the memory switches per turn instead of leaving them where the flags set them</td>
+</tr>
+<tr>
+<td><code>--switch-rules FILE</code></td>
+<td>none</td>
+<td>the rules <code>--switch-agent</code> decides by, as sentences about the session and the switch each one changes</td>
+</tr>
+<tr>
+<td><code>--switch-rules-allow-examples</code></td>
+<td>off</td>
+<td>load the rules a file marks as examples too, which are written down to be read rather than run</td>
+</tr>
+<tr>
+<td><code>--switch-policy rule\|model</code></td>
+<td>rule</td>
+<td>what decides under <code>--switch-agent</code>: the rules file, or the chat model itself (experimental)</td>
+</tr>
+</tbody>
+</table>
+<p>Memory sizing:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--budget-pct P</code></td>
+<td><code>0.20</code></td>
+<td>share of the remembered words the memory block may use</td>
+</tr>
+<tr>
+<td><code>--memory-cap N\|auto\|off</code></td>
+<td><code>auto</code></td>
+<td>absolute ceiling on the block, fitted to the model's window</td>
+</tr>
+</tbody>
+</table>
+<p>Behavior already on by default:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--short-turns off\|keep\|fuse</code></td>
+<td><code>keep</code></td>
+<td>keep short user messages in memory, <code>off</code> restores dropping them</td>
+</tr>
+<tr>
+<td><code>--no-tail-exclude</code></td>
+<td>off</td>
+<td>let the memory block repeat sentences still shown in the recent messages (<code>--tail-exclude</code> is the default and accepted as a no-op)</td>
+</tr>
+<tr>
+<td><code>--no-turn-labels</code></td>
+<td>off</td>
+<td>drop the turn and speaker labels from memory excerpts</td>
+</tr>
+<tr>
+<td><code>--sync-ingest</code></td>
+<td>off</td>
+<td>index messages inline instead of on the background worker</td>
+</tr>
+</tbody>
+</table>
+<p>Backends and hardware:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--backend hf\|vllm\|vllm-serve</code></td>
+<td><code>hf</code></td>
+<td>how the chat model runs</td>
+</tr>
+<tr>
+<td><code>--server-url URL</code></td>
+<td>localhost 8000</td>
+<td>the <code>vllm-serve</code> backend's server</td>
+</tr>
+<tr>
+<td><code>--device D</code></td>
+<td>auto</td>
+<td>device for the chat model</td>
+</tr>
+<tr>
+<td><code>--gpu LIST</code></td>
+<td>none</td>
+<td>card index or comma list, several cards shard the model</td>
+</tr>
+<tr>
+<td><code>--bge-device D</code></td>
+<td>same as model</td>
+<td>device for the encoder</td>
+</tr>
+<tr>
+<td><code>--gpu-mem-util F</code></td>
+<td>per backend</td>
+<td>fraction of each card the engine may claim</td>
+</tr>
+<tr>
+<td><code>--max-model-len N</code></td>
+<td>model's own</td>
+<td>cap the context window</td>
+</tr>
+</tbody>
+</table>
+<p>Tuning values for switches above:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--shift-margin COS</code></td>
+<td><code>0.12</code></td>
+<td>cosine drop that counts as a topic pivot</td>
+</tr>
+<tr>
+<td><code>--shift-query-boost X</code></td>
+<td><code>1.5</code></td>
+<td>query boost on a pivot turn while damping is on</td>
+</tr>
+</tbody>
+</table>
+<h2 id="saltserve">saltServe</h2>
+<p>Launches a persistent <code>vllm serve</code> process for a registered model, so
+the server and its cache outlive individual chats. Everything after
+<code>--</code> passes to <code>vllm serve</code> unchanged.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MODEL</code></td>
+<td>the single registered model</td>
+<td>registered alias or HF id to serve</td>
+</tr>
+<tr>
+<td><code>--host ADDR</code></td>
+<td><code>127.0.0.1</code></td>
+<td>bind address</td>
+</tr>
+<tr>
+<td><code>--port N</code></td>
+<td><code>8000</code></td>
+<td>listen port</td>
+</tr>
+<tr>
+<td><code>--gpu LIST</code></td>
+<td>none</td>
+<td>card index or comma list, several cards tensor parallel the model</td>
+</tr>
+<tr>
+<td><code>--gpu-mem-util F</code></td>
+<td><code>0.80</code> multi, <code>0.90</code> single</td>
+<td>fraction of each card the server claims</td>
+</tr>
+<tr>
+<td><code>--max-model-len N</code></td>
+<td>model's own</td>
+<td>cap the context window</td>
+</tr>
+<tr>
+<td><code>--vllm-bin PATH</code></td>
+<td>alongside saltServe</td>
+<td>which vllm executable to run</td>
+</tr>
+</tbody>
+</table>
+<h2 id="salt">salt</h2>
+<p>One shot compression of a dataset or a single document.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--data FILE</code></td>
+<td>none</td>
+<td>LongBench style JSONL to compress</td>
+</tr>
+<tr>
+<td><code>--doc PATH</code></td>
+<td>none</td>
+<td>single document instead of <code>--data</code></td>
+</tr>
+<tr>
+<td><code>--query Q</code></td>
+<td>empty</td>
+<td>question to bias a <code>--doc</code> selection</td>
+</tr>
+<tr>
+<td><code>--output FILE</code></td>
+<td>required</td>
+<td>where the compressed records go</td>
+</tr>
+<tr>
+<td><code>--selector coverage\|legacy</code></td>
+<td><code>coverage</code></td>
+<td>CELF coverage selection or the legacy heuristic</td>
+</tr>
+<tr>
+<td><code>--token-budget-pct P</code></td>
+<td><code>0.20</code></td>
+<td>share of the document kept</td>
+</tr>
+<tr>
+<td><code>--model NAME</code></td>
+<td>BGE small</td>
+<td>encoder</td>
+</tr>
+<tr>
+<td><code>--device D</code></td>
+<td><code>cuda</code></td>
+<td>encoder device</td>
+</tr>
+<tr>
+<td><code>--theme-percentile P</code></td>
+<td>mode default</td>
+<td>frequency cutoff for theme keywords</td>
+</tr>
+<tr>
+<td><code>--lam L</code></td>
+<td><code>0.5</code></td>
+<td>coverage discount between ranking and set cover</td>
+</tr>
+<tr>
+<td><code>--query-mass R</code></td>
+<td><code>1.0</code></td>
+<td>query weight as a ratio of document mass</td>
+</tr>
+<tr>
+<td><code>--synthetic</code></td>
+<td>off</td>
+<td>paragraph unit adapter for enumerated tasks</td>
+</tr>
+<tr>
+<td><code>--code</code></td>
+<td>off</td>
+<td>line record adapter for code datasets</td>
+</tr>
+<tr>
+<td><code>--max-samples N</code></td>
+<td>all</td>
+<td>cap the number of records</td>
+</tr>
+</tbody>
+</table>
+<p>The legacy selector's pass knobs and the mode adapters' sub flags are
+intentionally not documented here. They exist for experiments, and
+their meaning lives with their code in <code>salt/compress.py</code> and
+<code>salt/engine/dataset_modes.py</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../mcp/" class="md-footer__link md-footer__link--prev" aria-label="Previous: MCP server">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                MCP server
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../architecture/" class="md-footer__link md-footer__link--next" aria-label="Next: Architecture">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Architecture
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../assets/versions.js"></script>
+      
+    
+  </body>
+</html>

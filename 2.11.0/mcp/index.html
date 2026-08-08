@@ -1,0 +1,2032 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Salience-Aware Lexical Trie for Long-Context Compression">
+      
+      
+      
+        <link rel="canonical" href="https://oteomamo.github.io/SALT/2.11.0/mcp/">
+      
+      
+        <link rel="prev" href="../agents/">
+      
+      
+        <link rel="next" href="../options/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>MCP server - SALT</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mcp-server" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="SALT" class="md-header__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            SALT
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              MCP server
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../chatbot/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../architecture/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../datasets/" class="md-tabs__link">
+          
+  
+  
+  Evaluation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../changelog/" class="md-tabs__link">
+          
+  
+  
+  Project
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="SALT" class="md-nav__button md-logo" aria-label="SALT" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    SALT
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oteomamo/SALT" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oteomamo/SALT
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chatbot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chatbot mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#point-a-client-at-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Point a client at it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-server-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the server runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#server-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#salt_compress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt_compress
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Conversations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#remembering-and-reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remembering and reading
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#documents-in-a-conversation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documents in a conversation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-a-conversation-as-numbers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading a conversation as numbers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#helper-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Helper models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-call-is-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a call is refused
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-server-that-only-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A server that only reads
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-not-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is not here
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Evaluation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#point-a-client-at-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Point a client at it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-server-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the server runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#server-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#salt_compress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt_compress
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Conversations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#remembering-and-reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remembering and reading
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#documents-in-a-conversation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documents in a conversation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-a-conversation-as-numbers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading a conversation as numbers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#helper-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Helper models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-call-is-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a call is refused
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-server-that-only-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A server that only reads
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-not-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is not here
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="mcp-server">🔌 MCP server</h1>
+<p><code>salt-mcp</code> puts SALT behind the Model Context Protocol, so an editor or
+an agent runtime can compress text through the same engine <code>salt</code> and
+<code>saltChat</code> use. It speaks JSON-RPC over stdio and is started by the
+client, not by you.</p>
+<h2 id="install">Install</h2>
+<p>The server ships with the optional extra:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;salt[mcp]&quot;</span>
+</code></pre></div>
+<p>Check it:</p>
+<div class="highlight"><pre><span></span><code>salt-mcp<span class="w"> </span>--version
+</code></pre></div>
+<h2 id="point-a-client-at-it">Point a client at it</h2>
+<p>Most clients read a JSON file naming the servers they may start. The
+entry for SALT is the command and its flags:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;salt&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt-mcp&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;--gpu&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;0&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Where that file lives depends on the client.</p>
+<p><strong>Claude Code</strong> takes it from the command line:</p>
+<div class="highlight"><pre><span></span><code>claude<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>salt<span class="w"> </span>--<span class="w"> </span>salt-mcp<span class="w"> </span>--gpu<span class="w"> </span><span class="m">0</span>
+</code></pre></div>
+<p>Add <code>--scope project</code> to write it into a <code>.mcp.json</code> beside the code,
+which is what you want when the conversations belong to the project
+rather than to you.</p>
+<p><strong>Claude Desktop</strong> reads <code>claude_desktop_config.json</code>. Open its
+settings, edit the config, and put the block above in it. The app
+starts the server when it starts and stops it when it quits.</p>
+<p><strong>Cursor</strong> reads <code>~/.cursor/mcp.json</code> for every project, or
+<code>.cursor/mcp.json</code> inside one project. Same block either way.</p>
+<p>Anything else that speaks MCP works the same way: it needs a command to
+run, and <code>salt-mcp</code> is on the path once the extra is installed. Use the
+full path to the <code>salt-mcp</code> in your environment if the client does not
+inherit your shell.</p>
+<h2 id="how-the-server-runs">How the server runs</h2>
+<p>One process, started by the client and living as long as it does. It
+holds the encoder in memory once loaded, and loads it on the first call
+that needs it, so a client that connects and asks for nothing pays
+nothing.</p>
+<p>Conversations are opened on demand and kept warm, because a client that
+adds a turn is usually about to read memory. Past
+<code>--max-open-sessions</code> the one used longest ago is closed, and closing
+means finishing what it was still encoding, writing it if it changed,
+and then letting go.</p>
+<p>One client per server, and one server per folder of conversations.
+Nothing locks a session folder, so two servers over the same folder
+would each save over the other. A server that sees signs of another one
+holding a conversation says so in the reply rather than refusing.</p>
+<p>No GPU is required. On a machine without one the encoder runs on the
+CPU, which is slower per call and needs nothing installed beyond the
+package. <code>--gpu</code>, <code>--device</code> and <code>--bge-device</code> put it on a card when
+there is one.</p>
+<h2 id="server-flags">Server flags</h2>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--version</code></td>
+<td>print the SALT version this server carries and exit</td>
+</tr>
+<tr>
+<td><code>--device</code></td>
+<td>device for the encoder (default: <code>cuda</code> when there is one, else <code>cpu</code>)</td>
+</tr>
+<tr>
+<td><code>--gpu</code></td>
+<td>CUDA index or comma list, with the encoder on the last card</td>
+</tr>
+<tr>
+<td><code>--bge-device</code></td>
+<td>device for the encoder, winning over <code>--device</code></td>
+</tr>
+<tr>
+<td><code>--sessions-dir</code></td>
+<td>where conversations live (default: the folder saltChat uses)</td>
+</tr>
+<tr>
+<td><code>--max-open-sessions</code></td>
+<td>how many conversations stay open at once (default: 8)</td>
+</tr>
+<tr>
+<td><code>--max-ingest-chars</code></td>
+<td>longest text one call may carry (default: 400000)</td>
+</tr>
+<tr>
+<td><code>--roster</code></td>
+<td>roster of helper models this server may delegate to</td>
+</tr>
+<tr>
+<td><code>--read-only</code></td>
+<td>answer reads and refuse every write</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tools">Tools</h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>salt_compress</code></td>
+<td>compress one text to a fraction of its words</td>
+</tr>
+<tr>
+<td><code>session_create</code></td>
+<td>start a conversation whose memory this server keeps</td>
+</tr>
+<tr>
+<td><code>session_resume</code></td>
+<td>open one that already exists, with the memory it had</td>
+</tr>
+<tr>
+<td><code>session_list</code></td>
+<td>every conversation on disk, most recently written first</td>
+</tr>
+<tr>
+<td><code>session_stats</code></td>
+<td>what one conversation holds</td>
+</tr>
+<tr>
+<td><code>session_add_turn</code></td>
+<td>remember a message, or a whole exchange at once</td>
+</tr>
+<tr>
+<td><code>session_memory</code></td>
+<td>what the conversation remembers about a question</td>
+</tr>
+<tr>
+<td><code>salt_ingest_document</code></td>
+<td>read a document into a conversation's memory</td>
+</tr>
+<tr>
+<td><code>salt_contract</code></td>
+<td>which version of this tool contract the server speaks</td>
+</tr>
+<tr>
+<td><code>roster_list</code></td>
+<td>the helper models this server can reach</td>
+</tr>
+<tr>
+<td><code>salt_switches</code></td>
+<td>the memory switches and what each one is set to</td>
+</tr>
+<tr>
+<td><code>salt_delegate</code></td>
+<td>hand one task to a helper model</td>
+</tr>
+</tbody>
+</table>
+<p><code>salt_contract</code> answers the question a client asks first: which surface
+am I talking to. It returns the contract number, the SALT version, and
+every tool this server offers, in order.</p>
+<p>The surface grows one way only. Tool names are forever, a renamed tool
+being a break every client feels silently, and schemas grow additively:
+a new argument is optional with a default, a new response field is
+added beside the others, and an existing field is never repurposed. The
+contract number moves only if that promise is ever broken, so a client
+that reads a <code>1</code> knows every tool it learned still means what it meant.
+The version in the handshake is the SALT version, so a client log
+records which build it spoke to.</p>
+<h3 id="salt_compress">salt_compress</h3>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>text</code></td>
+<td>the text to compress (required)</td>
+</tr>
+<tr>
+<td><code>budget_pct</code></td>
+<td>the share of the original words to keep, <code>0.2</code> by default</td>
+</tr>
+<tr>
+<td><code>query</code></td>
+<td>what the compression should favor, optional</td>
+</tr>
+</tbody>
+</table>
+<p>It returns the compressed text and the numbers behind it: how many
+words went in and came back, how many sentences were found and kept,
+the word budget, the token count of the result, and the share of the
+text's themes the result still covers.</p>
+<p>Without a query the result keeps what covers the text as a whole. With
+one, the selection is biased toward the sentences that answer it, which
+is the same thing a saltChat turn does with its memory.</p>
+<p>Compression is prose-shaped here: sentences are cleaned, split and
+filtered, then selected under the budget. That is the same path the
+<code>salt</code> command runs, with the same defaults, so a tool call and a
+command line give the same answer for the same text.</p>
+<h2 id="conversations">Conversations</h2>
+<p><code>salt_compress</code> is a single shot: text in, shorter text out, nothing
+remembered. A session is the other way of working. <code>session_create</code>
+starts one, <code>session_resume</code> opens one again later, and what the
+conversation has accumulated is memory the server keeps between calls.</p>
+<p><code>session_list</code> shows what is on disk, newest first, with the turn and
+sentence counts each one recorded. <code>session_stats</code> opens one and reports
+what it holds now: turns, sentences, how many are still live after any
+cap, attached files and the budget it compresses under.</p>
+<p>These are the same conversations <code>saltChat</code> keeps, in the same folder
+and under the same naming rule, so a session started here can be
+resumed at the prompt and the other way round. What the prompt does
+with them is on the <a href="../chatbot/">Chatbot mode</a> page.</p>
+<h3 id="remembering-and-reading">Remembering and reading</h3>
+<p><code>session_add_turn</code> puts something said into the conversation's memory.
+It takes one <code>text</code> with a <code>role</code> of <code>user</code> or <code>assistant</code>, or an
+<code>exchange</code> list of both sides in one call, which is the usual shape and
+saves a round trip. The work happens on the session's own worker, in
+the order it arrived. Pass <code>sync</code> to wait for it, which is worth doing
+when the next thing you do is read.</p>
+<p><code>session_memory</code> is the read. Give it a query and it returns the
+labeled memory block a chat turn would be given: excerpts grouped by
+where they came from, each conversation excerpt marked with the turn
+and the speaker. <code>budget_pct</code> sets how much of the conversation the
+block may spend, defaulting to the session's own budget.</p>
+<p>A read is a turn. The selection is committed the way a chat turn
+commits it, so what the conversation has already surfaced shapes what
+the next read surfaces. Anything submitted but not yet encoded is
+finished first, so a turn added a moment earlier is never missed.</p>
+<p>Open sessions are held warm, up to <code>--max-open-sessions</code> of them. Past
+that the one used longest ago is closed, and closing writes it first,
+so a conversation is never dropped with unsaved turns in it.</p>
+<p>One server per set of conversations. Nothing locks a session folder, so
+two servers on the same folder would each save over the other. A server
+that notices another one holding a session says so in its reply rather
+than refusing, since a leftover marker from a crashed server must not
+be what stops the next one from working.</p>
+<p>Anything a client should know about a conversation that is not a
+refusal comes back in a <code>warnings</code> list on the reply: another server
+looking like it holds this one, or a repair the open had to make. A
+conversation whose files disagree after a crash is rolled back to its
+last complete state as it opens, the dropped text is kept in
+<code>load_repairs.jsonl</code> beside it, and the reply says what was dropped.</p>
+<p>However the server ends, it ends the same way. A client hanging up, a
+Ctrl-C or a kill all drain every open conversation and write the ones
+that changed before the process stops.</p>
+<h2 id="documents-in-a-conversation">Documents in a conversation</h2>
+<p><code>salt_ingest_document</code> puts a file into a session's memory. Give it a
+<code>path</code> and it reads the file itself, PDF or plain text, or give it
+<code>text</code> you already have. Either way it is filed under a source name and
+becomes its own branch of the session, so a long document and the
+conversation around it never crowd each other out of the memory block.</p>
+<p><code>source_name</code> is what excerpts are labeled with. Only the last part of
+whatever is passed is kept, so a name can never point somewhere on
+disk. Ingesting twice under one name merges into that same branch, the
+way attaching a file twice does at the prompt.</p>
+<h2 id="reading-a-conversation-as-numbers">Reading a conversation as numbers</h2>
+<p><code>session_stats</code> carries a <code>snapshot</code> block: a flat set of signals
+describing the conversation as it stands. How many sentences it holds,
+how many are still selectable and what share of them that is, how many
+turns, how many words are live, how many files are attached and how
+much of the memory they account for, how old the conversation is, what
+budget it selects under, and what its last read measured, including how
+far the question drifted from the recent conversation and how much of
+the coverage table no longer matches anything live.</p>
+<p>Proportions are signals of their own rather than something a reader
+works out, because the rules a session can be given later compare
+values and do not calculate them.</p>
+<p>Every value is a number, a boolean or nothing at all, and nothing at
+all means this conversation cannot say rather than zero. A conversation
+held here has no chat model and no verbatim tail, so the signals about
+those come back empty.</p>
+<p><code>salt_switches</code> is the other half. It lists the memory switches, what
+this server has each one set to, what it ships as, and which number in
+the snapshot or in a compression's own statistics reports whether it
+did anything. The switches are read-only over MCP: a client can see how
+memory is being selected and measure the result, and the decision to
+change it stays where the session is run.</p>
+<p>Together they are a loop an agent can close on its own: read the
+numbers, see which switch addresses them, and measure whether it
+helped.</p>
+<h2 id="helper-models">Helper models</h2>
+<p>Start the server with <code>--roster FILE</code> and it can hand work to the
+smaller models that file names. The roster is the same one <code>saltChat</code>
+takes, described on the <a href="../agents/">agents</a> page, and the models in it
+are servers of their own that are already running.</p>
+<p><code>roster_list</code> returns what is in the roster: each model's name, role,
+alias, whether it is attached or spawned, where it lives and how many
+calls it has taken. Pass <code>probe</code> and each endpoint is contacted for the
+model it is actually serving, which is the only way to find out that a
+declared helper is not there.</p>
+<p><code>salt_delegate</code> hands one task over and waits for the whole answer.</p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>task</code></td>
+<td>what the helper is asked to do (required)</td>
+</tr>
+<tr>
+<td><code>conversation_id</code></td>
+<td>whose memory to send with it, optional</td>
+</tr>
+<tr>
+<td><code>target</code></td>
+<td>which helper, needed only when the roster names several</td>
+</tr>
+<tr>
+<td><code>context_query</code></td>
+<td>what to select the memory for, when the task itself is a poor search line</td>
+</tr>
+<tr>
+<td><code>budget_pct</code></td>
+<td>how much of the conversation the context may spend</td>
+</tr>
+<tr>
+<td><code>ingest</code></td>
+<td>keep the answer as a turn of the conversation</td>
+</tr>
+</tbody>
+</table>
+<p>With a <code>conversation_id</code> the task travels with that conversation's
+memory, selected for the task the way a chat turn selects it. Selecting
+it changes nothing: the conversation is the same after a delegation as
+before it, which is what makes it safe to ask several helpers the same
+question. Without one it is a task on its own, and the helper gets no
+context at all.</p>
+<p>The answer comes back with what it cost and how much context it went
+out with. Every delegation under a conversation is also filed in
+<code>delegations.jsonl</code> beside that conversation, so what was asked, of
+whom, and how it ended is a record rather than something only the
+client saw.</p>
+<p><code>ingest</code> is the exception to changing nothing. With it, an answer is
+remembered as a turn of its own, headed with the helper it came from
+rather than as something the conversation said. It is off by default:
+a helper's prose in memory is a decision, not a side effect.</p>
+<p>A reasoning model's working is cut before that. Text between <code>&lt;think&gt;</code>
+tags is what the model considered, and a conversation should not be
+able to recall it as though it had been said. The reply always comes
+back in full, so nothing is hidden from the client.</p>
+<h2 id="when-a-call-is-refused">When a call is refused</h2>
+<p>Every refusal opens with a fixed phrase saying what kind it is, so a
+client can branch on the kind and a person can still read the sentence.</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>The reason begins</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>invalid argument</td>
+<td><code>invalid argument:</code></td>
+<td>an argument is missing, empty or out of range</td>
+</tr>
+<tr>
+<td>invalid session id</td>
+<td><code>invalid session id:</code></td>
+<td>the id is not one a conversation may be called</td>
+</tr>
+<tr>
+<td>not found</td>
+<td><code>no such conversation:</code></td>
+<td>the conversation, or a file, is not there</td>
+</tr>
+<tr>
+<td>too large</td>
+<td><code>too large:</code></td>
+<td>a text is past <code>--max-ingest-chars</code></td>
+</tr>
+<tr>
+<td>read only</td>
+<td><code>read-only server:</code></td>
+<td>the call would write and the server may not</td>
+</tr>
+<tr>
+<td>no roster</td>
+<td><code>no roster:</code></td>
+<td>a helper was asked for and none is loaded</td>
+</tr>
+<tr>
+<td>worker failed</td>
+<td><code>worker failed:</code></td>
+<td>the delegation could not be sent at all</td>
+</tr>
+<tr>
+<td>failed</td>
+<td><code>the call failed:</code></td>
+<td>anything else, with the fault named</td>
+</tr>
+</tbody>
+</table>
+<p>A helper that answers badly is not a refusal. A delegation that timed
+out or reached a model that is not there comes back as a normal result
+with its status saying so, because the call itself was fine.</p>
+<p>Nothing else reaches the client. An unexpected fault is reported as the
+last kind with its type named, never as a traceback.</p>
+<h2 id="a-server-that-only-reads">A server that only reads</h2>
+<p><code>--read-only</code> starts a server that answers questions about
+conversations and changes none of them. Reads all work:
+<code>salt_compress</code>, <code>session_list</code>, <code>session_resume</code>, <code>session_stats</code>,
+<code>session_memory</code>, <code>roster_list</code> and <code>salt_delegate</code> itself. Writes
+refuse: <code>session_create</code>, <code>session_add_turn</code>, <code>salt_ingest_document</code>
+and a delegation asking for <code>ingest</code> come back as a refusal whose
+reason begins <code>read-only server:</code>, naming the tool and saying why, so a
+client can tell a server that will not from a call that was wrong.</p>
+<p>The tool list is the same either way. A read-only server offers every
+tool and refuses the writing ones when called, rather than hiding them,
+so what a client discovers does not depend on how the server was
+started. A delegation still runs, since asking a helper a question
+reads the conversation without moving it, but nothing about it is
+written down.</p>
+<p>A memory read normally counts as a turn: the selection is committed, so
+what has already surfaced shapes what surfaces next. Read-only drops
+that commit, and says so in the reply with <code>committed: false</code>. Nothing
+in the session folder is written at all, not even the marker a normal
+server leaves to notice a second one.</p>
+<p>This is what to point a shared or automated client at when it should
+be able to look at conversations without being able to change them.</p>
+<p>A useful pair: run your own work through <code>saltChat</code> or a normal server,
+and give anything automated a read-only one over the same folder.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;salt-readonly&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt-mcp&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;--read-only&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--sessions-dir&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;/path/to/conversations&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>It can list the conversations, read what any of them remembers about a
+question, report their numbers and ask a helper model something, and it
+cannot add a turn, ingest a document or leave a mark on the folder.</p>
+<h2 id="what-is-not-here">What is not here</h2>
+<p>Some things are deliberately left out of this first version. A
+conversation's turns are not written to the kv ledger the REPL keeps,
+so an MCP client's traffic does not appear in a session's turn records.
+There is no full-context attachment either: a document joins the memory
+and is compressed with everything else, the way <code>salt@</code> works at the
+prompt, rather than riding whole in every prompt like <code>attach@</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../agents/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Agents">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Agents
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../options/" class="md-footer__link md-footer__link--next" aria-label="Next: Options">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Options
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../assets/versions.js"></script>
+      
+    
+  </body>
+</html>
