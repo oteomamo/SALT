@@ -1,0 +1,23 @@
+Site survey, Bristol Road
+Visit 3, morning, clear weather.
+
+The array is fourteen panels of 640 watts on the south face, so 8.96 kW
+at the module level. The roof pitch is 38 degrees and there is no
+shading from the oak until late afternoon in winter.
+
+The inverter on site is a 5 kW continuous unit with a 10 kW surge
+rating. It was installed four years ago and is out of warranty next
+spring.
+
+Metering from the last two winters shows an evening draw averaging
+1.4 kW between six and eleven, rising to 2.1 kW on the coldest fifteen
+evenings. The heat pump accounts for most of that rise. Overnight base
+load with the heat pump cycling is close to 0.4 kW.
+
+The quote on the table is for a 9 kWh lithium iron phosphate pack with
+a usable depth of discharge of 90 percent. The installer has assumed a
+five hour evening and has not costed the coldest evenings separately.
+
+The homeowner wants to know whether the quoted pack covers a winter
+evening without importing, and is willing to accept a small number of
+nights where it does not.

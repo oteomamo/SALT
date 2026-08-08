@@ -1,8 +1,10 @@
 [
+  {"id": "notes",
+   "doc": "salt/agents/demo_site_notes.txt"},
   {"id": "brief",
-   "text": "We are sizing a home battery for a house with 9 kW of panels."},
+   "text": "We are sizing a home battery for the house in those notes."},
   {"id": "inverter",
-   "text": "The inverter is rated at 5 kW continuous, and winter evenings draw from it for about four hours."},
+   "text": "The inverter is the limit on how fast we can pull from the pack, not the pack itself."},
   {"id": "december",
    "text": "Assume the panels produce almost nothing in December."},
   {"id": "sizing",
@@ -11,6 +13,8 @@
   {"id": "risk",
    "offload": {"task": "Name the one assumption in that sizing most likely to be wrong.",
                "target": "qwen05", "ingest": true}},
+  {"id": "verdict",
+   "agent": "Does the quoted 9 kWh pack cover a winter evening at the measured draw, and on how many nights would it not?"},
   {"id": "handover",
    "text": "Summarize the sizing argument for the installer."}
 ]

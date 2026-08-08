@@ -108,6 +108,7 @@ sys.path.insert(0, str(REPO))
 from salt.agents import delegate as D                            # noqa: E402
 from salt.agents import ledger as L                              # noqa: E402
 from salt.agents import roster as R                              # noqa: E402
+from salt.agents import trace as TRACE                           # noqa: E402
 from salt.agents import worker as W                              # noqa: E402
 from salt.agents.roster import (BGE_CARD_MB, PLACEMENT_CEILING,   # noqa: E402
                                 check_placement)
@@ -6063,6 +6064,129 @@ def check_chaos(tmp, tok, mdl):
           "plan order")
 
 
+ACCEPTANCE = REPO / "salt" / "agents" / "demo_turns.json"
+
+
+def acceptance_run(tmp, cid, tok, mdl, url, answers):
+    """The shipped scenario, driven end to end against a stub."""
+    turns = cli.load_turns(ACCEPTANCE)
+    state = replayed_state(tmp, cid, tok, mdl, turns=(),
+                           roster=delegation_roster(url, tmp, name="qwen05"),
+                           flags=["--offload-ingest-cap", "600"])
+    state.runner.canned = CannedReplies(list(answers))
+    state.runner.prompts.clear()
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf):
+            cli.run_turns(state, turns)
+        return {"printed": buf.getvalue(),
+                "trie": trie_snapshot(state.trie),
+                "sources": sorted(state.trie.attached_sources),
+                "roles": list(state.trie.roles),
+                "tail": json.loads(json.dumps(state.tail)),
+                "ledger": [dict(r, t_start=0, t_end=0) for r
+                           in L.read(state.trie.cache_dir).records],
+                "rounds": [timeless(r) for r
+                           in TRACE.read(state.trie.cache_dir).rounds],
+                "prompts": json.loads(json.dumps(state.runner.prompts))}
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+
+def check_acceptance(tmp, tok, mdl):
+    """The scenario that ships, run whole: a file attached, a
+    conversation over it, two tasks handed out by name, one turn planned
+    out, and a summary at the end."""
+    from salt.agents import protocol as P
+
+    turns = cli.load_turns(ACCEPTANCE)
+    assert [t.kind for t in turns] == ["doc", "chat", "chat", "chat",
+                                       "offload", "offload", "agent",
+                                       "chat"], [t.kind for t in turns]
+    assert [t.id for t in turns] == ["notes", "brief", "inverter",
+                                     "december", "sizing", "risk",
+                                     "verdict", "handover"], turns
+    doc = REPO / turns[0].text
+    assert doc.is_file(), f"the scenario attaches {doc}, which is not there"
+    assert doc.name in (REPO / "pyproject.toml").read_text(
+        encoding="utf-8"), (
+        f"{doc.name} is not package data, so an installed salt could not "
+        f"run the scenario it ships")
+    for turn in turns:
+        if turn.offload:
+            assert turn.offload["target"] == "qwen05", turn
+    assert "9 kWh" in turns[6].text and "?" in turns[6].text, turns[6]
+
+    plan_json = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [
+             {"id": "1", "target": "qwen05",
+              "task": "Extract the measured evening draw and the pack's "
+                      "usable capacity from the notes."},
+             {"id": "2", "target": "qwen05",
+              "task": "Summarize what the conversation already settled "
+                      "about the inverter limit."}]})
+    answers = ["Noted, that is 8.96 kW of modules.",
+               "Agreed, the inverter caps the discharge rate.",
+               "Then December is the binding month.",
+               plan_json,
+               "The pack covers a five hour evening and not the coldest "
+               "fifteen.",
+               "In short: 9 kWh covers a normal winter evening."]
+    worker = "The usable capacity is 8.1 kWh against a 7 kWh evening."
+
+    with Stub(cards=CARDS, pieces=(worker,)) as s:
+        runs = [acceptance_run(tmp, cid, tok, mdl, s.url, answers)
+                for cid in ("accept_a", "accept_b")]
+        a, b = runs
+
+        # the file is a branch of its own, and the conversation is not
+        assert a["sources"] == ["demo_site_notes.txt"], a["sources"]
+        assert a["roles"].count("doc") > 3, (
+            f"the notes went in as {a['roles'].count('doc')} rows")
+
+        # two tasks by name and two pieces the plan handed out, with
+        # only the one the file asked to keep remembered
+        assert [r["target"] for r in a["ledger"]] == ["qwen05"] * 4, (
+            f"the run filed {len(a['ledger'])} delegations")
+        assert [r["ingest"] for r in a["ledger"]] == [False, True, False,
+                                                      False], (
+            f"the wrong delegations were remembered: {a['ledger']}")
+        assert a["roles"].count("worker") == 1, (
+            f"{a['roles'].count('worker')} helper answers entered memory")
+
+        # one turn planned out, over the file and the conversation
+        assert len(a["rounds"]) == 1, a["rounds"]
+        round_ = a["rounds"][0]
+        assert round_["action"] == "delegate", round_
+        assert len(round_["subtasks"]) == 2 and len(round_["pieces"]) == 2
+        assert all(p["status"] == "ok" for p in round_["pieces"]), round_
+        assert round_["rounds"] == 1 and not round_["answered_directly"]
+        planned = a["prompts"][3][1]["content"]
+        assert "demo_site_notes.txt" in planned or "8.96" in planned, (
+            "the plan was made without the attached notes in front of it")
+
+        # the conversation ends as a conversation
+        assert a["tail"][-1]["role"] == "assistant", a["tail"][-1]
+        assert a["tail"][-2]["content"].startswith("Summarize the sizing"), \
+            a["tail"][-2]
+        assert "In short: 9 kWh" in a["tail"][-1]["content"], a["tail"][-1]
+        assert "attach>" in a["printed"] and "agent ask>" in a["printed"]
+        assert "offload>" in a["printed"] and "you>" in a["printed"]
+
+        # and the whole of it is the same run twice
+        for key in ("printed", "trie", "sources", "roles", "tail", "ledger",
+                    "rounds", "prompts"):
+            assert a[key] == b[key], (
+                f"the shipped scenario is not deterministic: {key} differed")
+    print("60. the acceptance scenario: the shipped run attaches its own "
+          "notes, talks over them, hands two tasks out by name with one "
+          "answer remembered, plans a turn into two pieces and writes it "
+          "up, and ends with a summary - identical down to the byte run "
+          "twice")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -6134,6 +6258,7 @@ def main():
         check_second_round(tmp, tok, mdl)
         check_ingest_cap(tmp, tok, mdl)
         check_chaos(tmp, tok, mdl)
+        check_acceptance(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
