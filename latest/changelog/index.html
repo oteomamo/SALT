@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-2110" class="md-nav__link">
+  <a href="#2110-2113" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.0
+        2.11.0 - 2.11.3
       
     </span>
   </a>
@@ -1261,10 +1261,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-2110" class="md-nav__link">
+  <a href="#2110-2113" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.0
+        2.11.0 - 2.11.3
       
     </span>
   </a>
@@ -1426,7 +1426,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-2110">2.11.0 - 2.11.0</h2>
+<h2 id="2110-2113">2.11.0 - 2.11.3</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1435,6 +1435,13 @@ remember what a helper answered under that helper's own name. Every
 agent behavior ships off by default and is bounded and recorded when
 switched on. The <a href="../mcp/">MCP server</a> and <a href="../agents/">agents</a> pages
 cover the tools, the roster and the limits.</p>
+<ul>
+<li><strong>2.11.1 - 2.11.3</strong> <code>orphan_share</code>. The conversation snapshot reports
+  orphaned suppression as a share of the whole coverage table beside
+  the raw mass, so a rule about stale coverage means the same thing in
+  a short conversation and a long one, and the sample rules file's
+  orphan example now reads that share.</li>
+</ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
