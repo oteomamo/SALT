@@ -3,6 +3,17 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
+## 2.11.0 - 2.11.0
+
+The MCP milestone. SALT is a working memory layer for any MCP client:
+`salt-mcp` serves compression, conversations and delegation over the
+Model Context Protocol, and behind it saltChat can plan a turn with a
+reasoning model, fan the pieces out to helper models in parallel, and
+remember what a helper answered under that helper's own name. Every
+agent behavior ships off by default and is bounded and recorded when
+switched on. The [MCP server](mcp.md) and [agents](agents.md) pages
+cover the tools, the roster and the limits.
+
 ## 2.10.0 - 2.10.123
 
 The agent line. saltChat is growing an agent layer: a session can name
