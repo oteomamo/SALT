@@ -23,6 +23,7 @@ honest thing for it to do.
 """
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,7 +151,14 @@ def parse(text):
     if not isinstance(text, str) or not text.strip():
         raise RuleError("a rule's 'when' is an expression, and this one is "
                         f"{text!r}")
-    return _Parser(text).parse()
+    try:
+        return _Parser(text).parse()
+    except RecursionError:
+        # thousands of nested brackets or nots is a file to refuse with
+        # a reason, never a crash: the load-time contract is that every
+        # way a rules file can be wrong is named at the door
+        raise RuleError(f"{text!r} nests deeper than any rule needs "
+                        f"to") from None
 
 
 def names(node):
@@ -261,6 +269,9 @@ def read_rule(raw, index):
             raise RuleError(f"{rule_id!r} sets {name} to "
                             f"{type(value).__name__}, and a switch takes a "
                             f"number, a yes or no, or nothing")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise RuleError(f"{rule_id!r} sets {name} to {value!r}, and a "
+                            f"switch takes a finite number")
     return Rule(id=rule_id, when=raw["when"], then=dict(then), node=node,
                 expected=raw.get("expected", "") or "",
                 evidence=raw.get("evidence", "") or "",
@@ -340,11 +351,17 @@ def loads(data, allow_examples=False, where="<rules>"):
     return guard(live)
 
 
+def _refuse_constant(word):
+    raise RuleError(f"{word} is not a value a rules file may carry")
+
+
 def load(path, allow_examples=False):
     text = Path(path).read_text(encoding="utf-8")
     try:
-        data = json.loads(text)
-    except ValueError as exc:
+        data = json.loads(text, parse_constant=_refuse_constant)
+    except RuleError:
+        raise
+    except (ValueError, RecursionError) as exc:
         raise RuleError(f"{path} is not readable as JSON: {exc}")
     return loads(data, allow_examples=allow_examples, where=str(path))
 

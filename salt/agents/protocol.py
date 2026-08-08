@@ -23,6 +23,7 @@ material, and text that looks like a directive inside it is text.
 """
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -162,9 +163,14 @@ def strip_think(text, reasoning_content=None):
     """
     if not text:
         return ""
-    rest = _template_opened(text)
-    if rest is not None:
-        return strip_think(rest)
+    # peeled in a loop, never by recursion: a model stuck repeating a
+    # bare closer writes thousands of them, and each peel is one lap
+    # here rather than one stack frame
+    while True:
+        rest = _template_opened(text)
+        if rest is None:
+            break
+        text = rest
     out, depth, i = [], 0, 0
     while i < len(text):
         opened = _THINK_OPEN.match(text, i)
@@ -179,11 +185,10 @@ def strip_think(text, reasoning_content=None):
             if depth == 0:
                 out.append(text[i])
             i += 1
-    if depth > 0:
-        # the reply ended inside a thought, so nothing after the last
-        # opening tag was ever an answer
-        cut = list(_THINK_OPEN.finditer(text))[-1].start()
-        return strip_think(text[:cut])
+    # a reply that ended inside a thought contributed nothing to `out`
+    # past the first tag that never closed, so what was collected is
+    # already the whole answer: everything after that tag sat at depth
+    # one or deeper and was skipped as it was scanned
     return "".join(out).strip()
 
 
@@ -226,6 +231,11 @@ def find_object(text):
     return None
 
 
+def _refuse_constant(word):
+    raise ProtocolError("bad_number",
+                        f"{word} is not a value a directive may carry")
+
+
 def _text(raw, name, reason="bad_subtask"):
     if not isinstance(raw, str) or not raw.strip():
         raise ProtocolError(reason, f"{name} must be a non-empty string, "
@@ -239,6 +249,11 @@ def _number(raw, name, kind, low, high=None):
     if isinstance(raw, bool) or not isinstance(raw, kind):
         raise ProtocolError("bad_number",
                             f"{name} must be a number, got {raw!r}")
+    # NaN answers no to every comparison, so a range check alone would
+    # wave it through into the engine's own arithmetic
+    if not math.isfinite(raw):
+        raise ProtocolError("bad_number",
+                            f"{name} must be finite, got {raw!r}")
     if raw <= low or (high is not None and raw > high):
         raise ProtocolError("bad_number",
                             f"{name} is out of range, got {raw!r}")
@@ -294,6 +309,10 @@ def _switches(raw):
                                 f"switch {name!r} is set to a "
                                 f"{type(value).__name__}, and a switch takes "
                                 f"a number, a yes or no, or nothing")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ProtocolError("bad_switches",
+                                f"switch {name!r} must be a finite number, "
+                                f"got {value!r}")
     return dict(raw)
 
 
@@ -307,8 +326,15 @@ def parse_directive(text):
     if body is None:
         raise ProtocolError("no_json", "the reply carries no JSON object")
     try:
-        raw = json.loads(body)
-    except ValueError as exc:
+        # NaN and Infinity are words json.loads happens to accept, not
+        # JSON, and a NaN that gets in poisons every comparison and
+        # every piece of coverage math it reaches. RecursionError is
+        # what pathological nesting raises, and it is a bad directive
+        # here, never a crash
+        raw = json.loads(body, parse_constant=_refuse_constant)
+    except ProtocolError:
+        raise
+    except (ValueError, RecursionError) as exc:
         raise ProtocolError("bad_json", str(exc)) from exc
     if not isinstance(raw, dict):
         raise ProtocolError("not_an_object",
