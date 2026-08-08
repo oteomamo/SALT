@@ -2329,8 +2329,29 @@ def turn_switches(state):
     if chooser is None or not chooser.decides:
         return values, {}, ()
     overrides = policy.check(chooser.decide(snapshot(state)))
+    if overrides:
+        # the conflict pairs are refused where they would actually
+        # combine: a rule set and a proposal are each checked alone, but
+        # only the merge with the session's own settings says whether
+        # this turn would run two switches known to cancel. A decision
+        # that creates such a pair is dropped whole and the session's
+        # settings stand; a session already launched with both is its
+        # owner's call and not the policy's to repair
+        merged_why = _conflicted({**values, **overrides})
+        if merged_why and not _conflicted(values):
+            return values, {}, ({"id": "conflict-guard",
+                                 "when": merged_why, "then": {}},)
     values.update(overrides)
     return values, overrides, chooser.explain()
+
+
+def _conflicted(switch_values):
+    """The reason these switches cannot run together, or None."""
+    try:
+        rules.guard_overrides(dict(switch_values))
+        return None
+    except rules.RuleError as exc:
+        return str(exc)
 
 
 def compress_kwargs(state, line, excl, switches):

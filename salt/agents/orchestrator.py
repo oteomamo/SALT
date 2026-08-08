@@ -742,9 +742,17 @@ class ModelPolicy(SwitchPolicy):
         if endpoint is None:
             self.refused = "this session has no model to ask"
             return {}
-        outcome = protocol.ask_directive(
-            endpoint.send,
-            switch_messages(signals, KWARGS), guided=endpoint.guided)
+        try:
+            outcome = protocol.ask_directive(
+                endpoint.send,
+                switch_messages(signals, KWARGS), guided=endpoint.guided)
+        except Exception as exc:
+            # the class's whole contract is that a round gone wrong costs
+            # the turn nothing, and a model that cannot be reached is the
+            # commonest way a round goes wrong
+            self.refused = (f"the model could not be asked "
+                            f"({type(exc).__name__}: {exc})")
+            return {}
         directive = outcome.directive
         self.proposed = dict(directive.switches)
         self.reason = directive.answer or ""
