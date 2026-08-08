@@ -682,10 +682,20 @@ def shutdown_once(pool, runtime):
         if state["done"]:
             return
         state["done"] = True
+        # a tool call may still be running on the SDK's thread. Waiting a
+        # bounded moment for it keeps the save off a trie mid-mutation;
+        # past the bound the close goes ahead, because a kill that never
+        # closes is worse than a save that races one call
+        from salt.mcp.errors import SERIAL
+        held = SERIAL.acquire(timeout=10)
         try:
             pool.close_all()
         finally:
-            runtime.close()
+            try:
+                runtime.close()
+            finally:
+                if held:
+                    SERIAL.release()
 
     return close
 
@@ -713,9 +723,12 @@ def main(argv=None):
         # by the time this exits. The stop is hard on purpose: the
         # transport reads stdin on a thread of its own that will not
         # return until the client hangs up, and waiting for it would
-        # turn a kill into a hang
-        closing()
-        os._exit(0)
+        # turn a kill into a hang. The exit rides a finally, because a
+        # close that failed on one session must still end the process
+        try:
+            closing()
+        finally:
+            os._exit(0)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, on_signal)

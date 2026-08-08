@@ -16,6 +16,7 @@ server must not be what stops the next one from working.
 """
 
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -197,8 +198,19 @@ class SessionPool:
         return True
 
     def close_all(self):
+        """Every open session closed, each on its own account: one
+        session's disk trouble must not cost the others their saves."""
+        first = None
         for cid in list(self.open):
-            self.close(cid)
+            try:
+                self.close(cid)
+            except Exception as exc:
+                if first is None:
+                    first = exc
+                print(f"salt-mcp: closing {cid!r} failed "
+                      f"({type(exc).__name__}: {exc})", file=sys.stderr)
+        if first is not None:
+            raise first
 
 
 def validate_id(conversation_id):

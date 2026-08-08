@@ -12,6 +12,18 @@ reported as a refusal with its type named, because a traceback over a
 protocol is an internal detail escaping into somebody else's editor.
 """
 
+import threading
+
+# one tool call at a time, however many the SDK dispatches at once. The
+# whole layer is built on the session pool, the ingest workers and the
+# stdout redirect being touched by one call at a time, and the SDK runs
+# every sync tool on a thread of its own - a client that pipelines two
+# calls would otherwise race the pool, evict a session out from under a
+# call still using it, and leave sys.stdout pointing at stderr for the
+# life of the process. Serial is also what the module docstrings have
+# promised all along; this lock is just that promise made true
+SERIAL = threading.Lock()
+
 # code -> the phrase every message under it begins with
 PREFIXES = {
     "invalid_argument": "invalid argument:",
@@ -51,7 +63,8 @@ def guarded(fn, *args, **kwargs):
     from salt.agents.roster import RosterError
     from salt.mcp.pool import SessionError
     try:
-        return fn(*args, **kwargs)
+        with SERIAL:
+            return fn(*args, **kwargs)
     except ToolError:
         raise
     except RosterError as exc:

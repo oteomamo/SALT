@@ -164,7 +164,13 @@ class AgentRuntime:
 
     def close(self):
         for handle in self.workers.values():
-            handle.close()
+            try:
+                handle.close()
+            except Exception:
+                # one handle refusing to let go must not keep the rest
+                # open: this runs on the way down, where the saves that
+                # follow matter more than any connection
+                continue
 
 
 def roster_payload(runtime, probe=False):
