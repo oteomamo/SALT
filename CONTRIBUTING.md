@@ -63,7 +63,7 @@ deterministic. The table it wraps, for reference:
 | The near-duplicate gate (`--dedup-cos` paths) | `python scripts/chat_dedup_regression.py` |
 | The session cap (`--max-sentences` paths) | `python scripts/chat_evict_regression.py` |
 | Tail exclusion (`--tail-exclude` paths) | `python scripts/chat_tail_regression.py` |
-| The agent layer (`salt/agents/`, `--roster`, `/worker`) | `python scripts/chat_agents_regression.py` |
+| The agent layer (`salt/agents/`, `--roster`, `/offload`, `@NAME`, `/agent`, `--switch-agent`) | `python scripts/chat_agents_regression.py` |
 | The MCP server (`salt/mcp/`, `salt-mcp`) | `python scripts/chat_mcp_regression.py` |
 | The per-turn work the session trie carries forward | `python scripts/chat_incremental_regression.py` |
 | `salt/chat/pdfio.py` (PDF or text ingestion) | `python scripts/chat_pdf_regression.py` |
@@ -125,6 +125,11 @@ part. A finished option touches these places, in this order:
 
 Then `bash scripts/verify.sh chat`, all in the same PR. An option
 nobody can discover, judge, or trust is not finished.
+
+An agent flag is the same nine steps with two of them read differently:
+step 3 usually means the round rather than the `compress()` call, and
+step 9 means `bash scripts/verify.sh agents`. Nothing about the path
+changes because a flag belongs to the agent layer.
 
 ## Adding a regression check
 

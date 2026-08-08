@@ -30,10 +30,13 @@ plain install stays green.
 - `chat_vllm_regression.py` covers the in-process `--backend vllm`.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.
-- `chat_agents_regression.py` covers the agent layer (`--roster`,
-  `/roster`, `/worker`, `/offload`), from the whole worker lifecycle to
-  the delegation ledger and the fact that a loaded roster changes
-  nothing.
+- `chat_agents_regression.py` covers the agent layer end to end:
+  `--roster`, the worker lifecycle, `/offload` and `@NAME`, the
+  directive protocol, `/agent` and `--agent`, the switch agent
+  (`--switch-agent`, `--switch-rules`), the delegation ledger and the
+  round trace, the shipped acceptance scenario, and the fact that a
+  session with no roster is byte-identical to one built before any of
+  it existed. It needs no GPU: a cpu encoder and stub HTTP workers.
 - `chat_mcp_regression.py` covers the MCP server (`salt-mcp`), driving
   it over a stdio pipe the way a client does. It skips when the `mcp`
   extra is not installed.
