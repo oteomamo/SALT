@@ -3122,6 +3122,17 @@ def check_snapshot(tmp, tok, mdl):
         assert snap["alive_ratio"] == round(t.n_alive / t.n_sentences, 3), snap
         assert 0 < snap["alive_ratio"] <= 1, snap
         assert snap["budget_pct"] == state.budget > 0, snap
+        # the orphan pair: the mass is a raw count, the share is the
+        # same fact against the whole coverage table, bounded 0..1 and
+        # empty exactly when the mass is
+        if snap["orphan_mass"] is None:
+            assert snap["orphan_share"] is None, snap
+        else:
+            assert snap["orphan_share"] is not None, snap
+            assert 0 <= snap["orphan_share"] <= 1, snap
+            total = sum(t.coverage.values())
+            assert snap["orphan_share"] == min(1.0, round(
+                snap["orphan_mass"] / total, 3)), snap
         assert snap["attachment_share"] == 0, (
             "a session with no attachments reports some of its words as "
             "attached")
