@@ -296,6 +296,7 @@ class ChatState:
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         self.offload_ingest = args.offload_ingest
         self.agent_keep_think = args.agent_keep_think
+        self.agent_rounds = args.agent_rounds
         self.agent_mode = args.agent
         self.agent_quiet = args.agent_quiet
         self.agent_max_delegations = args.agent_max_delegations
@@ -1259,7 +1260,7 @@ class AgentRound:
 
     def __init__(self, task, limits=None, endpoint=None, quiet=False):
         self.task = task
-        self.limits = limits
+        self.limits = orchestrator.AgentLimits() if limits is None else limits
         self.endpoint = endpoint
         # in persistent mode every turn is a round, so the running
         # commentary that helps once is noise every time: the turn says
@@ -1271,6 +1272,10 @@ class AgentRound:
         # whether the round gave up on its helpers and answered the turn
         # itself, which the trace records and /stats counts
         self.fell_through = False
+        # how many rounds of delegating this turn took, and what asking
+        # for the second one cost in refused replies
+        self.rounds = 1
+        self.extra_failures = 0
 
     def say(self, text):
         if not self.quiet:
@@ -1287,6 +1292,32 @@ class AgentRound:
         elif result.error:
             said = f"{said}: {result.error}"
         print(f"  {self.done}. {result.target}: {said}")
+
+    def take_another(self, state, endpoint, started):
+        """One more round, if the turn is allowed one and the
+        orchestrator wants it.
+
+        Asked after the first round's pieces are in, and asked once. A
+        model that says nothing more is needed ends the turn here, and
+        one that names more pieces gets them under what is left of the
+        turn's allowance rather than a fresh one.
+        """
+        if self.limits.depth < 2 or not self.results:
+            return
+        more = orchestrator.follow_up(state, self.task, self.results,
+                                      endpoint)
+        self.extra_failures = more.failures
+        if not more.directive.delegates:
+            return
+        n = len(more.directive.subtasks)
+        self.say(f"  {n} more piece{'' if n == 1 else 's'} to hand out")
+        extra = orchestrator.execute(
+            state, more.directive,
+            orchestrator.remaining(self.limits, self.results, started),
+            self.note)
+        file_round(state, extra)
+        self.results = list(self.results) + list(extra)
+        self.rounds = 2
 
     def __call__(self, state, messages, memory_block):
         started = time.time()
@@ -1310,6 +1341,7 @@ class AgentRound:
             self.results = orchestrator.execute(state, directive, self.limits,
                                                 self.note)
             file_round(state, self.results)
+            self.take_another(state, endpoint, started)
             if not orchestrator.usable(self.results):
                 # nothing came back, so there is nothing to write up. The
                 # turn is answered the way it would have been if nobody
@@ -1343,7 +1375,8 @@ class AgentRound:
                 self.task, directive, self.results, "".join(pieces).strip(),
                 outcome, started,
                 synthesis=getattr(state.runner, "last_engine_stats", None),
-                answered_directly=self.fell_through)
+                answered_directly=self.fell_through, rounds=self.rounds,
+                protocol_failures=outcome.failures + self.extra_failures)
             state.last_round = state.pending_round = self.record
 
 
@@ -1354,7 +1387,8 @@ def agent_limits(state):
     sizing are how many pieces and how long."""
     return orchestrator.AgentLimits(
         max_delegations_per_turn=state.agent_max_delegations,
-        max_wall_s=state.agent_max_wall)
+        max_wall_s=state.agent_max_wall,
+        depth=state.agent_rounds)
 
 
 AGENT_NOTICE = "[agent: {n} delegation{s}]"
@@ -2867,6 +2901,16 @@ def build_parser():
                         "attempted and the turn is answered from what did "
                         "come back (default: "
                         f"{orchestrator.AgentLimits.max_delegations_per_turn})")
+    p.add_argument("--agent-rounds", type=int,
+                   default=orchestrator.AgentLimits.depth,
+                   metavar="N",
+                   help="how many rounds of delegating one turn may take. "
+                        "Two lets the orchestrator look at what came back "
+                        "and ask for one more thing before the turn is "
+                        "written up, under what is left of the turn's own "
+                        f"limits (default: "
+                        f"{orchestrator.AgentLimits.depth}, at most "
+                        f"{orchestrator.MAX_DEPTH})")
     p.add_argument("--agent-max-wall", type=float,
                    default=orchestrator.AgentLimits.max_wall_s,
                    metavar="SECONDS",

@@ -22,7 +22,7 @@ from pathlib import Path
 SCHEMA = "salt-agent-trace/1"
 TRACE_NAME = "agent_trace.jsonl"
 FIELDS = ("schema", "ask", "action", "subtasks", "pieces", "synthesis",
-          "protocol_failures", "fell_back", "answered_directly",
+          "protocol_failures", "fell_back", "answered_directly", "rounds",
           "reply_words", "t_start", "t_end", "seconds")
 PIECE_FIELDS = ("id", "target", "status", "ran", "usage", "seconds")
 
@@ -69,6 +69,7 @@ def record(round_):
             "protocol_failures": int(round_.protocol_failures),
             "fell_back": bool(round_.fell_back),
             "answered_directly": bool(round_.answered_directly),
+            "rounds": int(round_.rounds),
             "reply_words": len(round_.text.split()),
             "t_start": round(float(round_.t_start), 3),
             "t_end": round(float(round_.t_end), 3),

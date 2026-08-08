@@ -3873,10 +3873,10 @@ def check_execute_step(tmp, tok, mdl):
         assert len(sent) == 1 and "interrupted" in out[1].error, out[1].error
 
         try:
-            O.execute(state, four, O.AgentLimits(depth=2))
-            raise AssertionError("a round agreed to delegate two deep")
+            O.execute(state, four, O.AgentLimits(depth=3))
+            raise AssertionError("a round agreed to delegate three deep")
         except O.OrchestratorError as exc:
-            assert "one round deep" in str(exc), exc
+            assert "at most 2 rounds" in str(exc), exc
     finally:
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
@@ -5666,6 +5666,145 @@ def check_agent_mode(tmp, tok, mdl):
           "one turn at a time out loud")
 
 
+def check_second_round(tmp, tok, mdl):
+    """One more round when the turn is allowed one, and never two."""
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+    from salt.agents import trace as T
+
+    assert O.MAX_DEPTH == 2, O.MAX_DEPTH
+    assert O.AgentLimits().depth == 1, "a turn delegates twice by default"
+    try:
+        O.execute(None, plan_of(("a", "w")), O.AgentLimits(depth=3))
+        raise AssertionError("a turn agreed to delegate three rounds deep")
+    except O.OrchestratorError as exc:
+        assert "at most 2 rounds" in str(exc), exc
+
+    # what a second round is allowed: the turn's allowance, less what
+    # the first round already spent
+    first = [made_result(out=100), made_result(out=50),
+             D.DelegationResult(id=0, target="nope", task="t",
+                                status="refused")]
+    left = O.remaining(O.AgentLimits(max_delegations_per_turn=4,
+                                     max_total_delegated_tokens=500,
+                                     max_wall_s=600, depth=2),
+                       first, time.time())
+    assert left.max_delegations_per_turn == 2, (
+        f"a refused piece was charged to the turn's delegation budget: "
+        f"{left}")
+    assert left.max_total_delegated_tokens == 350, left
+    assert 0 < left.max_wall_s <= 600, left
+    assert left.depth == 1, (
+        "a second round was handed the depth that allowed it, so it could "
+        "start a third")
+
+    ask = "what size battery does that argue for"
+    plan_one = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [{"id": "1", "task": "size the bank", "target": "w"}]})
+    plan_two = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [{"id": "2", "task": "check the inverter too",
+                       "target": "w"}]})
+    done = json.dumps({"version": P.SCHEMA, "action": "answer",
+                       "answer": "nothing more is needed"})
+    final = "A 9 kWh bank covers the evening."
+    said = "Nine kilowatt hours of storage covers the evening draw."
+
+    with Stub(cards=CARDS, pieces=(said,)) as s:
+        roster = delegation_roster(s.url, tmp)
+
+        # two rounds: plan, follow up with more, then write up both
+        state = canned_state(tmp, "round_two", tok, mdl,
+                             [plan_one, plan_two, final], roster,
+                             flags=["--agent-rounds", "2"])
+        try:
+            assert cli.agent_limits(state).depth == 2, cli.agent_limits(state)
+            out = agent_line(state, f"/agent {ask}")
+            assert "1 more piece to hand out" in out, out
+            assert s.httpd.posts == 2, (
+                f"a two round turn reached the worker {s.httpd.posts} times")
+            assert len(state.runner.prompts) == 3, (
+                f"the turn cost {len(state.runner.prompts)} calls rather "
+                f"than a plan, a follow-up and a write-up")
+            # the follow-up saw what the first round produced
+            asked = state.runner.prompts[1][1]["content"]
+            assert f"{O.QUOTE}{said}" in asked.splitlines(), asked
+            assert O.FOLLOW_UP_ASK in asked, asked
+            written = state.runner.prompts[2][1]["content"]
+            assert written.startswith("2 pieces, all answered."), written[:60]
+            record = state.last_round
+            assert record.rounds == 2 and len(record.results) == 2, record
+            rec = T.read(state.trie.cache_dir).rounds[0]
+            assert rec["rounds"] == 2, rec
+            assert [t["task"] for t in rec["subtasks"]] == \
+                ["size the bank"], (
+                "the trace's plan grew the second round's pieces, so the "
+                "record no longer says what was decided when")
+            assert len(rec["pieces"]) == 2, rec
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # the orchestrator says nothing more is needed: one round, and
+        # what it said is not used as the answer
+        state = canned_state(tmp, "round_done", tok, mdl,
+                             [plan_one, done, final], roster,
+                             flags=["--agent-rounds", "2"])
+        try:
+            before = s.httpd.posts
+            out = agent_line(state, f"/agent {ask}")
+            assert "more piece" not in out, out
+            assert final in out and "nothing more is needed" not in out, out
+            assert s.httpd.posts == before + 1, s.httpd.posts
+            assert state.last_round.rounds == 1, state.last_round
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # one round by default: nobody is asked whether more is needed
+        state = canned_state(tmp, "round_one", tok, mdl, [plan_one, final],
+                             roster)
+        try:
+            before = s.httpd.posts
+            agent_line(state, f"/agent {ask}")
+            assert len(state.runner.prompts) == 2, (
+                "a one round turn asked for a second one anyway")
+            assert s.httpd.posts == before + 1, s.httpd.posts
+            assert state.last_round.rounds == 1, state.last_round
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # the turn's caps hold ACROSS rounds: two pieces allowed, two
+        # asked for first, so the second round gets nothing
+        wide = json.dumps(
+            {"version": P.SCHEMA, "action": "delegate",
+             "subtasks": [{"id": "1", "task": "a", "target": "w"},
+                          {"id": "2", "task": "b", "target": "w"}]})
+        state = canned_state(tmp, "round_capped", tok, mdl,
+                             [wide, plan_two, final], roster,
+                             flags=["--agent-rounds", "2",
+                                    "--agent-max-delegations", "2"])
+        try:
+            before = s.httpd.posts
+            agent_line(state, f"/agent {ask}")
+            assert s.httpd.posts == before + 2, (
+                f"the second round bought itself a fresh budget: "
+                f"{s.httpd.posts - before} calls")
+            out = [r.status for r in state.last_round.results]
+            assert out == ["ok", "ok", "stopped"], out
+            assert state.last_round.rounds == 2, state.last_round
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("57. a second round: an orchestrator that has seen what came "
+          "back may ask for one more thing and never a third, what it "
+          "says when nothing is missing is not mistaken for the answer, "
+          "the turn's caps hold across both rounds, and one round stays "
+          "the default")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -5734,6 +5873,7 @@ def main():
         check_parallel_fanout(tmp, tok, mdl)
         check_partial_failure(tmp, tok, mdl)
         check_agent_mode(tmp, tok, mdl)
+        check_second_round(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

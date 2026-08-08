@@ -35,7 +35,7 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from salt.agents import protocol
@@ -73,6 +73,12 @@ OUTCOMES = {"ok": "answered",
             STOPPED: "was not attempted"}
 
 
+# how deep one turn may go. Two is the whole of it: a round that looked
+# at its own results once and asked for one more thing. A third would
+# be a loop with a limit rather than a bounded shape
+MAX_DEPTH = 2
+
+
 class OrchestratorError(Exception):
     """A round could not be planned at all, for want of a model."""
 
@@ -94,9 +100,11 @@ class AgentLimits:
     max_delegations_per_turn: int = 4
     max_wall_s: float = 600.0
     max_total_delegated_tokens: int = 8192
-    # one round of delegation and no deeper: a worker cannot start a
-    # round of its own. Version 1 refuses anything else rather than
-    # pretending to enforce a depth it does not implement
+    # how many rounds of delegating one turn may take. One by default:
+    # the pieces go out, the answers come back, the turn is written up.
+    # Two lets the orchestrator look at what came back and ask for one
+    # more thing. Never more than two, and never nested - a worker
+    # cannot start a round of its own at any depth
     depth: int = 1
 
 
@@ -397,10 +405,10 @@ def execute(state, directive, limits=None, on_result=None, parallel=None):
     synthesis that follows is told about all of them.
     """
     limits = AgentLimits() if limits is None else limits
-    if limits.depth != 1:
+    if limits.depth not in range(1, MAX_DEPTH + 1):
         raise OrchestratorError(
-            f"this salt delegates one round deep, and these limits ask for "
-            f"{limits.depth}")
+            f"this salt delegates at most {MAX_DEPTH} rounds deep, and "
+            f"these limits ask for {limits.depth}")
     subtasks = tuple(directive.subtasks)
     if parallel is None:
         parallel = fans_out(subtasks)
@@ -610,6 +618,8 @@ class Round:
     fell_back: bool = False
     # the round gave up on its helpers and answered the turn itself
     answered_directly: bool = False
+    # how many rounds of delegating this turn took
+    rounds: int = 1
     t_start: float = 0.0
     t_end: float = 0.0
 
@@ -722,16 +732,84 @@ class ModelPolicy(SwitchPolicy):
                  "then": dict(self.proposed)},)
 
 
+FOLLOW_UP_ASK = (
+    "Those are the pieces you asked for, and what came back. If "
+    "something you need is still missing, name the pieces that would "
+    "fill it and the helper each one goes to. If nothing is, answer, and "
+    "the round will write itself up from what it already has.")
+
+
+def follow_up_messages(ask, results, capability, targets=()):
+    """The one question a second round is: here is what came back, is
+    anything still missing. The same instructions the plan was asked
+    under, so the model is answering in the shape it already knows."""
+    return [{"role": "system",
+             "content": protocol.orchestrator_instructions(capability,
+                                                           targets)},
+            {"role": "user",
+             "content": (f"{results_block(results)}\n\n{ASK_HEADER}{ask}\n\n"
+                         f"{FOLLOW_UP_ASK}")}]
+
+
+def follow_up(state, ask, results, endpoint=None):
+    """Ask the orchestrator, once, whether the round needs anything else.
+
+    Once is the whole design. A model that can ask for more can ask
+    forever, so it is asked a single time, after it has seen what its
+    first plan actually produced, and whatever it says then is the last
+    word on what this turn delegates.
+
+    An answer means nothing more is needed. What it says is not used:
+    the write-up is a separate call over every piece, and letting this
+    one double as it would make a round that asked for nothing read
+    differently from a round that asked for something.
+    """
+    endpoint = orchestrator_endpoint(state) if endpoint is None else endpoint
+    if endpoint is None:
+        raise OrchestratorError(
+            "this session has no chat model, so there is nothing to ask "
+            "whether the round is done")
+    return protocol.ask_directive(
+        endpoint.send,
+        follow_up_messages(ask, results, endpoint.capability,
+                           targets_for(state)),
+        guided=endpoint.guided)
+
+
+def remaining(limits, results, started):
+    """What is left of the turn's allowance after what it has spent.
+
+    The caps are per TURN, not per round, which is the point: a second
+    round cannot buy itself a fresh budget by being a second round. It
+    runs one level deep whatever the turn was allowed, because the depth
+    that let it happen has already been spent on it.
+    """
+    ran = [r for r in results if r.ran]
+    spent = sum(delegated_tokens(r) for r in ran)
+    return replace(
+        limits,
+        max_delegations_per_turn=max(
+            0, limits.max_delegations_per_turn - len(ran)),
+        max_wall_s=max(0.0, limits.max_wall_s - (time.time() - started)),
+        max_total_delegated_tokens=max(
+            0, limits.max_total_delegated_tokens - spent),
+        depth=1)
+
+
 def round_record(ask, directive, results, text, outcome=None, started=None,
-                 synthesis=None, answered_directly=False):
+                 synthesis=None, answered_directly=False, rounds=1,
+                 protocol_failures=None):
     """One round as the thing a session keeps. Built in one place because
     a round written up all at once and one written up as it is generated
     are the same round, and must be recorded as the same round."""
     return Round(ask=ask, directive=directive, results=tuple(results),
                  text=text, synthesis=dict(synthesis or {}),
-                 protocol_failures=getattr(outcome, "failures", 0),
+                 protocol_failures=(getattr(outcome, "failures", 0)
+                                    if protocol_failures is None
+                                    else int(protocol_failures)),
                  fell_back=bool(getattr(outcome, "fell_back", False)),
                  answered_directly=bool(answered_directly),
+                 rounds=int(rounds),
                  t_start=time.time() if started is None else started,
                  t_end=time.time())
 

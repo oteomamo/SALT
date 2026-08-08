@@ -63,6 +63,7 @@ Agents:
 | `--agent-keep-think` | off | keep a worker's reasoning when its answer is remembered, instead of cutting it |
 | `--agent` | off | plan every turn out instead of answering it directly, the way `/agent` does one turn |
 | `--agent-quiet` | off | leave out the one-line notice an agent-routed reply carries under `--agent` |
+| `--agent-rounds N` | 1 | how many rounds of delegating one turn may take, at most 2: the second lets the orchestrator ask for one more thing |
 | `--agent-max-delegations N` | 4 | how many pieces one `/agent` turn may hand out before the rest are reported as not attempted |
 | `--agent-max-wall SECONDS` | 600 | how long one `/agent` turn may spend handing pieces out before it answers with what it has |
 | `--switch-agent` | off | let a policy decide the memory switches per turn instead of leaving them where the flags set them |
