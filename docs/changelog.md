@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.0
+## 2.11.0 - 2.11.1
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -13,6 +13,11 @@ remember what a helper answered under that helper's own name. Every
 agent behavior ships off by default and is bounded and recorded when
 switched on. The [MCP server](mcp.md) and [agents](agents.md) pages
 cover the tools, the roster and the limits.
+
+- **2.11.1** `orphan_share`. The conversation snapshot reports orphaned
+  suppression as a share of the whole coverage table beside the raw
+  mass, so a rule about stale coverage means the same thing in a short
+  conversation and a long one.
 
 ## 2.10.0 - 2.10.123
 

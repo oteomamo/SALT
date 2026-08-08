@@ -28,9 +28,9 @@ SCHEMA = "salt-snapshot/1"
 KEYS = ("n_sentences", "n_alive", "masked", "alive_ratio", "n_turns",
         "live_words", "n_attachments", "attachment_words",
         "attachment_share", "near_dups", "session_age_s", "budget_pct",
-        "orphan_keys", "orphan_mass", "drift_cos", "drift_ema",
-        "topic_shift", "coverage_keys", "tail_occupancy", "model_window",
-        "pending_ingest")
+        "orphan_keys", "orphan_mass", "orphan_share", "drift_cos",
+        "drift_ema", "topic_shift", "coverage_keys", "tail_occupancy",
+        "model_window", "pending_ingest")
 
 # what a rule may name. The same set, deliberately: a signal a session
 # reports and a signal a decision may read apart would be two answers to
@@ -129,6 +129,21 @@ def _share(part, whole):
     return round(part / float(whole), 3) if whole else None
 
 
+def _orphan_share(trie, orphan_mass):
+    """How much of the accumulated suppression no longer matches
+    anything live, 0 to 1. The mass alone is a count in the thousands
+    that grows with the conversation, so a threshold against it means
+    nothing across sessions of different sizes; this is the same fact
+    as a share of the whole coverage table. Clamped because the mass is
+    read off the last compression while the table is read now, and a
+    commit that just collected orphans can leave the old mass briefly
+    larger than what survived it."""
+    if orphan_mass is None:
+        return None
+    share = _share(orphan_mass, sum(trie.coverage.values()))
+    return None if share is None else min(1.0, share)
+
+
 def snapshot(state, stats=None):
     """This session as the closed set of signals a decision may read.
 
@@ -154,6 +169,8 @@ def snapshot(state, stats=None):
            "budget_pct": getattr(state, "budget", None),
            "orphan_keys": s.get("coverage_orphan_keys"),
            "orphan_mass": s.get("coverage_orphan_mass"),
+           "orphan_share": _orphan_share(trie,
+                                         s.get("coverage_orphan_mass")),
            "drift_cos": s.get("drift_cos"),
            "drift_ema": trie.drift_ema,
            "topic_shift": s.get("topic_shift"),
