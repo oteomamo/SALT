@@ -1048,10 +1048,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-210101" class="md-nav__link">
+  <a href="#2110-2110" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.101
+        2.11.0 - 2.11.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2100-210123" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.10.0 - 2.10.123
       
     </span>
   </a>
@@ -1250,10 +1261,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2100-210101" class="md-nav__link">
+  <a href="#2110-2110" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.10.0 - 2.10.101
+        2.11.0 - 2.11.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2100-210123" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.10.0 - 2.10.123
       
     </span>
   </a>
@@ -1404,7 +1426,16 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2100-210101">2.10.0 - 2.10.101</h2>
+<h2 id="2110-2110">2.11.0 - 2.11.0</h2>
+<p>The MCP milestone. SALT is a working memory layer for any MCP client:
+<code>salt-mcp</code> serves compression, conversations and delegation over the
+Model Context Protocol, and behind it saltChat can plan a turn with a
+reasoning model, fan the pieces out to helper models in parallel, and
+remember what a helper answered under that helper's own name. Every
+agent behavior ships off by default and is bounded and recorded when
+switched on. The <a href="../mcp/">MCP server</a> and <a href="../agents/">agents</a> pages
+cover the tools, the roster and the limits.</p>
+<h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
 smaller helper models beside the chat model and, over the 2.10.z
 releases, hand parts of its work to them with SALT memory in the loop.</p>
@@ -1562,6 +1593,36 @@ releases, hand parts of its work to them with SALT memory in the loop.</p>
   memory. Two fixes for reasoning models: a reply whose opening think
   tag was never in it is cut correctly, and a turn now keeps what a
   model said rather than what it thought wherever that model sits.</li>
+<li><strong>2.10.102 - 2.10.107</strong> The whole scenario, run end to end and
+  pinned. Turns files gained <code>doc</code> and <code>agent</code> lines, so a scripted
+  conversation can attach a file and plan a turn the way a person
+  would, and <code>salt/agents/demo_turns.json</code> replays all four kinds of
+  line deterministically. A session with no roster is pinned to
+  consult nobody, file nothing and cost one call a turn, down to each
+  turn's own record. The architecture pages carry the agent layer.</li>
+<li><strong>2.10.108 - 2.10.119</strong> Hardening across the layer. A parallel round
+  now stops for its shared token budget the way it stops for its
+  clock, hands out nothing when a second round has nothing left, and
+  an interrupt comes back as recorded pieces that keep what arrived
+  instead of a frozen session. A request's timeout and its usage
+  numbers travel under the worker's own lock, one delegation to a dead
+  endpoint no longer condemns the worker, and a server still running
+  from an earlier session is protected from being spawned over.
+  Placement now checks the memory a server really takes, refusing a
+  shared card the declared shares plus resident overhead cannot fit
+  and reading the card's live free memory when <code>nvidia-smi</code> can be
+  asked. A reply of runaway think tags and JSON <code>NaN</code> or <code>Infinity</code>
+  are refused rather than crashed on, a switch decision cannot combine
+  with the session's own settings into two switches known to cancel,
+  and the tail-occupancy signal counts two messages per exchange. The
+  MCP server takes one call at a time however many arrive, its writes
+  refuse a conversation nobody made, <code>sync</code> waits the ingest queue out,
+  and every text one call carries meets the same size bound.</li>
+<li><strong>2.10.120 - 2.10.123</strong> The sample rules speak the signals' real
+  language. <code>switch_rules_sample.json</code>'s examples now key on the
+  verbatim window running light in a long conversation and on orphan
+  mass as the weight of words it is, both able to fire on a real
+  session, and the suite pins that they do.</li>
 </ul>
 <h2 id="290-29123">2.9.0 - 2.9.123</h2>
 <p>Background ingestion for <code>saltChat</code>. The per-turn keyword and embedding
