@@ -1422,6 +1422,11 @@ real session before it is trusted.</p>
 <td>cap the memory handed to a worker at N words, on top of the memory budget that already sizes it</td>
 </tr>
 <tr>
+<td><code>--offload-ingest-cap CHARS</code></td>
+<td>2000</td>
+<td>how much of a worker's answer is remembered, cut at a sentence boundary (0 keeps all of it)</td>
+</tr>
+<tr>
 <td><code>--offload-ingest</code></td>
 <td>off</td>
 <td>remember what a worker answered, as a turn of its own labeled with the worker it came from</td>
