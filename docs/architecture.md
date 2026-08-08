@@ -96,6 +96,14 @@ so it is the fastest way to find where a change belongs:
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
+│ │              Agents - saltChat asking other models                 │   │
+│ │ roster: worker + orchestrator endpoints, each its own server       │   │
+│ │ /offload one task · @NAME one turn · /agent plan, hand out, write  │   │
+│ │ every piece gets the trie selected for IT, committing nothing      │   │
+│ │ switch agent: rules over the session's own numbers set the switches│   │
+│ └────────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│ ┌────────────────────────────────────────────────────────────────────┐   │
 │ │                            Entry points                            │   │
 │ │ salt (one-shot: --data / --doc) · saltChat · saltServe · eval.py   │   │
 │ │ salt-mcp - SALT memory over MCP, for an editor or an agent runtime │   │
@@ -330,6 +338,61 @@ schemas grow additively, the tool list is declared in the server so a
 rename fails at startup, and `salt_contract` reports which version of
 the contract a client has reached.
 
+## Agents
+
+saltChat talks to one model and remembers a conversation. A roster lets
+it reach others without giving either of those up. This is not a layer
+beside the chat: it is the same session, the same trie and the same
+turn, with the question of who answers opened up.
+
+Four things arrived in order, and each one is the previous one asked a
+harder question.
+
+**The roster** names models a session may reach, one server each, and
+nothing is contacted until something asks. A worker is a model tasks can
+be handed to. An orchestrator is a model that decides what the tasks
+are. Entries either attach to a server already running or are started by
+the session itself, and two servers sharing a card have to say in
+writing how much of it each takes.
+
+**Delegation** hands one task to one worker together with this
+conversation's memory, selected for that task the way a chat turn
+selects for its question. The selection commits nothing: no coverage
+moves, the verbatim tail is untouched, and the session is the same after
+a delegation as before it. That property is what makes the rest
+possible. A round can select memory five times for five different pieces
+of work without any of them changing what the next one sees.
+
+**The orchestrator** turns one question into several. It is shown the
+conversation's memory and the question, and answers with either the
+answer or a list of pieces and the helper each piece goes to. Every
+piece then goes out with the memory selected for it alone, so a helper
+never sees the plan or the other pieces and each task has to stand on
+its own. What comes back goes to the orchestrator once more, with the
+original question under it, and what it writes is the reply. Pieces for
+different helpers run at the same time. The thread that owns the session
+does every trie read and every write, and the threads do HTTP only.
+
+The answer becomes an ordinary turn. Same memory selected for it, same
+pair in the verbatim tail, same record kept. That is the whole design
+constraint: an agent turn has to be indistinguishable from a chat turn
+everywhere downstream, or every reader of a conversation would need to
+know which kind it was looking at.
+
+**The switch agent** turns the question inward. Every memory switch
+already travels as a keyword on the call that uses it rather than being
+baked into the session, so something can vary one for a single selection
+and leave the session untouched. A policy is asked once per turn, given
+a closed set of signals the session reports about itself, and answers
+with the switches to change for that call. Rules are written down as
+sentences about the session, read by a parser that only compares and
+never runs anything. A model can propose instead, and meets exactly the
+refusals a written rule meets.
+
+Every step of this is off until asked for. A session with no roster
+consults nobody, describes itself to nobody and costs one call a turn,
+byte for byte what it cost before any of this existed.
+
 ## Tail-aware memory selection
 
 The prompt already carries the last exchanges verbatim, and selection
@@ -374,6 +437,6 @@ Where each stage lives:
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |
-| Helper models (roster, delegation) | `salt/agents/` |
+| Agents (roster, delegation, orchestrator, switch policy) | `salt/agents/` |
 | Multi-GPU placement (`--gpu` list) | `salt/chat/runner.py`, `salt/chat/serve.py` |
 | CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat`, `saltServe`, `salt-mcp` |
