@@ -4955,12 +4955,12 @@ def check_rules_sample(tmp, tok, mdl):
     # signal does not have would sit at 100% or 0% and this would say so
     from salt.agents.snapshot import KEYS as SNAP_KEYS
     signals = {key: None for key in SNAP_KEYS}
-    signals.update(n_turns=300, tail_occupancy=0.5, orphan_mass=9500,
+    signals.update(n_turns=300, tail_occupancy=0.5, orphan_share=0.3,
                    n_attachments=0)
     firing = sorted(r.id for r in every if r.fires(signals))
-    assert firing == ["orphan-mass-stable-keys", "quiet-tail-half-life"], (
+    assert firing == ["orphan-share-stable-keys", "quiet-tail-half-life"], (
         f"the examples did not fire on the session they describe: {firing}")
-    signals.update(tail_occupancy=1.0, orphan_mass=100)
+    signals.update(tail_occupancy=1.0, orphan_share=0.05)
     quiet = [r.id for r in every if r.fires(signals)]
     assert quiet == [], f"an example fired on the opposite shape: {quiet}"
 
