@@ -73,9 +73,12 @@ def guarded(fn, *args, **kwargs):
         raise ToolError("worker_failed", exc) from exc
     except SessionError as exc:
         raise ToolError("invalid_session", exc) from exc
-    except ValueError as exc:
-        raise ToolError("invalid_argument", exc) from exc
     except Exception as exc:
+        # a bare ValueError lands here too, on purpose: by this point
+        # every argument has been validated by the helpers above, so a
+        # ValueError out of the engine is the server's fault, and calling
+        # it an invalid argument would send a client off to fix a call
+        # that was fine
         raise ToolError("failed", f"{type(exc).__name__}: {exc}") from exc
 
 

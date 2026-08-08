@@ -151,12 +151,19 @@ def compress_text(engine, text, budget_pct=None, query=None,
     sentences, all_texts, orig_words, word_budget, _ = \
         compressor.prep_prose_sentences(text, "", tok, budget)
     if not sentences:
+        # the same key set as the selected path, so the degenerate input
+        # (a text of pure symbols passes the guard and yields nothing)
+        # cannot surprise a client that read the ordinary shape
         return {"compressed": "",
                 "stats": {"orig_words": orig_words, "kept_words": 0,
-                          "n_sentences": 0, "n_selected": 0,
+                          "n_sentences": 0, "n_sentences_raw": len(all_texts),
+                          "n_selected": 0,
                           "word_budget": word_budget,
+                          "actual_tokens": 0,
+                          "theme_coverage_pct": 0,
                           "compression_ratio": 0.0,
-                          "budget_pct": budget}}
+                          "budget_pct": budget,
+                          "queried": bool(query)}}
 
     sent_data, kw_df, theme_keywords = compressor.build_prose_sent_data(
         sentences, tok, model, device, args.max_keywords_ratio,
@@ -237,7 +244,10 @@ def create_session(pool, conversation_id=""):
     if pool.read_only:
         refuse_write("session_create", "make a conversation on disk")
     cid = conversation_id or fresh_conversation_id()
-    if pool.exists(cid):
+    # in this server's hands counts as existing too: an open session's
+    # save may still be queued, and "created" must never be claimed for
+    # a conversation that already holds turns
+    if pool.exists(cid) or cid in pool.open:
         raise ToolError("invalid_argument",
                         f"session {cid!r} already exists - resume it with "
                         f"session_resume")
@@ -290,8 +300,9 @@ def add_turns(engine, pool, conversation_id, exchange, sync=False,
 
     The rows go through the session's ingest worker, the same FIFO the
     REPL uses, so the encode order is the order they were said in. With
-    `sync` the work happens inline and a failure is reported here rather
-    than journaled.
+    `sync` the call waits for the queue to finish - the worker thread
+    still does the work, which is what keeps the trie single-submitter -
+    and a failure is reported here rather than journaled.
     """
     if pool.read_only:
         refuse_write("session_add_turn", "add to a conversation's memory")
@@ -313,9 +324,7 @@ def add_turns(engine, pool, conversation_id, exchange, sync=False,
                         "session_add_turn needs a text or an exchange")
 
     engine = engine.ready()
-    session = pool.get(conversation_id)
-    if sync:
-        session.ingest.synchronous = True
+    session = pool.get(known(pool, conversation_id))
     before = session.trie.n_sentences
     for role, text in rows:
         session.ingest.submit(
@@ -338,7 +347,7 @@ def add_turns(engine, pool, conversation_id, exchange, sync=False,
 
 
 def session_memory(engine, pool, conversation_id, query,
-                   budget_pct=None):
+                   budget_pct=None, max_chars=DEFAULT_MAX_CHARS):
     """What this conversation remembers about a question.
 
     The block is the labeled one a saltChat turn is given, headed by
@@ -347,7 +356,7 @@ def session_memory(engine, pool, conversation_id, query,
     exactly as a chat turn would.
     """
     from salt.chat.cli import format_memory_block
-    query = need_text("session_memory's query", query)
+    query = need_text("session_memory's query", query, max_chars)
     budget_pct = need_budget(budget_pct)
     known(pool, conversation_id)
     engine = engine.ready()
@@ -357,8 +366,17 @@ def session_memory(engine, pool, conversation_id, query,
     session.drain()
     trie = session.trie
     if trie.n_sentences == 0:
+        # the same key set as the answered path, so a client reading a
+        # field on the empty conversation gets an empty value, never a
+        # missing one
         return {"conversation_id": trie.conversation_id, "memory": "",
                 "stats": {"n_selected": 0, "n_sentences": 0,
+                          "n_turns": trie.n_turns,
+                          "theme_coverage_pct": None,
+                          "budget_pct": (
+                              trie.config.get("budget_pct_default")
+                              if budget_pct is None else budget_pct),
+                          "committed": False,
                           "query": query}}
     comp = trie.compress(query=query, budget_pct=budget_pct,
                          tokenizer=engine.tokenizer, model=engine.model,
@@ -424,6 +442,14 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
             body, n_pages = read_document(target)
         except (ExtractionError, OSError) as exc:
             raise ToolError("invalid_argument", exc) from exc
+        if max_chars and len(body) > max_chars:
+            # the same bound the text form meets, applied to what the
+            # file turned out to hold - a path is just a text this
+            # server read itself
+            raise ToolError("too_large",
+                            f"{target.name} is {len(body)} characters of "
+                            f"text and this server accepts {max_chars} "
+                            f"(--max-ingest-chars)")
         name = safe_source_name(source_name or target.name, target.name)
     else:
         body = need_text("salt_ingest_document's text", text, max_chars)
@@ -433,7 +459,7 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
                         "there is no text in that document to remember")
 
     engine = engine.ready()
-    session = pool.get(conversation_id)
+    session = pool.get(known(pool, conversation_id))
     session.drain()
     trie = session.trie
     merging = name in trie.attached_sources
@@ -599,7 +625,7 @@ def build_server(engine, pool=None, roster=None,
     def session_memory_tool(conversation_id: str, query: str,
                             budget_pct: float = None) -> dict[str, Any]:
         return guarded(session_memory, engine, pool, conversation_id,
-                       query, budget_pct)
+                       query, budget_pct, max_chars=max_chars)
 
     @server.tool(name="salt_ingest_document",
                  description="Read a document into a conversation's "

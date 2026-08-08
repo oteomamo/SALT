@@ -264,8 +264,11 @@ def run_delegation(runtime, task, conversation_id="", target=None,
     from salt.mcp.errors import DEFAULT_MAX_CHARS, ToolError, need_budget, \
         need_text
     from salt.mcp.server import known, refuse_write
-    task = need_text("salt_delegate's task", task,
-                     DEFAULT_MAX_CHARS if max_chars is None else max_chars)
+    cap = DEFAULT_MAX_CHARS if max_chars is None else max_chars
+    task = need_text("salt_delegate's task", task, cap)
+    if context_query:
+        context_query = need_text("salt_delegate's context_query",
+                                  context_query, cap)
     budget_pct = need_budget(budget_pct)
     if ingest and not conversation_id:
         raise ToolError("invalid_argument",
@@ -295,6 +298,11 @@ def run_delegation(runtime, task, conversation_id="", target=None,
         remembered = bool(session is not None and req.ingest and result.ok
                           and result.text.strip()
                           and remember_answer(state, result, handle.name))
+        if remembered:
+            # claimed only once the queue has actually taken it: the
+            # submit alone would report a memory the conversation might
+            # journal away a moment later
+            remembered = not session.drain()
         recorded = (file_record(state, result, remembered)
                     if session is not None and not runtime.read_only
                     else False)
