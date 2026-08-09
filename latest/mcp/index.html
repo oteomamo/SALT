@@ -1565,6 +1565,10 @@ there is one.</p>
 <td>longest text one call may carry (default: 400000)</td>
 </tr>
 <tr>
+<td><code>--doc-root</code></td>
+<td>read documents by path only from under this folder (default: any file the server can read)</td>
+</tr>
+<tr>
 <td><code>--roster</code></td>
 <td>roster of helper models this server may delegate to</td>
 </tr>
@@ -1734,6 +1738,15 @@ conversation around it never crowd each other out of the memory block.</p>
 whatever is passed is kept, so a name can never point somewhere on
 disk. Ingesting twice under one name merges into that same branch, the
 way attaching a file twice does at the prompt.</p>
+<p>By default a <code>path</code> may name any file the server process can read.
+<code>--doc-root DIR</code> narrows that to one folder, which is worth setting when
+the client driving the server is a model rather than a person. A path
+outside the folder is refused with a reason beginning <code>invalid
+argument:</code>, and the check reads the path after links are followed, so a
+link inside the folder pointing out of it is outside it. The <code>text</code> form
+is untouched, since text the client already holds was never read from
+disk. <code>salt_contract</code> reports the folder in its <code>doc_root</code> field, so a
+client can see the limit before it calls rather than after.</p>
 <h2 id="reading-a-conversation-as-numbers">Reading a conversation as numbers</h2>
 <p><code>session_stats</code> carries a <code>snapshot</code> block: a flat set of signals
 describing the conversation as it stands. How many sentences it holds,
