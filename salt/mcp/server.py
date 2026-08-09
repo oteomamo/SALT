@@ -768,13 +768,16 @@ def main(argv=None):
         return 0
     from salt.chat.cli import sessions_root
     from salt.mcp.pool import SessionPool
+    # every way of starting wrong is answered before the encoder loads,
+    # so a mistyped flag costs a moment rather than a model
+    doc_root = document_root(args.doc_root)
     pool = SessionPool(args.sessions_dir or sessions_root(),
                        capacity=args.max_open_sessions,
                        read_only=args.read_only)
     roster = load_roster(args.roster) if args.roster else None
     server = build_server(Engine(resolve_device(args)), pool, roster,
                           max_chars=args.max_ingest_chars,
-                          doc_root=document_root(args.doc_root))
+                          doc_root=doc_root)
     # the last word a session gets is written when this server ends, so
     # every way of ending has to reach the same close
     closing = shutdown_once(pool, server.runtime)
