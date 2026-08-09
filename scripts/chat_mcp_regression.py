@@ -767,6 +767,115 @@ async def drive_read_only(sessions, before):
           f"{len(after)} session files are byte for byte unchanged")
 
 
+async def drive_doc_root(sessions):
+    """A server started with --doc-root reads only from under it."""
+    root = Path(tempfile.mkdtemp(prefix="salt_mcp_docroot_"))
+    beyond = Path(tempfile.mkdtemp(prefix="salt_mcp_beyond_"))
+    try:
+        inside = root / "allowed.txt"
+        inside.write_text(DOC, encoding="utf-8")
+        secret = beyond / "secret.txt"
+        # its own sentences, so the unrestricted read below is measured by
+        # what it added rather than lost to the verbatim dedupe
+        secret.write_text(
+            "The meter was moved to the north wall in March. "
+            "The inverter carries a ten year warranty from its maker. "
+            "A second string would need the far rafters opened up. "
+            "The feed in rate falls again at the end of the decade.",
+            encoding="utf-8")
+        escape = root / "escape.txt"
+        escape.symlink_to(secret)
+
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "salt.mcp.server", "--device", "cpu",
+                  "--sessions-dir", str(sessions), "--doc-root", str(root)])
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                contract = payload(await session.call_tool("salt_contract", {}))
+                assert contract["doc_root"] == str(root.resolve()), (
+                    f"the contract does not report the folder documents "
+                    f"come from: {contract.get('doc_root')!r}")
+                await session.call_tool("session_create",
+                                        {"conversation_id": "mcp-docroot"})
+                filed = payload(await session.call_tool(
+                    "salt_ingest_document",
+                    {"conversation_id": "mcp-docroot", "path": str(inside)}))
+                assert filed["source"] == "allowed.txt" and filed["added"] >= 3, (
+                    f"a file under the folder was not read: {filed}")
+
+                # outside, through a link, and a name that is not there at
+                # all: one refusal, and the absent one must read the same as
+                # the present one or the refusal reports what is on disk
+                refusals = {}
+                for label, path in (("outside", secret),
+                                    ("symlink out", escape),
+                                    ("absent", beyond / "nothing.txt")):
+                    refused = await session.call_tool("salt_ingest_document", {
+                        "conversation_id": "mcp-docroot", "path": str(path)})
+                    assert refused.is_error, f"a path {label} was read"
+                    said = refused.content[0].text
+                    assert "invalid argument:" in said, (
+                        f"a path {label} refused as the wrong kind: {said}")
+                    assert "--doc-root" in said, (
+                        f"a path {label} refused without naming the flag: "
+                        f"{said}")
+                    refusals[label] = said
+                assert refusals["absent"] == refusals["outside"], (
+                    f"a missing file beyond the folder refuses differently "
+                    f"from one that is there, so the refusal reports what "
+                    f"exists: {refusals}")
+
+                # the text form never read a disk, so the folder is not its
+                # business
+                typed = payload(await session.call_tool(
+                    "salt_ingest_document",
+                    {"conversation_id": "mcp-docroot",
+                     "text": "A budget the folder has no say over.",
+                     "source_name": "typed.txt"}))
+                assert typed["added"] == 1, typed
+
+        # the same paths on a server started without the flag
+        plain = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "salt.mcp.server", "--device", "cpu",
+                  "--sessions-dir", str(sessions)])
+        async with stdio_client(plain) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                contract = payload(await session.call_tool("salt_contract", {}))
+                assert contract["doc_root"] is None, contract
+                filed = payload(await session.call_tool(
+                    "salt_ingest_document",
+                    {"conversation_id": "mcp-docroot", "path": str(secret),
+                     "source_name": "beyond.txt"}))
+                assert filed["added"] >= 3, (
+                    f"the default server stopped reading a path it always "
+                    f"read: {filed}")
+
+        # the encoder is loaded in this process by now, so the child needs
+        # the same MKL_THREADING_LAYER escape check_off_path documents
+        env = dict(os.environ)
+        env.pop("MKL_THREADING_LAYER", None)
+        bad = subprocess.run(
+            [sys.executable, "-m", "salt.mcp.server",
+             "--doc-root", str(root / "not-a-folder")],
+            capture_output=True, text=True, timeout=180, cwd=REPO, env=env)
+        assert bad.returncode == 2, (
+            f"a --doc-root that is not a folder started anyway: "
+            f"{bad.returncode}\n{bad.stderr[-2000:]}")
+        assert "not a folder" in bad.stderr, bad.stderr
+        print("15. doc root: a file under the folder is read and reported by "
+              "the contract, 3 paths beyond it refuse alike so the refusal "
+              "says nothing about what exists, the text form and a server "
+              "without the flag are unchanged, and a root that is not a "
+              "folder exits 2")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(beyond, ignore_errors=True)
+
+
 def check_off_path():
     code = ("import salt.chat.cli, sys; "
             "print([m for m in ('salt.mcp', 'salt.mcp.server', 'mcp') "
@@ -1003,6 +1112,7 @@ def main():
         check_hardening(sessions)
         check_scenario(sessions)
         check_serial_and_sync(sessions)
+        asyncio.run(drive_doc_root(sessions))
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
     print("PASS")
