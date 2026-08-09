@@ -413,7 +413,8 @@ def safe_source_name(name, fallback="document"):
 
 
 def ingest_document(engine, pool, conversation_id, path=None, text=None,
-                    source_name="", max_chars=DEFAULT_MAX_CHARS):
+                    source_name="", max_chars=DEFAULT_MAX_CHARS,
+                    doc_root=None):
     """Put a document into a conversation's memory, from a file or from
     text that was already read.
 
@@ -422,6 +423,12 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
     split with the document splitter and filed under its own branch of
     the session, which is what keeps a long file from crowding out the
     conversation at selection time.
+
+    A server started with --doc-root reads paths only from under that
+    folder. The check runs on the resolved path, so a symlink pointing
+    out of the root is outside it, and it runs before the file is looked
+    for, so a refusal never reports whether a file beyond the root
+    exists.
     """
     from pathlib import Path
     from salt.chat.pdfio import (ExtractionError, is_protected_unit,
@@ -436,6 +443,11 @@ def ingest_document(engine, pool, conversation_id, path=None, text=None,
     n_pages = None
     if path:
         target = Path(str(path)).expanduser().resolve()
+        if doc_root is not None and not target.is_relative_to(doc_root):
+            raise ToolError("invalid_argument",
+                            f"this server reads documents only from under "
+                            f"{doc_root} (--doc-root), and that path is "
+                            f"outside it")
         if not target.is_file():
             raise ToolError("not_found", f"no such file: {target}")
         try:
@@ -496,7 +508,7 @@ def stamped(server, expected):
 
 
 def build_server(engine, pool=None, roster=None,
-                 max_chars=DEFAULT_MAX_CHARS):
+                 max_chars=DEFAULT_MAX_CHARS, doc_root=None):
     """The MCP server and its tools, with the engine they compress on."""
     from mcp.server import MCPServer
     from salt.mcp.agents import AgentRuntime, roster_payload, run_delegation
@@ -542,6 +554,7 @@ def build_server(engine, pool=None, roster=None,
                 "salt_version": salt_version(),
                 "tools": list(server.tool_names),
                 "read_only": read_only,
+                "doc_root": str(doc_root) if doc_root else None,
                 "growth": ["tool names are forever",
                            "arguments and response fields are added, "
                            "never repurposed"]}
@@ -637,7 +650,8 @@ def build_server(engine, pool=None, roster=None,
                              source_name: str = "") -> dict[str, Any]:
         return guarded(ingest_document, engine, pool, conversation_id,
                        path=path or None, text=text or None,
-                       source_name=source_name, max_chars=max_chars)
+                       source_name=source_name, max_chars=max_chars,
+                       doc_root=doc_root)
 
     @server.tool(name="session_stats",
                  description="What one conversation holds: turns, "
@@ -660,6 +674,24 @@ def load_roster(path):
     except (RosterError, OSError) as exc:
         print(f"salt-mcp: {exc}", file=sys.stderr)
         raise SystemExit(2)
+
+
+def document_root(path):
+    """The one folder a path may be read from, resolved once at startup.
+
+    A root that is not a folder stops the server here, where the reason
+    can be read, rather than turning every document call into a refusal
+    nobody can account for.
+    """
+    if not path:
+        return None
+    from pathlib import Path
+    root = Path(str(path)).expanduser().resolve()
+    if not root.is_dir():
+        print(f"salt-mcp: --doc-root is not a folder: {root}",
+              file=sys.stderr)
+        raise SystemExit(2)
+    return root
 
 
 def build_parser():
@@ -688,6 +720,9 @@ def build_parser():
                    metavar="N",
                    help=f"longest text one call may carry "
                         f"(default: {DEFAULT_MAX_CHARS})")
+    p.add_argument("--doc-root", default=None, metavar="DIR",
+                   help="read documents by path only from under this "
+                        "folder (default: any file this server can read)")
     p.add_argument("--read-only", action="store_true",
                    help="answer reads and refuse every write, leaving "
                         "every conversation exactly as it was found")
@@ -738,7 +773,8 @@ def main(argv=None):
                        read_only=args.read_only)
     roster = load_roster(args.roster) if args.roster else None
     server = build_server(Engine(resolve_device(args)), pool, roster,
-                          max_chars=args.max_ingest_chars)
+                          max_chars=args.max_ingest_chars,
+                          doc_root=document_root(args.doc_root))
     # the last word a session gets is written when this server ends, so
     # every way of ending has to reach the same close
     closing = shutdown_once(pool, server.runtime)

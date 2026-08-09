@@ -93,6 +93,7 @@ there is one.
 | `--sessions-dir` | where conversations live (default: the folder saltChat uses) |
 | `--max-open-sessions` | how many conversations stay open at once (default: 8) |
 | `--max-ingest-chars` | longest text one call may carry (default: 400000) |
+| `--doc-root` | read documents by path only from under this folder (default: any file the server can read) |
 | `--roster` | roster of helper models this server may delegate to |
 | `--read-only` | answer reads and refuse every write |
 
@@ -218,6 +219,16 @@ conversation around it never crowd each other out of the memory block.
 whatever is passed is kept, so a name can never point somewhere on
 disk. Ingesting twice under one name merges into that same branch, the
 way attaching a file twice does at the prompt.
+
+By default a `path` may name any file the server process can read.
+`--doc-root DIR` narrows that to one folder, which is worth setting when
+the client driving the server is a model rather than a person. A path
+outside the folder is refused with a reason beginning `invalid
+argument:`, and the check reads the path after links are followed, so a
+link inside the folder pointing out of it is outside it. The `text` form
+is untouched, since text the client already holds was never read from
+disk. `salt_contract` reports the folder in its `doc_root` field, so a
+client can see the limit before it calls rather than after.
 
 ## Reading a conversation as numbers
 
