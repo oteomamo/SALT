@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from salt.agents.thinking import gen_kwargs, settle
 from salt.agents.worker import DEAD, WorkerError, is_read_timeout
 
 INSTRUCTIONS_PATH = Path(__file__).resolve().parent / "worker_instructions.md"
@@ -69,6 +70,10 @@ class DelegationRequest:
     # turn. None means the session's own settings, which is what every
     # delegation selected under before a turn could decide anything
     switches: dict = None
+    # whether the round wants this piece reasoned out, or None for a
+    # delegation nobody asked that of. The entry's own setting still
+    # wins where it names one
+    think: bool = None
 
     @property
     def query(self):
@@ -231,6 +236,7 @@ def call_overrides(entry, req, runner=None):
         over["max_new_tokens"] = int(max_new)
     if entry.temperature is not None:
         over["temperature"] = float(entry.temperature)
+    over.update(gen_kwargs(settle(req.think, entry.think)))
     return over
 
 

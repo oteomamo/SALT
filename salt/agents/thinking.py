@@ -78,6 +78,59 @@ def template_thinking(tokenizer, key=KEY):
     return ALWAYS if opens_thinking(plain) else UNSET
 
 
+# the three positions of a round, which are asked for different things
+# and are worth different amounts of reasoning
+PLAN = "plan"
+PIECE = "piece"
+WRITEUP = "writeup"
+
+# what a session can say about all three at once. `template` says
+# nothing and is the default, so a session that names no mode sends the
+# prompt it always sent
+MODE_TEMPLATE = "template"
+MODE_PLAN = "plan"
+MODE_ON = "on"
+MODE_OFF = "off"
+MODES = (MODE_TEMPLATE, MODE_PLAN, MODE_ON, MODE_OFF)
+
+
+def wanted(kind, mode=MODE_TEMPLATE):
+    """Whether this position should reason, or None to say nothing.
+
+    `plan` is the mode worth having and the reason the others exist to
+    be compared against it: the plan is where a round decides what it
+    will do, and the pieces and the write-up are where its time goes. A
+    round that reasons once at the front and nowhere else is the only
+    shape in which thinking can cost less than it buys.
+    """
+    if mode == MODE_ON:
+        return True
+    if mode == MODE_OFF:
+        return False
+    if mode == MODE_PLAN:
+        return kind == PLAN
+    return None
+
+
+def gen_kwargs(want):
+    """`want` as generation settings. Nothing at all when it is None,
+    which is what keeps a call byte-identical to the one it always was.
+    """
+    from salt.chat.runner import TEMPLATE_KEY
+    return {} if want is None else {TEMPLATE_KEY: {KEY: bool(want)}}
+
+
+def settle(want, entry_want):
+    """The entry's answer where it gave one, the session's otherwise.
+
+    The entry wins for the reason `entry_gen` already gives about
+    temperature: a model written down with a setting has that setting
+    for a reason, and a session-wide mode is an opinion about rounds,
+    not about any particular model.
+    """
+    return want if entry_want is None else entry_want
+
+
 def describe(answer):
     """The one line a person is owed about it."""
     return {

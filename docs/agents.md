@@ -412,6 +412,24 @@ set, so a second round cannot buy itself a new budget by being a second
 round. There is no third. A model that says nothing is missing ends the
 turn there, and what it said is not mistaken for the answer.
 
+### Where a round reasons
+
+A round is three kinds of call: planning it, answering each piece, and
+writing the reply up. `--agent-think` says which of them should reason
+out loud on the models that offer the choice.
+
+`template` is the default and says nothing at all, leaving every model
+exactly as it is. `plan` asks for reasoning when the turn is planned and
+for none when the pieces are answered or the reply is written, which is
+the one shape where thinking can cost less than it buys: the plan is
+where the round decides what it will do, and the other two are where its
+time goes. `on` and `off` ask for all three or for none of them.
+
+It is a request rather than a promise, and a roster entry that names its
+own `think` setting keeps it, since a model written down with a setting
+has it for a reason. Neither `plan` nor the others is a measured default
+yet, which is why the default asks for nothing.
+
 ### What one round may cost
 
 `--agent-max-delegations` sets how many pieces one turn may hand out,

@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.16
+## 2.11.0 - 2.11.18
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -62,6 +62,12 @@ cover the tools, the roster and the limits.
   default and sends no thinking setting at all. The key is a request
   rather than a promise: a model whose template has no such setting is
   unaffected, and one that always reasons keeps reasoning.
+- **2.11.18** `--agent-think`. A round is three kinds of call, and this
+  says which of them should reason out loud on the models that offer the
+  choice. `plan` asks for reasoning where the turn is decided and for
+  none where its time goes, `on` and `off` ask for all three or none,
+  and the default asks for nothing. A roster entry's own `think` setting
+  still wins.
 
 ## 2.10.0 - 2.10.123
 

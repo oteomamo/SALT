@@ -6803,6 +6803,73 @@ def check_hardening_fixes(tmp, tok, mdl):
           "with the session's own switches is dropped with the reason")
 
 
+def check_thinking_policy(tmp, tok, mdl):
+    """Which parts of a round reason, and who gets the last word on it."""
+    from salt.agents import orchestrator as O
+    from salt.agents import thinking as TH
+    from salt.chat.runner import TEMPLATE_KEY
+
+    args = cli.build_parser().parse_args(["--device", "cpu"])
+    assert args.agent_think == TH.MODE_TEMPLATE, args.agent_think
+
+    # the whole truth table, because a mode that quietly means something
+    # else at one position is a mode nobody can reason about
+    table = {TH.MODE_TEMPLATE: (None, None, None),
+             TH.MODE_PLAN: (True, False, False),
+             TH.MODE_ON: (True, True, True),
+             TH.MODE_OFF: (False, False, False)}
+    assert set(table) == set(TH.MODES), sorted(TH.MODES)
+    for mode, wants in table.items():
+        for kind, want in zip((TH.PLAN, TH.PIECE, TH.WRITEUP), wants):
+            got = TH.wanted(kind, mode)
+            assert got is want, f"{mode} at {kind} wanted {got}, not {want}"
+
+    assert TH.gen_kwargs(None) == {}, "saying nothing said something"
+    assert TH.gen_kwargs(True) == {TEMPLATE_KEY: {TH.KEY: True}}
+    # the entry has the last word, the way it does about temperature
+    assert TH.settle(True, False) is False and TH.settle(False, True) is True
+    assert TH.settle(True, None) is True and TH.settle(None, None) is None
+
+    entry = R.RosterEntry(name="w", alias="a", role="worker",
+                          server_url="http://h")
+    said = R.replace(entry, think=True)
+    assert O.entry_gen(entry, {}) == {}, (
+        "an entry with no opinion carried a thinking setting anyway")
+    assert O.entry_gen(entry, {}, think=False) == {
+        TEMPLATE_KEY: {TH.KEY: False}}
+    assert O.entry_gen(said, {}, think=False) == {
+        TEMPLATE_KEY: {TH.KEY: True}}, "the round overrode the roster"
+    req = D.DelegationRequest(task="t", think=False)
+    assert D.call_overrides(said, req) == {TEMPLATE_KEY: {TH.KEY: True}}, (
+        "a piece overrode the entry that named its own setting")
+    assert TEMPLATE_KEY not in D.call_overrides(
+        entry, D.DelegationRequest(task="t")), (
+        "a delegation nobody asked about reasoning carried a setting")
+
+    # and through the session, at the two positions the chat model holds
+    off = quiet_state(tmp, "think_off", tok, mdl)
+    plan = quiet_state(tmp, "think_plan", tok, mdl,
+                       flags=["--agent-think", "plan"])
+    for state, wanted in ((off, {}), (plan, {TH.KEY: True})):
+        O.main_endpoint(state, {}, TH.PLAN).send([{"role": "user",
+                                                   "content": "hi"}])
+        got = state.runner.overrides[-1].get(TEMPLATE_KEY, {})
+        assert got == wanted, f"the plan call carried {got}"
+    list(O.main_endpoint(plan, {}, TH.WRITEUP).stream(
+        [{"role": "user", "content": "hi"}]))
+    assert plan.runner.overrides[-1][TEMPLATE_KEY] == {TH.KEY: False}, (
+        "the write-up was asked to reason under the plan-only mode")
+    for state, want in ((off, None), (plan, False)):
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+        assert O.session_think(state, TH.PIECE) is want, state.agent_think
+    print("62. the thinking policy: 4 modes read the same at all 3 "
+          "positions of a round, a roster entry keeps the last word over "
+          "the session's mode, the plan-only mode asks the chat model to "
+          "reason when it plans and not when it writes up, and naming no "
+          "mode sends no setting at any of them")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -6876,6 +6943,7 @@ def main():
         check_chaos(tmp, tok, mdl)
         check_acceptance(tmp, tok, mdl)
         check_hardening_fixes(tmp, tok, mdl)
+        check_thinking_policy(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

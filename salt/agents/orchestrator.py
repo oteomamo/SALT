@@ -37,7 +37,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from salt.agents import protocol
+from salt.agents import protocol, thinking
 from salt.agents.delegate import (DelegationRequest, DelegationResult,
                                   RoundStop, TokenMeter, build_context,
                                   close_quietly, delegate)
@@ -158,7 +158,13 @@ def planning_gen(runner):
     return gen
 
 
-def main_runner_send(state, gen=None):
+def session_think(state, kind):
+    """What this session says about reasoning at this position of a round."""
+    return thinking.wanted(kind, getattr(state, "agent_think",
+                                         thinking.MODE_TEMPLATE))
+
+
+def main_runner_send(state, gen=None, think=None):
     """One prompt put to the session's chat model, waited out in full.
 
     ``guided`` is accepted and ignored. Nothing carries a schema through
@@ -166,6 +172,7 @@ def main_runner_send(state, gen=None):
     round must not plan around.
     """
     gen = planning_gen(getattr(state, "runner", None)) if gen is None else gen
+    gen = dict(gen, **thinking.gen_kwargs(think))
 
     def send(messages, guided=False):
         pieces = []
@@ -183,7 +190,7 @@ def main_runner_send(state, gen=None):
     return send
 
 
-def main_runner_stream(state, gen=None):
+def main_runner_stream(state, gen=None, think=None):
     """The same call, left running, for text somebody is waiting to read.
 
     A plan is consumed whole and nobody sees it, so it is fetched whole.
@@ -192,6 +199,7 @@ def main_runner_stream(state, gen=None):
     words arriving as they are written.
     """
     gen = PLANNING_GEN if gen is None else gen
+    gen = dict(gen, **thinking.gen_kwargs(think))
 
     def stream(messages):
         return state.runner.stream_chat(messages, **gen)
@@ -199,21 +207,22 @@ def main_runner_stream(state, gen=None):
     return stream
 
 
-def main_endpoint(state, gen=None):
+def main_endpoint(state, gen=None, kind=thinking.PLAN):
     """The session's own chat model, or None when it has none."""
     runner = getattr(state, "runner", None)
     if runner is None:
         return None
     cfg = getattr(runner, "cfg", None) or {}
+    think = session_think(state, kind)
     return Endpoint(label=getattr(runner, "alias", None) or MAIN_LABEL,
-                    send=main_runner_send(state, gen),
-                    stream=main_runner_stream(state, gen),
+                    send=main_runner_send(state, gen, think),
+                    stream=main_runner_stream(state, gen, think),
                     capability=GUIDED_PLAIN,
                     model_id=cfg.get("hf_id"),
                     main=True)
 
 
-def entry_gen(entry, gen=None, runner=None):
+def entry_gen(entry, gen=None, runner=None, think=None):
     """What to generate with at a roster endpoint: the round's settings,
     with the roster's own opinions about that model on top.
 
@@ -227,17 +236,18 @@ def entry_gen(entry, gen=None, runner=None):
         over["max_new_tokens"] = int(entry.max_tokens)
     if entry.temperature is not None:
         over["temperature"] = float(entry.temperature)
+    over.update(thinking.gen_kwargs(thinking.settle(think, entry.think)))
     return over
 
 
-def handle_send(handle, gen=None, schema=None):
+def handle_send(handle, gen=None, schema=None, think=None):
     """One prompt put to a roster endpoint, waited out in full.
 
     Unlike the chat seam, this one can carry a schema, so a server that
     said it would hold a model to one is actually asked to.
     """
     def send(messages, guided=False):
-        over = entry_gen(handle.entry, gen, handle.opened())
+        over = entry_gen(handle.entry, gen, handle.opened(), think)
         if guided and schema is not None:
             over["guided_json"] = schema
         pieces = []
@@ -252,15 +262,15 @@ def handle_send(handle, gen=None, schema=None):
     return send
 
 
-def handle_stream(handle, gen=None):
+def handle_stream(handle, gen=None, think=None):
     def stream(messages):
         return handle.call(messages, **entry_gen(handle.entry, gen,
-                                                 handle.opened()))
+                                                 handle.opened(), think))
 
     return stream
 
 
-def roster_endpoint(state, gen=None):
+def roster_endpoint(state, gen=None, kind=thinking.PLAN):
     """The roster's orchestrator, when it names one and that one opens.
 
     A declared orchestrator that is not running is not an error and not
@@ -276,15 +286,17 @@ def roster_endpoint(state, gen=None):
     runner = handle.opened()
     if runner is None:
         return None
+    think = session_think(state, kind)
     return Endpoint(label=entry.name,
-                    send=handle_send(handle, gen, protocol.DIRECTIVE_SCHEMA),
-                    stream=handle_stream(handle, gen),
+                    send=handle_send(handle, gen, protocol.DIRECTIVE_SCHEMA,
+                                     think),
+                    stream=handle_stream(handle, gen, think),
                     capability=handle.probe_capabilities(),
                     model_id=(entry.model or {}).get("hf_id"),
                     tokenizer=getattr(runner, "tokenizer", None))
 
 
-def orchestrator_endpoint(state, gen=None):
+def orchestrator_endpoint(state, gen=None, kind=thinking.PLAN):
     """Which model plans this turn, or None when the session has none.
 
     The roster's orchestrator when there is one and it answers, else the
@@ -292,8 +304,8 @@ def orchestrator_endpoint(state, gen=None):
     chat model: /model is untouched and the conversation still belongs
     to the model it was started with.
     """
-    endpoint = roster_endpoint(state, gen)
-    return main_endpoint(state, gen) if endpoint is None else endpoint
+    endpoint = roster_endpoint(state, gen, kind)
+    return main_endpoint(state, gen, kind) if endpoint is None else endpoint
 
 
 def targets_for(state):
@@ -405,7 +417,8 @@ def subtask_request(state, subtask, entry, switches=None):
                              ingest=bool(getattr(state, "offload_ingest",
                                                  False)),
                              timeout_s=request_timeout(state, entry),
-                             switches=switches)
+                             switches=switches,
+                             think=session_think(state, thinking.PIECE))
 
 
 def worker_entry(state, name):
@@ -892,7 +905,8 @@ def round_record(ask, directive, results, text, outcome=None, started=None,
 
 
 def writing_endpoint(state, endpoint=None):
-    endpoint = (orchestrator_endpoint(state, SYNTHESIS_GEN)
+    endpoint = (orchestrator_endpoint(state, SYNTHESIS_GEN,
+                                      thinking.WRITEUP)
                 if endpoint is None else endpoint)
     if endpoint is None:
         raise OrchestratorError(

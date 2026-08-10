@@ -35,7 +35,8 @@ from pathlib import Path
 
 import torch
 
-from salt.agents import ledger, orchestrator, policy, protocol, rules, trace
+from salt.agents import (ledger, orchestrator, policy, protocol, rules,
+                         thinking, trace)
 from salt.agents import snapshot as snapshot_module
 from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
@@ -300,6 +301,7 @@ class ChatState:
         self.offload_ingest_cap = args.offload_ingest_cap
         self.agent_keep_think = args.agent_keep_think
         self.agent_rounds = args.agent_rounds
+        self.agent_think = args.agent_think
         self.agent_mode = args.agent
         self.log_signals = args.log_signals
         self.agent_quiet = args.agent_quiet
@@ -3121,6 +3123,16 @@ def build_parser():
                         f"limits (default: "
                         f"{orchestrator.AgentLimits.depth}, at most "
                         f"{orchestrator.MAX_DEPTH})")
+    p.add_argument("--agent-think", choices=thinking.MODES,
+                   default=thinking.MODE_TEMPLATE, metavar="MODE",
+                   help="which parts of a round reason out loud, on the "
+                        "models that offer the choice. template says "
+                        "nothing and leaves each model as it is, plan asks "
+                        "for reasoning when the turn is planned and not "
+                        "when the pieces are answered or the reply is "
+                        "written, on and off ask for all three or none. A "
+                        "roster entry's own think setting still wins "
+                        f"(default: {thinking.MODE_TEMPLATE})")
     p.add_argument("--agent-max-wall", type=float,
                    default=orchestrator.AgentLimits.max_wall_s,
                    metavar="SECONDS",
