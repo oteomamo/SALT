@@ -2070,12 +2070,14 @@ untouched and the conversation still belongs to the model it started
 with. A roster can name at most one, and one that is not running costs
 the round nothing, since the session's own model plans instead and the
 turn says which one did.</p>
-<p>There is one more difference. A roster endpoint is reached over HTTP, so
-a server that accepts a schema can be handed one and held to it while it
-generates. The chat model is reached through a seam that carries
-generation settings and nothing else, so a model behind it is shown a
-worked example instead. <code>/roster probe --deep NAME</code> says which of the
-two a given model will be.</p>
+<p>Either way, whether a schema can be used is a question about the wire
+and is asked of it. A model served over HTTP, which is the chat model
+under <code>--backend vllm-serve</code> as much as any helper, is asked once
+whether its server will hold it to one, and is handed the schema when
+the answer is yes. A model loaded in the session itself has no request
+body for a schema to ride on, so it is shown the worked example
+instead, which is a fact about how it is reached rather than a guess.
+<code>/roster probe --deep NAME</code> says which of the two a given helper is.</p>
 <h3 id="pieces-at-the-same-time">Pieces at the same time</h3>
 <p>Pieces bound for different helpers go out together and the round waits
 for all of them. Two pieces for the same helper still go in turn, since

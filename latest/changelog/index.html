@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21119" class="md-nav__link">
+  <a href="#2110-21120" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.19
+        2.11.0 - 2.11.20
       
     </span>
   </a>
@@ -1261,10 +1261,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21119" class="md-nav__link">
+  <a href="#2110-21120" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.19
+        2.11.0 - 2.11.20
       
     </span>
   </a>
@@ -1426,7 +1426,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21119">2.11.0 - 2.11.19</h2>
+<h2 id="2110-21120">2.11.0 - 2.11.20</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1495,6 +1495,13 @@ cover the tools, the roster and the limits.</p>
   without answering is given up on there, keeping what arrived and
   leaving the worker usable, rather than generating to its cap and
   reaching the round as a reply that was never an answer.</li>
+<li><strong>2.11.20</strong> The session's own model can be held to the plan's shape.
+  Under <code>--backend vllm-serve</code> the chat model is reached over HTTP like
+  any helper, so its server is asked once whether it will hold a model
+  to a schema and is handed one when it will, which is the difference
+  between a plan that parses first time and one that needs a repair. A
+  model loaded in the session itself is unchanged: it has no request
+  body for a schema to ride on and is shown the worked example.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
