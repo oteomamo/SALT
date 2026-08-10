@@ -7132,6 +7132,92 @@ def check_route_decision(tmp, tok, mdl):
           "reason kept, and a decision that says nothing left alone")
 
 
+def check_route_seam(tmp, tok, mdl):
+    """Where the decision is asked, and what it costs when nobody asks."""
+    from salt.agents import orchestrator as O
+    from salt.agents import route as RT
+
+    # nobody deciding: the answer is whether anyone is ready, and no
+    # signals are built to reach it
+    bare = quiet_state(tmp, "route_bare", tok, mdl)
+    try:
+        assert bare.route_policy is None and bare.last_route is None
+        built = []
+        real = RT.route_signals
+        RT.route_signals = lambda *a, **k: built.append(1) or real(*a, **k)
+        try:
+            decision, why = cli.turn_route(bare, "how far?")
+        finally:
+            RT.route_signals = real
+        assert decision.plan is False and why == (), (decision, why)
+        assert not built, "a session with no policy paid for the signals"
+        assert cli.agent_limits(bare) == cli.agent_limits(bare, None), (
+            "naming no decision changed what a round may cost")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(bare)
+
+    class _Says(RT.RoutePolicy):
+        name = "says"
+
+        def __init__(self, answer, seen=None):
+            self.answer = answer
+            self.seen = seen if seen is not None else []
+
+        def decide(self, signals):
+            self.seen.append(signals)
+            return self.answer
+
+    with Stub(cards=CARDS, pieces=("ok",)) as s:
+        roster = delegation_roster(s.url, tmp)
+        st = quiet_state(tmp, "route_seam", tok, mdl, roster=roster,
+                         flags=["--agent-max-delegations", "3"])
+        try:
+            st.route_policy = _Says({"plan": False, "why": "too small"})
+            decision, why = cli.turn_route(st, "thanks")
+            assert decision.plan is False and decision.why == "too small"
+            assert st.route_policy.seen, "the policy was never asked"
+            assert tuple(st.route_policy.seen[0]) == RT.SIGNALS, (
+                "a policy was handed something other than the signal set")
+
+            # a decision spends less than the flags and reaches the round
+            st.route_policy = _Says({"plan": True, "max_pieces": 1,
+                                     "targets": ["w"]})
+            decision, why = cli.turn_route(st, "compare these")
+            assert decision.plan is True and decision.max_pieces == 1
+            limits = cli.agent_limits(st, decision)
+            assert limits.max_delegations_per_turn == 1, limits
+            assert limits.max_wall_s == st.agent_max_wall, (
+                "a decision that named no wall clock moved it anyway")
+            assert O.targets_for(st, decision.targets) == O.targets_for(st)
+            assert O.targets_for(st, ()) == (), (
+                "narrowing to nobody still offered the roster")
+
+            # one that asks for more than the session allows is clamped,
+            # and the clamp is a reason somebody can read
+            st.route_policy = _Says({"plan": True, "max_pieces": 99})
+            decision, why = cli.turn_route(st, "everything at once")
+            assert decision.max_pieces == 3, decision
+            assert any("more than this session allows" in n["when"]
+                       for n in why), why
+
+            # and a policy that answers with nonsense costs the turn
+            # nothing: the turn is routed the way an unrouted one is
+            st.route_policy = _Says({"plna": True})
+            decision, why = cli.turn_route(st, "x")
+            assert decision.plan is True, decision
+            assert why and why[0]["id"] == "refused", why
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(st)
+    print("66. the route seam: a turn asks once whether it is worth "
+          "planning, a session with no policy builds no signals and "
+          "answers as it always did, a decision reaches that turn's "
+          "limits and the helpers its plan may name and nothing else, a "
+          "clamp is a reason somebody can read, and a policy that "
+          "answers with nonsense costs the turn nothing")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -7209,6 +7295,7 @@ def main():
         check_main_schema(tmp, tok, mdl)
         check_route_signals(tmp, tok, mdl)
         check_route_decision(tmp, tok, mdl)
+        check_route_seam(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

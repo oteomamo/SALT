@@ -353,18 +353,23 @@ def orchestrator_endpoint(state, gen=None, kind=thinking.PLAN):
     return main_endpoint(state, gen, kind) if endpoint is None else endpoint
 
 
-def targets_for(state):
+def targets_for(state, allowed=None):
     """The helpers a plan may name, spelled the way it has to spell them.
 
     Every worker the roster carries, running or not. A plan is a decision
     about the work, and a worker that turns out to be down fails its own
     subtask with a reason the round can report, which is worth more than
     quietly narrowing what the session was willing to consider.
+
+    `allowed` narrows it to the helpers a route decision named for this
+    one turn. None, the default, is the whole roster and today's exact
+    behavior.
     """
     roster = getattr(state, "roster", None)
     if roster is None:
         return ()
-    return tuple((e.name, e.notes or e.alias) for e in roster.workers)
+    return tuple((e.name, e.notes or e.alias) for e in roster.workers
+                 if allowed is None or e.name in allowed)
 
 
 def planning_messages(capability, ask, memory_block="", targets=()):
@@ -384,7 +389,7 @@ def planning_messages(capability, ask, memory_block="", targets=()):
             {"role": "user", "content": body}]
 
 
-def plan(state, ask, memory_block="", endpoint=None):
+def plan(state, ask, memory_block="", endpoint=None, allowed=None):
     """What this turn should do, decided once.
 
     Returns the protocol's outcome rather than the bare directive: a
@@ -398,7 +403,7 @@ def plan(state, ask, memory_block="", endpoint=None):
             "this session has no chat model, so there is nothing to plan "
             "the turn with")
     messages = planning_messages(endpoint.capability, ask, memory_block,
-                                 targets_for(state))
+                                 targets_for(state, allowed))
     return protocol.ask_directive(endpoint.send, messages,
                                   guided=endpoint.guided)
 
@@ -886,7 +891,7 @@ def follow_up_messages(ask, results, capability, targets=()):
                          f"{FOLLOW_UP_ASK}")}]
 
 
-def follow_up(state, ask, results, endpoint=None):
+def follow_up(state, ask, results, endpoint=None, allowed=None):
     """Ask the orchestrator, once, whether the round needs anything else.
 
     Once is the whole design. A model that can ask for more can ask
@@ -907,7 +912,7 @@ def follow_up(state, ask, results, endpoint=None):
     return protocol.ask_directive(
         endpoint.send,
         follow_up_messages(ask, results, endpoint.capability,
-                           targets_for(state)),
+                           targets_for(state, allowed)),
         guided=endpoint.guided)
 
 

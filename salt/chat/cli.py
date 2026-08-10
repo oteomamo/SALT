@@ -20,6 +20,7 @@ among registered models without touching the session).
 """
 
 import argparse
+import dataclasses
 import gc
 import json
 import math
@@ -35,8 +36,8 @@ from pathlib import Path
 
 import torch
 
-from salt.agents import (ledger, orchestrator, policy, protocol, rules,
-                         thinking, trace)
+from salt.agents import (ledger, orchestrator, policy, protocol, route,
+                         rules, thinking, trace)
 from salt.agents import snapshot as snapshot_module
 from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
@@ -296,6 +297,10 @@ class ChatState:
         # signal about a round stops moving the moment routing turns
         # rounds off, and this one keeps moving
         self.last_round_turn = None
+        # who decides whether a turn is planned at all, and what the
+        # last such decision was. Nobody, until something says
+        self.route_policy = None
+        self.last_route = None
         # who decides how a turn selects. Nobody, until something says
         # otherwise: the default is not asked and changes nothing
         self.switch_policy = build_switch_policy(args).bind(self)
@@ -453,6 +458,7 @@ class ChatState:
         self.pending_delegations = []
         self.last_round = self.pending_round = None
         self.last_round_turn = None
+        self.last_route = None
         self.turn_switches = None
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         resume_workers(self)
@@ -1303,10 +1309,15 @@ class AgentRound:
     on is said out loud rather than left to a silent prompt.
     """
 
-    def __init__(self, task, limits=None, endpoint=None, quiet=False):
+    def __init__(self, task, limits=None, endpoint=None, quiet=False,
+                 allowed=None):
         self.task = task
         self.limits = orchestrator.AgentLimits() if limits is None else limits
         self.endpoint = endpoint
+        # the helpers this turn's plan may name, or None for the whole
+        # roster. A route decision narrows it for one turn and the
+        # session's own roster is unchanged
+        self.allowed = allowed
         # in persistent mode every turn is a round, so the running
         # commentary that helps once is noise every time: the turn says
         # one line about itself afterwards instead
@@ -1359,7 +1370,7 @@ class AgentRound:
             # interrupt, which is the one thing an interrupt must stop
             return
         more = orchestrator.follow_up(state, self.task, self.results,
-                                      endpoint)
+                                      endpoint, allowed=self.allowed)
         self.extra_failures = more.failures
         if not more.directive.delegates:
             return
@@ -1382,7 +1393,7 @@ class AgentRound:
         # the plan is the first thing anybody reading this wants
         self.say(f"planning with {endpoint.label} ...")
         outcome = orchestrator.plan(state, self.task, memory_block,
-                                    endpoint=endpoint)
+                                    endpoint=endpoint, allowed=self.allowed)
         directive = outcome.directive
         pieces = []
         try:
@@ -1448,15 +1459,57 @@ class AgentRound:
             state.last_round_turn = state.trie.n_turns
 
 
-def agent_limits(state):
+def agent_limits(state, decision=None):
     """What this session lets one round cost. The token budget has no
     flag of its own yet: it is a ceiling on runaway helpers rather than
     something a person sizes per session, and the two that are worth
-    sizing are how many pieces and how long."""
-    return orchestrator.AgentLimits(
+    sizing are how many pieces and how long.
+
+    A route decision can only narrow these, and has already been clamped
+    against them by the time it arrives, so reading it here is reading a
+    number that is known to be reachable.
+    """
+    limits = orchestrator.AgentLimits(
         max_delegations_per_turn=state.agent_max_delegations,
         max_wall_s=state.agent_max_wall,
         depth=state.agent_rounds)
+    if decision is None:
+        return limits
+    named = {"max_delegations_per_turn": decision.max_pieces,
+             "max_wall_s": decision.max_wall_s,
+             "depth": decision.rounds}
+    return dataclasses.replace(
+        limits, **{k: v for k, v in named.items() if v is not None})
+
+
+def turn_route(state, ask):
+    """Whether to plan this turn out, and what the plan may spend.
+
+    Cheapest first, and every step of it is a step nothing pays for
+    unless the one before it passed. A session with nobody to help has
+    nothing to decide and never builds the signals. A session with no
+    route policy is not asked. Only past both does anything read the
+    conversation, which is what keeps `--agent` alone exactly as cheap
+    as it was.
+    """
+    ready = workers_ready(state)
+    chooser = getattr(state, "route_policy", None)
+    if chooser is None or not chooser.decides:
+        return route.RouteDecision(plan=ready), ()
+    signals = route.route_signals(state, ask)
+    try:
+        proposed = route.check(chooser.decide(signals))
+    except route.RouteError as exc:
+        # a policy having a bad turn costs the turn nothing, the same
+        # way a round having one does
+        return route.RouteDecision(plan=ready), (
+            {"id": "refused", "when": str(exc), "then": {}},)
+    why = []
+    decided = route.guard(proposed, route.ceiling(state), why)
+    if decided.plan is None:
+        decided = dataclasses.replace(decided, plan=ready)
+    return decided, tuple(chooser.explain()) + tuple(
+        {"id": "guard", "when": note, "then": {}} for note in why)
 
 
 AGENT_NOTICE = "[agent: {n} delegation{s}]"
@@ -1492,17 +1545,22 @@ def agent_notice(state, round_):
 
 def agent_line(state, line):
     """One plain chat line under `--agent`: planned out, unless there is
-    nobody to plan for. With no worker ready this is an ordinary turn and
-    costs exactly what an ordinary turn costs."""
-    if not workers_ready(state):
+    nobody to plan for or nothing worth planning. With no worker ready
+    this is an ordinary turn and costs exactly what an ordinary turn
+    costs, and so is a turn a route policy decided against."""
+    decision, why = turn_route(state, line)
+    state.last_route = (decision, why)
+    if not decision.plan:
         return chat_turn(state, line)
-    return run_agent_turn(state, line, quiet=True)
+    return run_agent_turn(state, line, quiet=True, decision=decision)
 
 
-def run_agent_turn(state, task, quiet=False):
+def run_agent_turn(state, task, quiet=False, decision=None):
     """One turn answered by planning it out first."""
     endpoint = orchestrator.orchestrator_endpoint(state)
-    round_ = AgentRound(task, agent_limits(state), endpoint, quiet=quiet)
+    round_ = AgentRound(task, agent_limits(state, decision), endpoint,
+                        quiet=quiet,
+                        allowed=None if decision is None else decision.targets)
     reply = chat_turn(state, task, reply_fn=round_,
                       reply_model_id=getattr(endpoint, "model_id", None),
                       reply_tokenizer=getattr(endpoint, "tokenizer", None),
