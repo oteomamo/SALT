@@ -70,9 +70,9 @@ def template_thinking(tokenizer, key=KEY):
         # no template at all, so no template setting either
         return UNSET
     asked, still_used = render_prompt(tokenizer, list(PROBE), {key: False})
-    # a template that refuses the setting outright falls back to the
-    # plain rendering, which is a different string for a reason that has
-    # nothing to do with thinking
+    # a template that refuses the setting is rendered again without it,
+    # so it answers here as the same bytes, which is what having no
+    # choice looks like and is exactly what it is
     if still_used and asked != plain:
         return TOGGLE
     return ALWAYS if opens_thinking(plain) else UNSET

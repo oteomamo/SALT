@@ -64,11 +64,23 @@ def render_prompt(tokenizer, messages, template_kwargs=None):
     session has always sent unchanged and its prefix cache warm. A model
     with no template has no template settings either, so the fallback
     ignores them rather than pretending to honour them.
+
+    A setting the template refuses costs the setting and not the
+    template: it is asked again with nothing, and only a model with no
+    usable template at all reaches the plain-concat fallback. Losing the
+    template over an optional setting would rewrite the whole prompt,
+    which is a far larger change than the one that was asked for.
     """
+    if template_kwargs:
+        try:
+            return tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+                **template_kwargs), True
+        except Exception:
+            pass
     try:
         return tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-            **(template_kwargs or {})), True
+            messages, tokenize=False, add_generation_prompt=True), True
     except Exception:
         text = "\n\n".join(f"{m['role']}: {m['content']}" for m in messages)
         return text + "\n\nassistant:", False

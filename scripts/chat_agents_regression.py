@@ -4985,6 +4985,20 @@ def check_switch_agent(tmp, tok, mdl):
     plain, used = RN.render_prompt(_NoTemplate(), msgs, {"think": False})
     assert not used and plain.endswith("assistant:"), plain
 
+    class _Fussy:
+        """A template that renders, but not with that setting. Losing it
+        over an optional kwarg would rewrite the entire prompt."""
+
+        def apply_chat_template(self, messages, tokenize=False,
+                                add_generation_prompt=True, **kw):
+            if kw:
+                raise TypeError(f"unexpected {sorted(kw)}")
+            return " ".join(m["content"] for m in messages)
+
+    kept, used = RN.render_prompt(_Fussy(), msgs, {"think": False})
+    assert used and kept == RN.render_prompt(_Fussy(), msgs)[0], (
+        "a refused template setting cost the template rather than itself")
+
     # and what a model does with its own reasoning is measured the same
     # way, by rendering, because a template can name the setting and act
     # on none of it
@@ -5011,6 +5025,8 @@ def check_switch_agent(tmp, tok, mdl):
     assert TH.template_thinking(_Fake("unset")) == TH.UNSET
     assert TH.template_thinking(_NoTemplate()) == TH.UNSET, (
         "a model with no template was credited with a template setting")
+    assert TH.template_thinking(_Fussy()) == TH.UNSET, (
+        "a template that refuses the setting was read as offering a choice")
     assert TH.opens_thinking("a <think> b") and not TH.opens_thinking(
         "a <think> b </think> c"), "an opened block was misread"
     assert not TH.opens_thinking("nothing here")
