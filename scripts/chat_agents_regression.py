@@ -7061,6 +7061,77 @@ def check_route_signals(tmp, tok, mdl):
           "turns still moving when no round has run")
 
 
+def check_route_decision(tmp, tok, mdl):
+    """What a route policy may propose, and what it is held to."""
+    from salt.agents import route as RT
+
+    assert set(RT.FIELDS) == {"plan", "max_pieces", "max_wall_s", "rounds",
+                              "targets", "why"}, sorted(RT.FIELDS)
+    assert RT.check({}).quiet, "an empty decision claimed to have decided"
+    assert not RT.check({"plan": False}).quiet
+    assert RT.check({"why": "just so"}).quiet, (
+        "a reason with no decision behind it read as a decision")
+    assert RT.NullRoute().decides is False and RT.RoutePolicy().decides
+    assert RT.RoutePolicy().decide({}).quiet, "the seam decided something"
+
+    for bad, fragment in (
+            ({"plna": True}, "not something it can set"),
+            ([], "answers with a dict"),
+            ({"plan": 1}, "plan is a yes or no"),
+            ({"max_pieces": True}, "not a yes or no"),
+            ({"max_pieces": "two"}, "max_pieces must be int"),
+            ({"targets": "w"}, "list of worker names"),
+            ({"targets": ["w", 7]}, "list of worker names")):
+        try:
+            RT.check(bad)
+            raise AssertionError(f"{bad!r} was accepted")
+        except RT.RouteError as exc:
+            assert fragment in str(exc), (bad, str(exc))
+
+    ceil = RT.Ceiling(max_pieces=4, max_wall_s=600.0, rounds=1,
+                      targets=("a", "b"), ready=("a",))
+    # it may spend less than the flags allow, and never more
+    why = []
+    out = RT.guard(RT.check({"plan": True, "max_pieces": 9, "rounds": 5,
+                             "max_wall_s": 9999.0}), ceil, why)
+    assert (out.max_pieces, out.rounds, out.max_wall_s) == (4, 1, 600.0), out
+    assert len(why) == 3, why
+    down = RT.guard(RT.check({"plan": True, "max_pieces": 1}), ceil, [])
+    assert down.max_pieces == 1, "a decision was not allowed to spend less"
+
+    # a plan needs somebody to plan with, and something for them to do
+    for proposal, note in (
+            ({"plan": True, "targets": ["b"]}, "no ready worker called"),
+            ({"plan": True, "max_pieces": 0}, "plain turn")):
+        why = []
+        assert RT.guard(RT.check(proposal), ceil, why).plan is False, proposal
+        assert any(note in n for n in why), why
+    why = []
+    empty = RT.Ceiling(max_pieces=4, ready=())
+    assert RT.guard(RT.check({"plan": True}), empty, why).plan is False
+    assert "no worker is ready" in " ".join(why), why
+    # and a decision that says nothing is left exactly as it was
+    assert RT.guard(RT.check({}), ceil, []) == RT.RouteDecision()
+
+    with Stub(cards=CARDS, pieces=("ok",)) as s:
+        st = quiet_state(tmp, "route_ceiling", tok, mdl,
+                         roster=delegation_roster(s.url, tmp),
+                         flags=["--agent-max-delegations", "2",
+                                "--agent-max-wall", "30"])
+        try:
+            c = RT.ceiling(st)
+            assert (c.max_pieces, c.max_wall_s, c.rounds) == (2, 30.0, 1), c
+            assert c.targets == ("w",) and c.ready == ("w",), c
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(st)
+    print("65. a route decision: 6 fields it may set and 7 malformed "
+          "proposals each refused by name, every number clamped down to "
+          "the session's own flags and never up, a plan with nobody "
+          "ready or nothing to do turned back into a plain turn with the "
+          "reason kept, and a decision that says nothing left alone")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -7137,6 +7208,7 @@ def main():
         check_thinking_policy(tmp, tok, mdl)
         check_main_schema(tmp, tok, mdl)
         check_route_signals(tmp, tok, mdl)
+        check_route_decision(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
