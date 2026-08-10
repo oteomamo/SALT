@@ -3166,6 +3166,14 @@ def main(argv=None):
         print("--dedup-cos must be a cosine threshold strictly between 0 "
               "and 1 (e.g. 0.92).", file=sys.stderr)
         return 1
+    # the round refuses any other depth when it runs, and a refusal that
+    # waits for the first planned turn has arrived too late to be useful
+    if args.agent_rounds not in range(1, orchestrator.MAX_DEPTH + 1):
+        print(f"--agent-rounds must be 1 or {orchestrator.MAX_DEPTH} "
+              f"({orchestrator.MAX_DEPTH} lets the orchestrator ask for "
+              f"one more thing, and there is no third round).",
+              file=sys.stderr)
+        return 1
     if not (math.isfinite(args.gpu_mem_util) and 0 < args.gpu_mem_util <= 1):
         print("--gpu-mem-util must be a fraction in (0, 1].", file=sys.stderr)
         return 1

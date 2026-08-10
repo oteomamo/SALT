@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.6
+## 2.11.0 - 2.11.8
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -24,6 +24,9 @@ cover the tools, the roster and the limits.
   a path outside it. Off by default, so a server started as before still
   reads any file it can. Worth setting when the client driving the
   server is a model rather than a person.
+- **2.11.8** `--agent-rounds` is checked at launch. A number of rounds
+  no turn can run is refused before the model loads, rather than ending
+  the first planned turn that reaches it.
 
 ## 2.10.0 - 2.10.123
 

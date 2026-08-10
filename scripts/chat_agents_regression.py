@@ -94,7 +94,7 @@ import tempfile
 import textwrap
 import threading
 import time
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import numpy as np
@@ -5796,6 +5796,18 @@ def check_second_round(tmp, tok, mdl):
     except O.OrchestratorError as exc:
         assert "at most 2 rounds" in str(exc), exc
 
+    # and the same depth is refused at launch, so a session is never
+    # started with limits the turn will die on
+    for depth in ("3", "0", "-1"):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = cli.main(["--device", "cpu", "--agent-rounds", depth])
+        assert rc == 1, f"--agent-rounds {depth} started a session"
+        assert "--agent-rounds must be 1 or 2" in err.getvalue(), err.getvalue()
+    for depth in (1, 2):
+        args = cli.build_parser().parse_args(["--agent-rounds", str(depth)])
+        assert args.agent_rounds == depth, args.agent_rounds
+
     # what a second round is allowed: the turn's allowance, less what
     # the first round already spent
     first = [made_result(out=100), made_result(out=50),
@@ -5915,10 +5927,10 @@ def check_second_round(tmp, tok, mdl):
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(state)
     print("57. a second round: an orchestrator that has seen what came "
-          "back may ask for one more thing and never a third, what it "
-          "says when nothing is missing is not mistaken for the answer, "
-          "the turn's caps hold across both rounds, and one round stays "
-          "the default")
+          "back may ask for one more thing and never a third, a depth no "
+          "turn can run is refused at launch, what it says when nothing "
+          "is missing is not mistaken for the answer, the turn's caps "
+          "hold across both rounds, and one round stays the default")
 
 
 def check_ingest_cap(tmp, tok, mdl):
