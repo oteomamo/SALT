@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21110" class="md-nav__link">
+  <a href="#2110-21111" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.10
+        2.11.0 - 2.11.11
       
     </span>
   </a>
@@ -1261,10 +1261,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21110" class="md-nav__link">
+  <a href="#2110-21111" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.10
+        2.11.0 - 2.11.11
       
     </span>
   </a>
@@ -1426,7 +1426,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21110">2.11.0 - 2.11.10</h2>
+<h2 id="2110-21111">2.11.0 - 2.11.11</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1458,6 +1458,12 @@ cover the tools, the roster and the limits.</p>
   their context the way that turn selected its own, instead of under
   the settings the session was launched with. A delegation that
   belongs to no turn is unchanged.</li>
+<li><strong>2.11.11</strong> A planning call gets room to reason. A model that thinks
+  out loud used to plan under a chat reply's length, spend it on the
+  working and be cut off before the answer, which reached the round as
+  a reply that was not a plan at all. The allowance is bounded by a
+  quarter of the model's window, and a roster entry that names its own
+  reply length still keeps it.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
