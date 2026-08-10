@@ -291,6 +291,11 @@ class ChatState:
         # turn being recorded now belongs to
         self.last_round = None
         self.pending_round = None
+        # the turn count when the last round landed, so a route rule can
+        # ask how long it has been rather than only what it cost. A
+        # signal about a round stops moving the moment routing turns
+        # rounds off, and this one keeps moving
+        self.last_round_turn = None
         # who decides how a turn selects. Nobody, until something says
         # otherwise: the default is not asked and changes nothing
         self.switch_policy = build_switch_policy(args).bind(self)
@@ -447,6 +452,7 @@ class ChatState:
             self.trie.cache_dir)
         self.pending_delegations = []
         self.last_round = self.pending_round = None
+        self.last_round_turn = None
         self.turn_switches = None
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         resume_workers(self)
@@ -1439,6 +1445,7 @@ class AgentRound:
                 answered_directly=self.fell_through, rounds=self.rounds,
                 protocol_failures=outcome.failures + self.extra_failures)
             state.last_round = state.pending_round = self.record
+            state.last_round_turn = state.trie.n_turns
 
 
 def agent_limits(state):

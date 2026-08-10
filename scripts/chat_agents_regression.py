@@ -6983,6 +6983,84 @@ def check_main_schema(tmp, tok, mdl):
           "write-up is held to no shape either way")
 
 
+def check_route_signals(tmp, tok, mdl):
+    """What a decision about planning a turn is allowed to read."""
+    from salt.agents import route as RT
+    from salt.agents import snapshot as SN
+
+    assert RT.SCHEMA == "salt-route-signals/1", RT.SCHEMA
+    assert len(RT.ROUTE_KEYS) == 16, len(RT.ROUTE_KEYS)
+    assert RT.SIGNALS[:len(SN.KEYS)] == SN.KEYS, (
+        "the snapshot no longer reads first, in its own order")
+    assert set(RT.SIGNALS) == set(SN.KEYS) | set(RT.ROUTE_KEYS)
+    assert len(set(RT.SIGNALS)) == len(RT.SIGNALS), "a signal is named twice"
+    # the switch seam must not have grown by this
+    assert set(SN.RULE_SIGNALS) == set(SN.KEYS), (
+        "route signals leaked into what a switch rule may read")
+    assert set(RT.CLOSED_LOOP) == set(RT.FEEDBACK_KEYS) - {
+        "turns_since_round"}, RT.CLOSED_LOOP
+
+    asked = RT.ask_signals("Compare the two designs.\n"
+                           "- cost\n- risk\n3. timing\nWhich wins? @w")
+    assert asked["ask_lines"] == 5 and asked["ask_list_items"] == 3, asked
+    assert asked["ask_questions"] == 1 and asked["ask_names_worker"] is True
+    assert asked["ask_sentences"] == 4, asked
+    assert asked["ask_words"] == 13, asked
+    blank = RT.ask_signals("")
+    assert set(blank) == set(RT.ASK_KEYS) and blank["ask_words"] == 0, blank
+    assert RT.ask_signals(None)["ask_lines"] == 0
+
+    with Stub(cards=CARDS, pieces=("ok",)) as s:
+        roster = R.Roster(path=str(tmp / "r.json"), entries=(
+            R.RosterEntry(name="a", alias="stub", role="worker",
+                          server_url=s.url, notes="writes prose",
+                          model={"alias": "stub", "hf_id": "some/model",
+                                 "path": BGE_MODEL}),
+            R.RosterEntry(name="b", alias="stub", role="worker",
+                          server_url=s.url, notes="writes prose",
+                          model={"alias": "stub", "hf_id": "some/model",
+                                 "path": BGE_MODEL})))
+        st = quiet_state(tmp, "route_signals", tok, mdl, roster=roster)
+        try:
+            sig = RT.route_signals(st, "how far?")
+            assert tuple(sig) == RT.SIGNALS, sorted(sig)
+            assert sig["n_workers"] == 2 and sig["n_workers_ready"] == 2
+            assert sig["n_workers_busy"] == 0, sig["n_workers_busy"]
+            # two helpers described the same way are one kind, which is
+            # the reading that says a fan-out was never going to happen
+            assert sig["worker_kinds"] == 1, sig["worker_kinds"]
+            assert sig["rounds_taken"] == 0, sig["rounds_taken"]
+            for key in ("last_round_s", "last_round_pieces",
+                        "last_round_answered", "last_round_direct",
+                        "turns_since_round"):
+                assert sig[key] is None, (
+                    f"{key} answered for a session that has had no round")
+            # and a round makes the whole family answer, including the
+            # one that keeps moving after routing stops planning
+            st.last_round = type(
+                "R", (), {"seconds": 12.5, "delegated": (1, 2),
+                          "answered": (1,), "answered_directly": False})()
+            st.last_round_turn = st.trie.n_turns
+            sig = RT.route_signals(st, "and now?")
+            assert sig["last_round_s"] == 12.5 and sig["last_round_pieces"] == 2
+            assert sig["last_round_answered"] == 1
+            assert sig["last_round_direct"] is False, sig["last_round_direct"]
+            assert sig["turns_since_round"] == 0, sig["turns_since_round"]
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(st, "one more line")
+            moved = RT.route_signals(st, "x")["turns_since_round"]
+            assert moved > 0, (
+                "the one signal that has to keep moving stood still")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(st)
+    print("64. the route signal set: 22 snapshot signals and 16 of its "
+          "own read as one flat namespace with the snapshot first, the "
+          "switch seam not grown by any of it, six signals named as "
+          "downstream of routing's own action, and the one that counts "
+          "turns still moving when no round has run")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -7058,6 +7136,7 @@ def main():
         check_hardening_fixes(tmp, tok, mdl)
         check_thinking_policy(tmp, tok, mdl)
         check_main_schema(tmp, tok, mdl)
+        check_route_signals(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
