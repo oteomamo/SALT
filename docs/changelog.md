@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.13
+## 2.11.0 - 2.11.14
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -52,6 +52,11 @@ cover the tools, the roster and the limits.
   the same closed set a memory decision is allowed to read. Off by
   default. Worth turning on for a session or two before trusting a
   rule whose threshold you have not watched fire.
+- **2.11.14** Chat template settings can be set. A few models expose a
+  choice through their chat template rather than through sampling, and
+  `chat_template_kwargs` now reaches the template on every backend. It
+  is rendered locally, so it never reaches the server as a request
+  field, and setting nothing renders the prompt it always did.
 
 ## 2.10.0 - 2.10.123
 

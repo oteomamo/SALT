@@ -15,7 +15,7 @@ import requests
 from transformers import AutoConfig, AutoTokenizer
 
 from salt.chat.runner import (_model_input_limit, input_budget_for,
-                              render_prompt)
+                              render_prompt, TEMPLATE_KEY)
 
 
 # what a caller may put on the request body instead of into sampling:
@@ -83,11 +83,13 @@ class VLLMServeChatRunner:
     def stream_chat(self, messages, **overrides):
         gen_cfg = dict(self.cfg.get("gen") or {})
         gen_cfg.update(overrides)
+        template_kwargs = gen_cfg.pop(TEMPLATE_KEY, None)
         temperature = float(gen_cfg.get("temperature", 0.7))
         do_sample = bool(gen_cfg.get("do_sample", temperature > 0))
         max_new_tokens = int(gen_cfg.get("max_new_tokens", 512))
 
-        prompt, used_chat = render_prompt(self.tokenizer, messages)
+        prompt, used_chat = render_prompt(self.tokenizer, messages,
+                                          template_kwargs)
         ids = self.tokenizer(prompt,
                              add_special_tokens=not used_chat).input_ids
         max_input = self.input_budget(max_new_tokens) or 0

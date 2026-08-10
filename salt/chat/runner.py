@@ -45,12 +45,30 @@ def _model_input_limit(config, tokenizer):
     return None
 
 
-def render_prompt(tokenizer, messages):
+# A generation setting that reaches the chat template rather than the
+# sampler or the request body. Named here so a caller can set it the way
+# it sets anything else, and popped by every backend before the settings
+# it does not belong in: a sampler handed a dict it cannot use is an
+# error, and a request body carrying it would be dead weight, since
+# every backend renders its prompt locally
+TEMPLATE_KEY = "chat_template_kwargs"
+
+
+def render_prompt(tokenizer, messages, template_kwargs=None):
     """Chat-template the messages; plain-concat fallback for models without
-    a template (mirrors eval.apply_chat). Returns (text, used_chat_template)."""
+    a template (mirrors eval.apply_chat). Returns (text, used_chat_template).
+
+    ``template_kwargs`` are handed to the template itself, for the few
+    settings a model exposes there rather than through sampling. Empty is
+    the same bytes as passing nothing, which is what keeps a prompt this
+    session has always sent unchanged and its prefix cache warm. A model
+    with no template has no template settings either, so the fallback
+    ignores them rather than pretending to honour them.
+    """
     try:
         return tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True), True
+            messages, tokenize=False, add_generation_prompt=True,
+            **(template_kwargs or {})), True
     except Exception:
         text = "\n\n".join(f"{m['role']}: {m['content']}" for m in messages)
         return text + "\n\nassistant:", False
@@ -157,11 +175,13 @@ class ChatRunner:
         """Yield decoded text pieces for a chat turn as they are generated."""
         gen_cfg = dict(self.cfg.get("gen") or {})
         gen_cfg.update(overrides)
+        template_kwargs = gen_cfg.pop(TEMPLATE_KEY, None)
         temperature = float(gen_cfg.get("temperature", 0.7))
         do_sample = bool(gen_cfg.get("do_sample", temperature > 0))
         max_new_tokens = int(gen_cfg.get("max_new_tokens", 512))
 
-        prompt, used_chat = render_prompt(self.tokenizer, messages)
+        prompt, used_chat = render_prompt(self.tokenizer, messages,
+                                          template_kwargs)
         inputs = self.tokenizer(prompt, return_tensors="pt",
                                 add_special_tokens=not used_chat)
         # the only input ceiling is the model's own context window, minus

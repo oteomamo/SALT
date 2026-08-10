@@ -4934,6 +4934,54 @@ def check_switch_agent(tmp, tok, mdl):
     assert runs[0] == runs[1], (
         "a session under an empty rules file did not select as one without")
 
+    # a setting that reaches the chat template rather than the sampler.
+    # The default has to be the same bytes it always was, because a
+    # prompt that moves is a prefix cache that goes cold
+    from salt.chat import runner as RN
+    msgs = [{"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"}]
+    base, used = RN.render_prompt(tok, msgs)
+    assert RN.render_prompt(tok, msgs, None)[0] == base, (
+        "naming no template settings changed the prompt")
+    assert RN.render_prompt(tok, msgs, {})[0] == base, (
+        "an empty set of template settings changed the prompt")
+    assert RN.TEMPLATE_KEY == "chat_template_kwargs", RN.TEMPLATE_KEY
+
+    class _Templated:
+        """A template that honours one setting, the way a reasoning
+        model's does. The fixture tokenizer carries no template at all,
+        so the pass-through needs one that does."""
+
+        def apply_chat_template(self, messages, tokenize=False,
+                                add_generation_prompt=True, think=True):
+            body = " ".join(m["content"] for m in messages)
+            return f"{body}\n<think>" if think else body
+
+    on, used = RN.render_prompt(_Templated(), msgs)
+    off, _ = RN.render_prompt(_Templated(), msgs, {"think": False})
+    assert used and on.endswith("<think>") and not off.endswith("<think>"), (
+        on, off)
+    assert RN.render_prompt(_Templated(), msgs, {})[0] == on, (
+        "an empty set of template settings changed a template's mind")
+
+    class _NoTemplate:
+        def apply_chat_template(self, *a, **kw):
+            raise ValueError("no template")
+
+    plain, used = RN.render_prompt(_NoTemplate(), msgs, {"think": False})
+    assert not used and plain.endswith("assistant:"), plain
+
+    # and it never reaches the wire: every backend renders locally, so a
+    # request body carrying it would be a setting the server acts on twice
+    with Stub(cards=CARDS, pieces=("said",)) as s:
+        h = WorkerHandle(delegation_roster(s.url, tmp).entries[0])
+        with redirect_stdout(io.StringIO()):
+            list(h.call(msgs, **{RN.TEMPLATE_KEY: {"think": False}}))
+        body = s.httpd.last_payload
+        assert RN.TEMPLATE_KEY not in body, (
+            f"a template setting rode the request body: {sorted(body)}")
+        assert "prompt" in body, sorted(body)
+
     # what a session says about itself, written down for a person who
     # has to decide what a rule should read
     from salt.agents import snapshot as SN
