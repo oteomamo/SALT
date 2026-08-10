@@ -443,6 +443,7 @@ class ChatState:
             self.trie.cache_dir)
         self.pending_delegations = []
         self.last_round = self.pending_round = None
+        self.turn_switches = None
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         resume_workers(self)
         self.load_full_attachments()
@@ -1353,7 +1354,7 @@ class AgentRound:
         extra = orchestrator.execute(
             state, more.directive,
             orchestrator.remaining(self.limits, self.results, started),
-            self.note)
+            self.note, switches=turn_switch_values(state))
         file_round(state, extra)
         self.results = list(self.results) + list(extra)
         self.rounds = 2
@@ -1377,8 +1378,9 @@ class AgentRound:
                 return
             n = len(directive.subtasks)
             self.say(f"  {n} piece{'' if n == 1 else 's'} to hand out")
-            self.results = orchestrator.execute(state, directive, self.limits,
-                                                self.note)
+            self.results = orchestrator.execute(
+                state, directive, self.limits, self.note,
+                switches=turn_switch_values(state))
             file_round(state, self.results)
             self.take_another(state, endpoint, started)
             if not orchestrator.usable(self.results):
@@ -2356,6 +2358,19 @@ def _conflicted(switch_values):
         return str(exc)
 
 
+def turn_switch_values(state):
+    """What the turn now running decided its memory switches should be,
+    or None outside a turn.
+
+    A round's pieces are selected inside the turn that planned them, so
+    they read this and select the way that turn selected. A delegation
+    that belongs to no turn, which is every `/offload` typed at the
+    prompt, finds None and selects under the session's own settings, as
+    every delegation did before a turn could decide anything.
+    """
+    return getattr(state, "turn_switches", None)
+
+
 def compress_kwargs(state, line, excl, switches):
     """Everything this turn asks the compressor for. Assembled in one
     place so what a turn selects under is a thing that can be read,
@@ -2404,8 +2419,13 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     # cleared per turn: a decision belongs to the turn it was made for,
     # and a turn with nothing to select makes none
     state.last_overrides, state.last_audit = {}, ()
+    state.turn_switches = None
     if state.trie.n_sentences > 0:
         switches, state.last_overrides, state.last_audit = turn_switches(state)
+        # what anything this turn does inside itself selects under. A
+        # round's pieces read it; a delegation belonging to no turn
+        # finds None here and selects under the session's own settings
+        state.turn_switches = switches
         excl = (tail_resident_sent_idx(state.trie, state.tail)
                 if switches["tail_exclude"] else None)
         comp = state.trie.compress(

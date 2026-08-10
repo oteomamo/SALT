@@ -4875,11 +4875,64 @@ def check_switch_agent(tmp, tok, mdl):
                 cli.close_ingest(state)
     assert runs[0] == runs[1], (
         "a session under an empty rules file did not select as one without")
+
+    # a decision belongs to the whole turn, pieces included: a round's
+    # subtasks select under what that turn decided, not under what the
+    # session was launched with
+    from salt.agents import delegate as DG
+    from salt.agents import orchestrator as O
+    seen = {}
+    real_build = DG.build_context
+
+    def spy(state, req):
+        seen[req.task] = req.switches
+        return real_build(state, req)
+
+    with Stub(cards=CARDS, pieces=("said",)) as s:
+        roster = delegation_roster(s.url, tmp)
+        state = quiet_state(tmp, "d3_pieces", tok, mdl, roster=roster,
+                            flags=("--switch-agent", "--switch-rules",
+                                   str(fires)))
+        try:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+            assert state.last_overrides == {"per_source_themes": True}, (
+                state.last_overrides)
+            assert state.turn_switches["per_source_themes"] is True, (
+                "the turn did not record what it selected under")
+            DG.build_context = spy
+            try:
+                with redirect_stdout(io.StringIO()):
+                    O.execute(state, plan_of(("size the bank", "w")),
+                              O.AgentLimits(),
+                              switches=cli.turn_switch_values(state))
+            finally:
+                DG.build_context = real_build
+            assert seen["size the bank"]["per_source_themes"] is True, (
+                f"a piece of a decided turn selected under the session's "
+                f"own settings: {seen}")
+            # and a delegation belonging to no turn carries no decision,
+            # so it selects exactly as it did before turns could decide.
+            # cli binds build_context by name, so that binding is the one
+            # a typed /offload actually reaches
+            cli.build_context = spy
+            try:
+                with redirect_stdout(io.StringIO()):
+                    cli.run_offload(state, "name the risk", None, None)
+            finally:
+                cli.build_context = real_build
+            assert seen["name the risk"] is None, (
+                f"a delegation outside a turn was handed a turn's "
+                f"decision: {seen['name the risk']}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
     print("48. the switch agent: --switch-agent and --switch-rules turn a "
           "decision on together and neither alone, a fired rule reaches "
-          "that turn's selection and nothing else, /stats and the turn's "
-          "event both say which rule and what it changed, a rule that did "
-          "not fire says nothing, and an empty file is off")
+          "that turn's selection and the pieces that turn hands out and "
+          "nothing else, /stats and the turn's event both say which rule "
+          "and what it changed, a rule that did not fire says nothing, "
+          "and an empty file is off")
 
 
 # what a file that ships must never carry: a date, a measurement, or a

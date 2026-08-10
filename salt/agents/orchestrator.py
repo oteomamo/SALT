@@ -363,7 +363,7 @@ def request_timeout(state, entry):
     return getattr(state, "offload_timeout", None)
 
 
-def subtask_request(state, subtask, entry):
+def subtask_request(state, subtask, entry, switches=None):
     """One subtask as a delegation this session can send."""
     return DelegationRequest(task=subtask.task, target=subtask.target,
                              context_query=subtask.query,
@@ -371,7 +371,8 @@ def subtask_request(state, subtask, entry):
                              max_tokens=subtask.max_tokens,
                              ingest=bool(getattr(state, "offload_ingest",
                                                  False)),
-                             timeout_s=request_timeout(state, entry))
+                             timeout_s=request_timeout(state, entry),
+                             switches=switches)
 
 
 def worker_entry(state, name):
@@ -391,7 +392,8 @@ def fans_out(subtasks):
     return len({sub.target for sub in subtasks}) > 1
 
 
-def execute(state, directive, limits=None, on_result=None, parallel=None):
+def execute(state, directive, limits=None, on_result=None, parallel=None,
+            switches=None):
     """Run a directive's subtasks and report on every one of them.
 
     What comes back is a result per subtask in plan order, always the
@@ -413,11 +415,11 @@ def execute(state, directive, limits=None, on_result=None, parallel=None):
     if parallel is None:
         parallel = fans_out(subtasks)
     if parallel:
-        return execute_together(state, subtasks, limits, on_result)
-    return execute_in_turn(state, subtasks, limits, on_result)
+        return execute_together(state, subtasks, limits, on_result, switches)
+    return execute_in_turn(state, subtasks, limits, on_result, switches)
 
 
-def execute_in_turn(state, subtasks, limits, on_result=None):
+def execute_in_turn(state, subtasks, limits, on_result=None, switches=None):
     """One at a time, on this thread, because the trie is read on it:
     every subtask's context is selected, sent and answered before the
     next one is looked at."""
@@ -433,7 +435,7 @@ def execute_in_turn(state, subtasks, limits, on_result=None):
                 result = not_run(subtask, REFUSED, str(exc))
             else:
                 result = delegate(state, subtask_request(state, subtask,
-                                                         entry))
+                                                         entry, switches))
                 spent += delegated_tokens(result)
         results.append(result)
         if on_result is not None:
@@ -441,7 +443,7 @@ def execute_in_turn(state, subtasks, limits, on_result=None):
     return results
 
 
-def execute_together(state, subtasks, limits, on_result=None):
+def execute_together(state, subtasks, limits, on_result=None, switches=None):
     """Every piece at once, and the round waits for all of them.
 
     The division of labour is the whole design. This thread owns the
@@ -487,7 +489,7 @@ def execute_together(state, subtasks, limits, on_result=None):
         except RosterError as exc:
             results[index] = not_run(subtask, REFUSED, str(exc))
             continue
-        request = subtask_request(state, subtask, entry)
+        request = subtask_request(state, subtask, entry, switches)
         # the trie is read HERE and the id handed out HERE, on the one
         # thread that owns them, before any worker is called at all. A
         # selection that fails is that piece's failure, never the

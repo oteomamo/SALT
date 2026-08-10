@@ -64,6 +64,11 @@ class DelegationRequest:
     max_tokens: int = None
     ingest: bool = False
     timeout_s: float = None
+    # what the turn this delegation belongs to decided its memory
+    # switches should be, or None for a delegation that belongs to no
+    # turn. None means the session's own settings, which is what every
+    # delegation selected under before a turn could decide anything
+    switches: dict = None
 
     @property
     def query(self):
@@ -158,20 +163,31 @@ def build_context(state, req):
     budget = state.budget if req.budget_pct is None else req.budget_pct
     caps = [c for c in (memory_word_cap(state, query),
                         getattr(state, "offload_context_cap", None)) if c]
+    # the session's own settings, with whatever the turn decided over
+    # the top. A piece of a turn selects the way that turn selected,
+    # because one turn deciding two ways about its own memory is not a
+    # decision anybody can read back
+    sw = dict(req.switches or {})
+
+    def switch(name):
+        return sw[name] if name in sw else getattr(state, name)
+
     comp = state.trie.compress(query=query, budget_pct=budget,
                                tokenizer=state.bge_tok,
                                model=state.bge_model,
                                device=state.bge_device,
-                               coverage_half_life=state.coverage_half_life,
-                               coverage_decay_docs=state.coverage_decay_docs,
-                               shift_damping=state.shift_damping,
-                               shift_margin=state.shift_margin,
-                               shift_query_boost=state.shift_query_boost,
-                               per_source_themes=state.per_source_themes,
+                               coverage_half_life=switch(
+                                   "coverage_half_life"),
+                               coverage_decay_docs=switch(
+                                   "coverage_decay_docs"),
+                               shift_damping=switch("shift_damping"),
+                               shift_margin=switch("shift_margin"),
+                               shift_query_boost=switch("shift_query_boost"),
+                               per_source_themes=switch("per_source_themes"),
                                max_words=min(caps) if caps else None,
-                               stable_keys=state.stable_coverage_keys,
-                               coverage_gc=state.coverage_gc,
-                               coverage_max_keys=state.coverage_max_keys,
+                               stable_keys=switch("stable_coverage_keys"),
+                               coverage_gc=switch("coverage_gc"),
+                               coverage_max_keys=switch("coverage_max_keys"),
                                defer_commit=True,
                                exclude_sent_idx=None)
     # the commit is deliberately dropped on the floor: dropping it is what

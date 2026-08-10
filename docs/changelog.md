@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.9
+## 2.11.0 - 2.11.10
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -31,6 +31,11 @@ cover the tools, the roster and the limits.
   `--turns` file is planned out over the roster's helpers the way a
   typed line is, and its `--turns-out` row says whether that turn went
   through a round or was answered plainly because no worker was ready.
+- **2.11.10** A turn's memory decision reaches the pieces it hands
+  out. Under `--switch-agent`, the subtasks of a planned turn select
+  their context the way that turn selected its own, instead of under
+  the settings the session was launched with. A delegation that
+  belongs to no turn is unchanged.
 
 ## 2.10.0 - 2.10.123
 
