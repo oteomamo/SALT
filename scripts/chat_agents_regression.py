@@ -3736,7 +3736,8 @@ def check_plan_call(tmp, tok, mdl):
             assert len(state.runner.prompts) == 1, (
                 f"one ask cost {len(state.runner.prompts)} calls to the "
                 f"planning model")
-            assert state.runner.overrides[-1] == O.PLANNING_GEN, (
+            assert state.runner.overrides[-1] == O.planning_gen(
+                    state.runner), (
                 f"a plan was generated under {state.runner.overrides[-1]} "
                 f"rather than the settled planning ones")
             assert s.httpd.posts == 0, "planning reached a worker"
@@ -3827,9 +3828,43 @@ def check_plan_call(tmp, tok, mdl):
         state.runner = _FakeRunner(tok, REPLIES)
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
+
+    # a directive call gets room to reason. A registered model's reply
+    # length is sized for a chat reply, and a model that thinks out loud
+    # spends it on the working and is cut off before the object, which
+    # reaches the caller as a reply that was not a directive at all
+    assert O.PLAN_ANSWER_TOKENS + O.PLAN_THINK_TOKENS == 2048, (
+        O.PLAN_ANSWER_TOKENS, O.PLAN_THINK_TOKENS)
+
+    class _Windowed:
+        def __init__(self, window):
+            self.max_input_len = window
+
+    assert O.planning_tokens(_Windowed(32768)) == 2048
+    # never more than a quarter of the window: the room has to cost the
+    # plan less prompt than it buys
+    assert O.planning_tokens(_Windowed(4096)) == 1024
+    assert O.planning_tokens(None) == 2048, "a window nobody knows"
+    assert "max_new_tokens" not in O.PLANNING_GEN, (
+        "the planning constant grew a reply length that a window cannot "
+        "bound")
+    assert O.planning_gen(_Windowed(8192))["max_new_tokens"] == 2048
+    assert O.planning_gen(_Windowed(8192))["temperature"] == 0.0
+
+    # the round's own settings, and the roster's opinion on top of them
+    plain = R.RosterEntry(name="w", alias="a", role="worker")
+    said = R.RosterEntry(name="w", alias="a", role="worker", max_tokens=64)
+    assert O.entry_gen(plain, None, _Windowed(8192))["max_new_tokens"] == 2048
+    assert O.entry_gen(said, None, _Windowed(8192))["max_new_tokens"] == 64, (
+        "an entry that named its own reply length lost it to the plan")
+    # a write-up is not a directive call and is generated as a reply
+    assert "max_new_tokens" not in O.entry_gen(plain, O.SYNTHESIS_GEN,
+                                               _Windowed(8192))
     print("40. the plan call: one ask, one directive, repaired once and "
           "then fallen back on, asked under a byte-stable head that names "
-          "the helpers, and the session unmoved by all of it")
+          "the helpers, with room to reason bounded by a quarter of the "
+          "window and the roster's own reply length still winning, and "
+          "the session unmoved by all of it")
 
 
 def plan_of(*pairs, **fields):

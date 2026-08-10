@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.10
+## 2.11.0 - 2.11.11
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -36,6 +36,12 @@ cover the tools, the roster and the limits.
   their context the way that turn selected its own, instead of under
   the settings the session was launched with. A delegation that
   belongs to no turn is unchanged.
+- **2.11.11** A planning call gets room to reason. A model that thinks
+  out loud used to plan under a chat reply's length, spend it on the
+  working and be cut off before the answer, which reached the round as
+  a reply that was not a plan at all. The allowance is bounded by a
+  quarter of the model's window, and a roster entry that names its own
+  reply length still keeps it.
 
 ## 2.10.0 - 2.10.123
 

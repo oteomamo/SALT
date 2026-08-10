@@ -127,6 +127,32 @@ class Endpoint:
         return self.capability == GUIDED_CAPABLE
 
 
+# What a planning call may generate when nothing else says. A directive
+# is small, but a model that reasons out loud writes its working first
+# and is cut off mid-thought at a chat model's reply length, which
+# reaches the caller as a reply that was not a directive at all
+PLAN_ANSWER_TOKENS = 512
+PLAN_THINK_TOKENS = 1536
+
+
+def planning_tokens(runner):
+    """The allowance for one directive call, bounded by a quarter of the
+    window so asking for room to think never costs the plan more prompt
+    than the room is worth."""
+    want = PLAN_ANSWER_TOKENS + PLAN_THINK_TOKENS
+    limit = getattr(runner, "max_input_len", None)
+    return min(want, int(limit) // 4) if limit else want
+
+
+def planning_gen(runner):
+    """The settings a directive call is made under, for a caller that
+    named none of its own."""
+    gen = dict(PLANNING_GEN)
+    if runner is not None:
+        gen["max_new_tokens"] = planning_tokens(runner)
+    return gen
+
+
 def main_runner_send(state, gen=None):
     """One prompt put to the session's chat model, waited out in full.
 
@@ -134,7 +160,7 @@ def main_runner_send(state, gen=None):
     the chat seam, and a capability that cannot be exercised is one the
     round must not plan around.
     """
-    gen = PLANNING_GEN if gen is None else gen
+    gen = planning_gen(getattr(state, "runner", None)) if gen is None else gen
 
     def send(messages, guided=False):
         pieces = []
@@ -181,7 +207,7 @@ def main_endpoint(state, gen=None):
                     model_id=cfg.get("hf_id"))
 
 
-def entry_gen(entry, gen=None):
+def entry_gen(entry, gen=None, runner=None):
     """What to generate with at a roster endpoint: the round's settings,
     with the roster's own opinions about that model on top.
 
@@ -190,7 +216,7 @@ def entry_gen(entry, gen=None):
     overrode it in the name of determinism would be deciding how to run
     a model it was only told to use.
     """
-    over = dict(PLANNING_GEN if gen is None else gen)
+    over = dict(planning_gen(runner) if gen is None else gen)
     if entry.max_tokens is not None:
         over["max_new_tokens"] = int(entry.max_tokens)
     if entry.temperature is not None:
@@ -205,7 +231,7 @@ def handle_send(handle, gen=None, schema=None):
     said it would hold a model to one is actually asked to.
     """
     def send(messages, guided=False):
-        over = entry_gen(handle.entry, gen)
+        over = entry_gen(handle.entry, gen, handle.opened())
         if guided and schema is not None:
             over["guided_json"] = schema
         pieces = []
@@ -222,7 +248,8 @@ def handle_send(handle, gen=None, schema=None):
 
 def handle_stream(handle, gen=None):
     def stream(messages):
-        return handle.call(messages, **entry_gen(handle.entry, gen))
+        return handle.call(messages, **entry_gen(handle.entry, gen,
+                                                 handle.opened()))
 
     return stream
 
