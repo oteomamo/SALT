@@ -36,6 +36,7 @@ from pathlib import Path
 import torch
 
 from salt.agents import ledger, orchestrator, policy, protocol, rules, trace
+from salt.agents import snapshot as snapshot_module
 from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   close_quietly, delegate)
@@ -300,6 +301,7 @@ class ChatState:
         self.agent_keep_think = args.agent_keep_think
         self.agent_rounds = args.agent_rounds
         self.agent_mode = args.agent
+        self.log_signals = args.log_signals
         self.agent_quiet = args.agent_quiet
         self.agent_max_delegations = args.agent_max_delegations
         self.agent_max_wall = args.agent_max_wall
@@ -1686,6 +1688,7 @@ def build_stats(state):
         "memory": {"n_near_dups": t.n_near_dups, "n_masked": t.n_masked},
         "delegations": state.delegation_stats,
         "rounds": state.agent_stats,
+        "signals": signals_report(state),
         "decided": {"policy": state.switch_policy.name,
                     "path": getattr(state.switch_policy, "path", ""),
                     "overrides": dict(state.last_overrides),
@@ -1807,6 +1810,9 @@ def print_stats(state, payload=None):
     print_delegation_stats(state, d["delegations"])
     print_agent_stats(state, d["rounds"])
     print_switch_audit(state, d["decided"])
+    if d["signals"]:
+        print(f"signals: {d['signals']['lines']} turns recorded "
+              f"({SIGNALS_NAME})")
     ing = d["ingest"]
     fail_note = (f", {ing['failures']} failed (ingest_failures.jsonl)"
                  if ing["failures"] else "")
@@ -2369,6 +2375,45 @@ def _conflicted(switch_values):
         return str(exc)
 
 
+SIGNALS_NAME = "signals.jsonl"
+
+
+def record_signals(state):
+    """One line of what this session now reports about itself.
+
+    The same closed set a decision is allowed to read, written after the
+    turn it describes, so a conversation can be studied afterwards
+    without a driver standing in for the session. Off unless asked for:
+    a signal nobody reads is a file that grows every turn.
+    """
+    if not getattr(state, "log_signals", False):
+        return
+    row = {"schema": snapshot_module.SCHEMA, "turn": state.trie.n_turns}
+    row.update(snapshot(state))
+    try:
+        with open(Path(state.trie.cache_dir) / SIGNALS_NAME, "a",
+                  encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            fh.flush()
+    except OSError as exc:
+        # a record nobody can write is worth one line, never the turn
+        print(f"[signals] this turn was not recorded: {exc}")
+
+
+def signals_report(state):
+    """How much of itself this session has written down, or nothing when
+    it was never asked to."""
+    if not getattr(state, "log_signals", False):
+        return None
+    path = Path(state.trie.cache_dir) / SIGNALS_NAME
+    try:
+        lines = sum(1 for line in path.read_text(
+            encoding="utf-8").splitlines() if line.strip())
+    except OSError:
+        lines = 0
+    return {"lines": lines, "file": str(path)}
+
+
 def turn_switch_values(state):
     """What the turn now running decided its memory switches should be,
     or None outside a turn.
@@ -2540,6 +2585,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
             extra=extra or None)
     except Exception as exc:
         print(f"[kvtrace] recording failed for this turn: {exc}")
+    record_signals(state)
     # sync mode ingests both sides here, post-reply, as before the worker
     if state.sync_ingest:
         submit_ingest(state, line, "user",
@@ -3082,6 +3128,11 @@ def build_parser():
                         "out before it stops and answers with what it has "
                         f"(default: "
                         f"{orchestrator.AgentLimits.max_wall_s:.0f})")
+    p.add_argument("--log-signals", action="store_true",
+                   help="write one line per turn to signals.jsonl in the "
+                        "session folder, holding the numbers this session "
+                        "reports about itself - the same closed set a "
+                        "switch or routing decision is allowed to read")
     p.add_argument("--switch-agent", action="store_true",
                    help="let a policy decide this session's memory "
                         "switches per turn instead of leaving them at what "

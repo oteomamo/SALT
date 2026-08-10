@@ -504,6 +504,17 @@ language, stale coverage read as a share of the whole table, but
 whether they help your conversations is still yours to judge, which is
 what the unproven marking means.
 
+### Watching the numbers a decision reads
+
+A rule is only as good as the signals it fires on, and whether a rule
+you wrote ever fires is a question about your conversations rather than
+about the rule. `--log-signals` writes one line per turn to
+`signals.jsonl` in the session folder, holding the same closed set a
+decision is allowed to read, and `/stats` says how many turns are in
+it. It is off by default, because a file that grows every turn is worth
+asking for. Turn it on for a session or two before trusting a threshold
+you have not watched.
+
 ### The audit trail
 
 A turn a rule changed says so twice. `/stats` names the policy, the rule

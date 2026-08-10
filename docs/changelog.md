@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.12
+## 2.11.0 - 2.11.13
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -47,6 +47,11 @@ cover the tools, the roster and the limits.
   whatever had happened, so it was empty on every round that worked
   and filled in only on the ones that gave up on their helpers and
   answered directly.
+- **2.11.13** `--log-signals`. A session can write down the numbers it
+  reports about itself, one line per turn in `signals.jsonl`, which is
+  the same closed set a memory decision is allowed to read. Off by
+  default. Worth turning on for a session or two before trusting a
+  rule whose threshold you have not watched fire.
 
 ## 2.10.0 - 2.10.123
 

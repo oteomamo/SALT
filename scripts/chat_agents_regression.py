@@ -4934,6 +4934,55 @@ def check_switch_agent(tmp, tok, mdl):
     assert runs[0] == runs[1], (
         "a session under an empty rules file did not select as one without")
 
+    # what a session says about itself, written down for a person who
+    # has to decide what a rule should read
+    from salt.agents import snapshot as SN
+    off = quiet_state(tmp, "sig_off", tok, mdl)
+    try:
+        assert off.log_signals is False, off.log_signals
+        with redirect_stdout(io.StringIO()):
+            cli.chat_turn(off, "and the inverter?")
+        assert not (Path(off.trie.cache_dir) / cli.SIGNALS_NAME).exists(), (
+            "a session nobody asked wrote a signals file anyway")
+        assert cli.build_stats(off)["signals"] is None
+        assert "signals:" not in stats_output(off)
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(off)
+
+    on = quiet_state(tmp, "sig_on", tok, mdl, flags=("--log-signals",))
+    try:
+        path = Path(on.trie.cache_dir) / cli.SIGNALS_NAME
+
+        def recorded():
+            return [json.loads(l) for l in
+                    path.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+        # the replayed history was recorded too, which is the point: a
+        # line per turn means every turn, not every turn typed by hand
+        before = len(recorded())
+        assert before, "a recorded session recorded none of its own history"
+        with redirect_stdout(io.StringIO()):
+            cli.chat_turn(on, "and the inverter?")
+            cli.chat_turn(on, "and the battery?")
+        rows = recorded()
+        assert len(rows) == before + 2, (before, len(rows))
+        for row in rows[-2:]:
+            assert row["schema"] == SN.SCHEMA, row
+            assert tuple(k for k in row if k not in ("schema", "turn")) == \
+                SN.KEYS, (
+                "a recorded line and the closed set have drifted apart")
+            for name, value in row.items():
+                assert value is None or isinstance(
+                    value, (int, float, str)), (name, value)
+        assert rows[-1]["n_turns"] > rows[-2]["n_turns"], rows[-2:]
+        assert cli.build_stats(on)["signals"]["lines"] == before + 2
+        assert f"signals: {before + 2} turns recorded" in stats_output(on), (
+            stats_output(on))
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(on)
+
     # a decision belongs to the whole turn, pieces included: a round's
     # subtasks select under what that turn decided, not under what the
     # session was launched with

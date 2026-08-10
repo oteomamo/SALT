@@ -67,6 +67,7 @@ Agents:
 | `--agent-rounds N` | 1 | how many rounds of delegating one turn may take, at most 2: the second lets the orchestrator ask for one more thing |
 | `--agent-max-delegations N` | 4 | how many pieces one `/agent` turn may hand out before the rest are reported as not attempted |
 | `--agent-max-wall SECONDS` | 600 | how long one `/agent` turn may spend handing pieces out before it answers with what it has |
+| `--log-signals` | off | write one line per turn to `signals.jsonl` in the session folder, holding the numbers this session reports about itself |
 | `--switch-agent` | off | let a policy decide the memory switches per turn instead of leaving them where the flags set them |
 | `--switch-rules FILE` | none | the rules `--switch-agent` decides by, as sentences about the session and the switch each one changes |
 | `--switch-rules-allow-examples` | off | load the rules a file marks as examples too, which are written down to be read rather than run |
