@@ -29,7 +29,7 @@ ROLES = ("worker", "orchestrator")
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _TOP_KEYS = {"version", "models"}
 _ENTRY_KEYS = {"name", "alias", "role", "server_url", "spawn", "max_tokens",
-               "temperature", "capabilities", "notes", "timeout_s"}
+               "temperature", "capabilities", "notes", "timeout_s", "think"}
 _SPAWN_KEYS = {"port", "gpu", "gpu_mem_util", "max_model_len",
                "ready_timeout", "command"}
 
@@ -50,6 +50,13 @@ class RosterEntry:
     capabilities: tuple = ()
     notes: str = ""
     timeout_s: float = None
+    # whether this model should be asked to reason on a call, for the
+    # models that expose the choice through their chat template. Three
+    # states and not two: True asks for the working, False asks for it
+    # to be left out, and None - the only default - sends no template
+    # setting at all, which is the exact prompt this entry has always
+    # sent. A file that says nothing changes no bytes
+    think: bool = None
     model: dict = None
 
     @property
@@ -207,10 +214,17 @@ def _parse_entry(path, index, raw, seen_names):
     timeout_s = raw.get("timeout_s")
     if timeout_s is not None:
         _check_number(path, name, "timeout_s", timeout_s, (int, float), 1)
+    think = raw.get("think")
+    # bool is an int in Python and 1 reads as true, so a number written
+    # here would be honoured as a choice its author never made
+    if think is not None and not isinstance(think, bool):
+        _fail(path, name, f"think must be true or false, or left out to "
+                          f"send no thinking setting at all, got {think!r}")
     return RosterEntry(
         name=name, alias=alias, role=role, server_url=server_url,
         spawn=spawn, max_tokens=max_tokens, temperature=temperature,
-        capabilities=tuple(capabilities), notes=notes, timeout_s=timeout_s)
+        capabilities=tuple(capabilities), notes=notes, timeout_s=timeout_s,
+        think=think)
 
 
 def _resolve(path, entry):

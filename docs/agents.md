@@ -81,6 +81,19 @@ the launch instead of failing later. This file ships as
 `salt/agents/roster_sample.json`, ready to copy, with one entry of each
 mode in it.
 
+## Asking a model to reason, or not to
+
+Some models write their working before their answer, and a few of those
+let a caller decide per call whether to. An entry can say which it wants
+with `"think": true` or `"think": false`. Leaving the key out is the
+default and means the entry sends no thinking setting at all, which is
+the same prompt it has always sent.
+
+The key is a request, not a promise. A model whose chat template has no
+such setting is unaffected by it, and one that always reasons keeps
+reasoning whatever the file says. Write it for the models that offer the
+choice, and expect nothing from it on the ones that do not.
+
 ## Attach or spawn
 
 Each entry either attaches to a server that is already running or

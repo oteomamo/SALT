@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.14
+## 2.11.0 - 2.11.16
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -57,6 +57,11 @@ cover the tools, the roster and the limits.
   `chat_template_kwargs` now reaches the template on every backend. It
   is rendered locally, so it never reaches the server as a request
   field, and setting nothing renders the prompt it always did.
+- **2.11.16** A roster entry can ask a model to reason, or not to, with
+  `"think": true` or `"think": false`. Leaving the key out is the
+  default and sends no thinking setting at all. The key is a request
+  rather than a promise: a model whose template has no such setting is
+  unaffected, and one that always reasons keeps reasoning.
 
 ## 2.10.0 - 2.10.123
 

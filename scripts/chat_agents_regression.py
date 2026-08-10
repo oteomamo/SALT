@@ -331,6 +331,19 @@ def check_validation(tmp):
         write_roster(bad, [{"name": "w", "alias": "a",
                             "spawn": {"port": "auto", "ready_timeout": val}}])
         refuses(bad, "spawn.ready_timeout " + fragment)
+    # a thinking setting is a choice or it is absent, and 1 is neither.
+    # bool is an int in Python, so a number here would otherwise be
+    # honoured as a decision nobody wrote down
+    for val in ("yes", 1, 0):
+        write_roster(bad, [{"name": "w", "alias": "a",
+                            "server_url": "http://h", "think": val}])
+        refuses(bad, "think must be true or false")
+    for val, want in ((True, True), (False, False)):
+        good_think = dict(good, think=val)
+        assert R._parse_entry(bad, 0, good_think, set()).think is want, (
+            f"think: {val} did not survive parsing")
+    assert R._parse_entry(bad, 0, dict(good), set()).think is None, (
+        "an entry that says nothing about thinking did not stay silent")
     refuses(tmp / "absent.json", "Cannot read roster")
     # spawn.command is how these checks stand a stub in for saltServe. It
     # is deliberately absent from every surface a user reads
@@ -338,8 +351,9 @@ def check_validation(tmp):
         encoding="utf-8")
     assert '"command"' not in SAMPLE.read_text(encoding="utf-8")
     assert "command" not in R.__doc__
-    print("1. roster validation: 24 malformed files each refused by name, "
-          "and the test spawn hook stays out of the sample and the docs")
+    print("1. roster validation: 27 malformed files each refused by name, "
+          "a thinking setting kept to true, false or silence, and the test "
+          "spawn hook stays out of the sample and the docs")
 
 
 def check_loading():
