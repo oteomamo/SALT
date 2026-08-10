@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21113" class="md-nav__link">
+  <a href="#2110-21114" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.13
+        2.11.0 - 2.11.14
       
     </span>
   </a>
@@ -1261,10 +1261,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21113" class="md-nav__link">
+  <a href="#2110-21114" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.13
+        2.11.0 - 2.11.14
       
     </span>
   </a>
@@ -1426,7 +1426,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21113">2.11.0 - 2.11.13</h2>
+<h2 id="2110-21114">2.11.0 - 2.11.14</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1474,6 +1474,11 @@ cover the tools, the roster and the limits.</p>
   the same closed set a memory decision is allowed to read. Off by
   default. Worth turning on for a session or two before trusting a
   rule whose threshold you have not watched fire.</li>
+<li><strong>2.11.14</strong> Chat template settings can be set. A few models expose a
+  choice through their chat template rather than through sampling, and
+  <code>chat_template_kwargs</code> now reaches the template on every backend. It
+  is rendered locally, so it never reaches the server as a request
+  field, and setting nothing renders the prompt it always did.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
