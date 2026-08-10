@@ -936,6 +936,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#watching-the-numbers-a-decision-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching the numbers a decision reads
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#the-audit-trail" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1632,6 +1643,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#watching-the-numbers-a-decision-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching the numbers a decision reads
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#the-audit-trail" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2115,6 +2137,15 @@ asks for them out loud. Their thresholds speak the signals' real
 language, stale coverage read as a share of the whole table, but
 whether they help your conversations is still yours to judge, which is
 what the unproven marking means.</p>
+<h3 id="watching-the-numbers-a-decision-reads">Watching the numbers a decision reads</h3>
+<p>A rule is only as good as the signals it fires on, and whether a rule
+you wrote ever fires is a question about your conversations rather than
+about the rule. <code>--log-signals</code> writes one line per turn to
+<code>signals.jsonl</code> in the session folder, holding the same closed set a
+decision is allowed to read, and <code>/stats</code> says how many turns are in
+it. It is off by default, because a file that grows every turn is worth
+asking for. Turn it on for a session or two before trusting a threshold
+you have not watched.</p>
 <h3 id="the-audit-trail">The audit trail</h3>
 <p>A turn a rule changed says so twice. <code>/stats</code> names the policy, the rule
 that fired, the sentence that was true and what it set, and that turn's
