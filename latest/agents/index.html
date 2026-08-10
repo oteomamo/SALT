@@ -2017,6 +2017,13 @@ what is worth reading once is noise every turn, and marks the reply with
 one line saying how many helpers it used. <code>--agent-quiet</code> drops that
 line. A turn with no worker ready skips the planning call entirely and
 costs exactly what an ordinary turn costs.</p>
+<p>A scripted run reads the flag the same way, so
+<code>saltChat --agent --turns tasks.json</code> plans out every plain line of the
+file. A <code>--turns-out</code> row for one of those lines carries <code>planned</code>,
+saying whether that turn really went through a round or was answered
+plainly because no worker was ready. Items that already name their own
+path are untouched: an <code>agent</code> item is planned whether or not the flag
+is on, and an <code>offload</code> item still goes straight to its worker.</p>
 <h3 id="one-more-round">One more round</h3>
 <p><code>--agent-rounds 2</code> lets the orchestrator look at what came back and ask
 once for one more thing before the turn is written up. Pieces it names

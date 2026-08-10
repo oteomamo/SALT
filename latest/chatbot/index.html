@@ -1653,6 +1653,10 @@ key yourself.</p>
 turn prints its id and the model's reply. Add <code>--turns-out results.jsonl</code>
 to also append <code>{id, turn, question, answer}</code> per turn, so the run can be
 reviewed or scored afterward.</p>
+<p>Launched with <code>--agent</code>, a scripted run plans every plain line out over
+the roster's helpers, the way it would in the REPL, and each row gains a
+<code>planned</code> field saying whether that turn went through a round. See
+<a href="../agents/#planning-every-turn">agents</a>.</p>
 <p>An item can also hand its work to a worker instead of the chat model, which
 puts a delegation in the middle of a scripted conversation:</p>
 <div class="highlight"><pre><span></span><code><span class="p">[</span>
