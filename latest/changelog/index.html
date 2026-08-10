@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21118" class="md-nav__link">
+  <a href="#2110-21119" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.18
+        2.11.0 - 2.11.19
       
     </span>
   </a>
@@ -1261,10 +1261,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21118" class="md-nav__link">
+  <a href="#2110-21119" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.18
+        2.11.0 - 2.11.19
       
     </span>
   </a>
@@ -1426,7 +1426,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21118">2.11.0 - 2.11.18</h2>
+<h2 id="2110-21119">2.11.0 - 2.11.19</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1490,6 +1490,11 @@ cover the tools, the roster and the limits.</p>
   none where its time goes, <code>on</code> and <code>off</code> ask for all three or none,
   and the default asks for nothing. A roster entry's own <code>think</code> setting
   still wins.</li>
+<li><strong>2.11.19</strong> A model that never stops reasoning ends its own call. One
+  that has spent three quarters of its reply length on the working
+  without answering is given up on there, keeping what arrived and
+  leaving the worker usable, rather than generating to its cap and
+  reaching the round as a reply that was never an answer.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
