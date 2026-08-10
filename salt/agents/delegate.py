@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from salt.agents.thinking import gen_kwargs, settle
+from salt.agents.thinking import ThinkGuard, gen_kwargs, settle
 from salt.agents.worker import DEAD, WorkerError, is_read_timeout
 
 INSTRUCTIONS_PATH = Path(__file__).resolve().parent / "worker_instructions.md"
@@ -394,11 +394,17 @@ def delegate(state, req, context=None, seq=None, off_thread=False,
     stream = handle.call(messages, off_thread=off_thread,
                          read_timeout_s=req.timeout_s,
                          usage_out=engine_usage, **overrides)
+    guard = ThinkGuard(overrides.get("max_new_tokens"))
     try:
         for piece in stream:
             pieces.append(piece)
             if meter is not None:
                 meter.add(piece)
+            if guard.add(piece):
+                # this one call, not the round: the other pieces are
+                # answering fine and what arrived here is kept
+                status, error = "error", guard.why
+                break
             if stop is not None and stop.is_set():
                 # the round ran out of something - time, the helpers'
                 # shared token allowance, or the person asking. Breaking

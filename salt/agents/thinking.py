@@ -131,6 +131,63 @@ def settle(want, entry_want):
     return want if entry_want is None else entry_want
 
 
+# how much of a call's own reply allowance may go on the working before
+# the call is given up on. Three quarters, because a model that has said
+# nothing at all by then is not about to: the failure this guards is a
+# model repeating itself inside a block it never closes, which was
+# observed as 2000 nested tags and cost the whole round its time
+THINK_SHARE = 0.75
+# a generated token is about four characters. The exact count needs a
+# tokenizer pass, and this is a runaway guard rather than accounting
+CHARS_PER_TOKEN = 4.0
+
+
+class ThinkGuard:
+    """Ends a call that has spent most of its room and said nothing yet.
+
+    A model looping inside its own reasoning generates to its cap and
+    reaches the round as a reply that was never an answer. The cap
+    already stops it; this stops it sooner, and the difference is the
+    round's time rather than the round's outcome.
+
+    The question is asked once, when the share is crossed, and joining
+    and stripping the reply is a whole pass over it that is worth
+    exactly one. A call that had said something by then is left alone
+    for the rest of its length: a model that talks and then loops is
+    bounded by its cap like any other, and paying a pass per piece to
+    catch it would cost every well behaved call more than it saves.
+    """
+
+    def __init__(self, cap, share=THINK_SHARE):
+        self.cap = int(cap or 0)
+        self.limit = int(self.cap * share)
+        self.tripped = False
+        self.settled = not self.limit
+        self._chars = 0
+        self._pieces = []
+
+    @property
+    def why(self):
+        return (f"the model spent {self.limit} of its {self.cap} tokens "
+                f"reasoning without answering, so the call was ended")
+
+    def add(self, piece):
+        """Whether this piece is the one the call should stop on."""
+        if self.settled:
+            return False
+        self._pieces.append(piece)
+        self._chars += len(piece)
+        if self._chars / CHARS_PER_TOKEN < self.limit:
+            return False
+        from salt.agents.protocol import strip_think
+        self.tripped = not strip_think("".join(self._pieces))
+        # asked and answered: either it stops here, or it has said
+        # something and is not the shape this guards against
+        self.settled = True
+        self._pieces = []
+        return self.tripped
+
+
 def describe(answer):
     """The one line a person is owed about it."""
     return {

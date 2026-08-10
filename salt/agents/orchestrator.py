@@ -176,6 +176,7 @@ def main_runner_send(state, gen=None, think=None):
 
     def send(messages, guided=False):
         pieces = []
+        guard = thinking.ThinkGuard(gen.get("max_new_tokens"))
         # held in a name rather than left to the loop, so an interrupt
         # closes it here: closing the generator is what stops a model
         # that is still generating
@@ -183,6 +184,8 @@ def main_runner_send(state, gen=None, think=None):
         try:
             for piece in stream:
                 pieces.append(piece)
+                if guard.add(piece):
+                    break
         finally:
             close_quietly(stream)
         return "".join(pieces)
@@ -251,10 +254,13 @@ def handle_send(handle, gen=None, schema=None, think=None):
         if guided and schema is not None:
             over["guided_json"] = schema
         pieces = []
+        guard = thinking.ThinkGuard(over.get("max_new_tokens"))
         stream = handle.call(messages, **over)
         try:
             for piece in stream:
                 pieces.append(piece)
+                if guard.add(piece):
+                    break
         finally:
             close_quietly(stream)
         return "".join(pieces)

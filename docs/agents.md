@@ -430,6 +430,13 @@ own `think` setting keeps it, since a model written down with a setting
 has it for a reason. Neither `plan` nor the others is a measured default
 yet, which is why the default asks for nothing.
 
+Whatever the mode, a call that has spent three quarters of its own reply
+length reasoning and has said nothing yet is ended there. What it did
+get through is kept and reported as the failure it is, the worker is
+left usable, and the rest of the round carries on. This is the model
+looping inside a block it never closes, which reads as a reply that was
+never an answer however long it is allowed to run.
+
 ### What one round may cost
 
 `--agent-max-delegations` sets how many pieces one turn may hand out,

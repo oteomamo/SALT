@@ -6863,11 +6863,43 @@ def check_thinking_policy(tmp, tok, mdl):
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
         assert O.session_think(state, TH.PIECE) is want, state.agent_think
+    # and a model that never stops thinking is stopped for it
+    assert TH.THINK_SHARE == 0.75, TH.THINK_SHARE
+    assert TH.ThinkGuard(0).add("<think>" * 50) is False, (
+        "a call with no allowance to spend was guarded anyway")
+    lap = "x" * 100
+    loop = TH.ThinkGuard(100)
+    assert loop.add("<think>") is False, "a guard tripped on its first piece"
+    tripped = [loop.add(lap) for _ in range(4)]
+    assert tripped == [False, False, True, False], tripped
+    assert "75 of its 100 tokens" in loop.why, loop.why
+    spoke = TH.ThinkGuard(100)
+    for _ in range(4):
+        assert spoke.add("the answer is " + lap) is False, (
+            "a call that had already answered was cut off for thinking")
+    assert spoke.settled, "a settled guard kept paying for the question"
+    # through the seam a piece is really answered on: the call ends, the
+    # round does not, and what the worker said is kept
+    with Stub(cards=CARDS, pieces=("<think>", "a" * 400, "b" * 400)) as s:
+        st = quiet_state(tmp, "think_guard", tok, mdl,
+                         roster=delegation_roster(s.url, tmp))
+        with redirect_stdout(io.StringIO()):
+            _, res = run_delegation(st, task="t", target="w", max_tokens=100)
+            cli.close_ingest(st)
+        assert res.status == "error" and "reasoning without answering" in \
+            res.error, (res.status, res.error)
+        assert res.text.startswith("<think>"), (
+            "the working the model did get through was thrown away")
+        assert st.worker("w").state != W.DEAD, (
+            "a worker was blamed for its own reply")
+
     print("62. the thinking policy: 4 modes read the same at all 3 "
           "positions of a round, a roster entry keeps the last word over "
           "the session's mode, the plan-only mode asks the chat model to "
-          "reason when it plans and not when it writes up, and naming no "
-          "mode sends no setting at any of them")
+          "reason when it plans and not when it writes up, naming no mode "
+          "sends no setting at any of them, and a model still reasoning "
+          "three quarters of the way through its room ends its own call "
+          "and not the round")
 
 
 def main():
