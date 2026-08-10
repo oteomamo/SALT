@@ -731,6 +731,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#asking-a-model-to-reason-or-not-to" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Asking a model to reason, or not to
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#attach-or-spawn" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1438,6 +1449,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#asking-a-model-to-reason-or-not-to" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Asking a model to reason, or not to
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#attach-or-spawn" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1795,6 +1817,16 @@ bad port, an unknown alias or a model whose weights are missing stops
 the launch instead of failing later. This file ships as
 <code>salt/agents/roster_sample.json</code>, ready to copy, with one entry of each
 mode in it.</p>
+<h2 id="asking-a-model-to-reason-or-not-to">Asking a model to reason, or not to</h2>
+<p>Some models write their working before their answer, and a few of those
+let a caller decide per call whether to. An entry can say which it wants
+with <code>"think": true</code> or <code>"think": false</code>. Leaving the key out is the
+default and means the entry sends no thinking setting at all, which is
+the same prompt it has always sent.</p>
+<p>The key is a request, not a promise. A model whose chat template has no
+such setting is unaffected by it, and one that always reasons keeps
+reasoning whatever the file says. Write it for the models that offer the
+choice, and expect nothing from it on the ones that do not.</p>
 <h2 id="attach-or-spawn">Attach or spawn</h2>
 <p>Each entry either attaches to a server that is already running or
 describes one to start. An attach entry carries <code>server_url</code> and points
