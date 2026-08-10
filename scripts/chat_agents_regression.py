@@ -4971,6 +4971,38 @@ def check_switch_agent(tmp, tok, mdl):
     plain, used = RN.render_prompt(_NoTemplate(), msgs, {"think": False})
     assert not used and plain.endswith("assistant:"), plain
 
+    # and what a model does with its own reasoning is measured the same
+    # way, by rendering, because a template can name the setting and act
+    # on none of it
+    from salt.agents import thinking as TH
+
+    class _Fake:
+        """One tokenizer per shape a real one comes in."""
+
+        def __init__(self, shape):
+            self.shape = shape
+
+        def apply_chat_template(self, messages, tokenize=False,
+                                add_generation_prompt=True, **kw):
+            body = " ".join(m["content"] for m in messages)
+            if self.shape == "toggle":
+                return (body if kw.get(TH.KEY, True) is False
+                        else f"{body}\n<think>")
+            if self.shape == "always":
+                return f"{body}\n<think>"
+            return body
+
+    assert TH.template_thinking(_Fake("toggle")) == TH.TOGGLE
+    assert TH.template_thinking(_Fake("always")) == TH.ALWAYS
+    assert TH.template_thinking(_Fake("unset")) == TH.UNSET
+    assert TH.template_thinking(_NoTemplate()) == TH.UNSET, (
+        "a model with no template was credited with a template setting")
+    assert TH.opens_thinking("a <think> b") and not TH.opens_thinking(
+        "a <think> b </think> c"), "an opened block was misread"
+    assert not TH.opens_thinking("nothing here")
+    for answer in TH.ANSWERS:
+        assert TH.describe(answer) != "unknown", answer
+
     # and it never reaches the wire: every backend renders locally, so a
     # request body carrying it would be a setting the server acts on twice
     with Stub(cards=CARDS, pieces=("said",)) as s:
