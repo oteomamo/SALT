@@ -121,6 +121,11 @@ class Endpoint:
     # be measured by the model that wrote it. None means the session's
     # own, which is what the chat seam already falls back to
     tokenizer: object = None
+    # whether this is the session's own chat model rather than a roster
+    # endpoint. A caller that reads what a call cost off the session's
+    # runner is only entitled to do so when the session's runner is what
+    # made the call
+    main: bool = False
 
     @property
     def guided(self):
@@ -204,7 +209,8 @@ def main_endpoint(state, gen=None):
                     send=main_runner_send(state, gen),
                     stream=main_runner_stream(state, gen),
                     capability=GUIDED_PLAIN,
-                    model_id=cfg.get("hf_id"))
+                    model_id=cfg.get("hf_id"),
+                    main=True)
 
 
 def entry_gen(entry, gen=None, runner=None):

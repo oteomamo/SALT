@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.11
+## 2.11.0 - 2.11.12
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -42,6 +42,11 @@ cover the tools, the roster and the limits.
   a reply that was not a plan at all. The allowance is bounded by a
   quarter of the model's window, and a roster entry that names its own
   reply length still keeps it.
+- **2.11.12** A round's record says what writing it up cost, or says
+  nothing. The figure used to be read off the session's own model
+  whatever had happened, so it was empty on every round that worked
+  and filled in only on the ones that gave up on their helpers and
+  answered directly.
 
 ## 2.10.0 - 2.10.123
 

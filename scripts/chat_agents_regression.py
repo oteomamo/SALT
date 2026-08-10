@@ -4403,9 +4403,32 @@ def check_agent_trace(tmp, tok, mdl):
         finally:
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(quiet)
+
+        # the write-up's cost describes the write-up or it describes
+        # nothing. A round that gave up on its helpers answered the turn
+        # directly, and reporting that answer's cost as a synthesis is a
+        # number that reads as the opposite of what happened
+        nobody = json.dumps(
+            {"version": P.SCHEMA, "action": "delegate",
+             "subtasks": [{"id": "1", "task": "t", "target": "gone"}]})
+        fell = canned_state(tmp, "agent_fellthrough", tok, mdl,
+                            [nobody, "answered without help"], roster)
+        try:
+            with redirect_stdout(io.StringIO()):
+                agent_line(fell, f"/agent {ask}")
+            rec = fell.last_round
+            assert rec.answered_directly, (
+                "a round whose only helper was refused did not fall through")
+            assert rec.synthesis == {}, (
+                f"a round that never wrote anything up reported what "
+                f"writing it up cost: {rec.synthesis}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(fell)
     print("44. the agent trace: one line per planned turn holding what it "
-          "decided and what each piece cost and none of the prose, the "
-          "turn's own event carrying the two additive keys, /stats "
+          "decided and what each piece cost and none of the prose, a "
+          "write-up cost that describes the write-up or nothing at all, "
+          "the turn's own event carrying the two additive keys, /stats "
           "counting them, and an unreadable line costing only itself")
 
 
