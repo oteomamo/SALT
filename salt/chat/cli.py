@@ -2662,6 +2662,7 @@ def run_turns(state, turns, out_path=None):
             print(f"{TURN_PROMPTS[item.kind]} {item.text}")
             report_ingest_failures(state.ingest.drain())
             answer, result, stop = None, None, False
+            before = state.last_round
             try:
                 if item.kind == "doc":
                     ingest_doc(state, item.text)
@@ -2676,6 +2677,8 @@ def run_turns(state, turns, out_path=None):
                     # than an exception, so the run has to read it as the
                     # stop it was and still record the delegation below
                     stop = result.status == "aborted"
+                elif state.agent_mode:
+                    answer = agent_line(state, item.text)
                 else:
                     answer = chat_turn(state, item.text)
             except KeyboardInterrupt:
@@ -2687,6 +2690,12 @@ def run_turns(state, turns, out_path=None):
                        "answer": answer}
                 if item.kind != "chat":
                     row["kind"] = item.kind
+                # a plain line under --agent may or may not have been
+                # planned: with no worker ready it is an ordinary turn,
+                # and the row says which one it was rather than leaving a
+                # reader to infer it from the trace file
+                if item.kind == "chat" and state.agent_mode:
+                    row["planned"] = state.last_round is not before
                 if item.offload:
                     row["status"] = result.status if result else "error"
                     row["worker"] = (result.target if result

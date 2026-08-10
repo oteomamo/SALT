@@ -5775,11 +5775,48 @@ def check_agent_mode(tmp, tok, mdl):
         finally:
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(one)
-    print("56. persistent agent mode: --agent plans every plain line, "
-          "keeps the running commentary to itself and says so in one line "
-          "a session can switch off, a turn with no worker ready costs "
-          "exactly what an ordinary turn costs, and /agent still plans "
-          "one turn at a time out loud")
+
+        # a scripted run reads the flag the same way the REPL does
+        script = turns_file(tmp, "agent_mode.json", [
+            {"id": "s1", "question": ask}])
+        run = canned_state(tmp, "mode_turns", tok, mdl, [plan_json, final],
+                           roster, flags=["--agent"])
+        out_path = Path(tmp) / "mode_turns_out.jsonl"
+        try:
+            with redirect_stdout(io.StringIO()):
+                cli.run_turns(run, cli.load_turns(script), str(out_path))
+            assert len(T.read(run.trie.cache_dir).rounds) == 1, (
+                "a plain scripted line under --agent was never planned out")
+            assert len(run.runner.prompts) == 2, run.runner.prompts
+            row = json.loads(out_path.read_text(encoding="utf-8"))
+            assert row["planned"] is True, row
+            assert "kind" not in row, (
+                f"a planned chat row stopped looking like a chat row: {row}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(run)
+
+        # and with nobody to plan for, the same file is ordinary turns
+        alone = canned_state(tmp, "mode_turns_alone", tok, mdl, [final],
+                             flags=["--agent"])
+        alone_out = Path(tmp) / "mode_turns_alone_out.jsonl"
+        try:
+            with redirect_stdout(io.StringIO()):
+                cli.run_turns(alone, cli.load_turns(script), str(alone_out))
+            assert not T.trace_path(alone.trie.cache_dir).exists(), (
+                "a scripted turn with no worker ready left a round behind")
+            assert len(alone.runner.prompts) == 1, alone.runner.prompts
+            assert json.loads(
+                alone_out.read_text(encoding="utf-8"))["planned"] is False
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(alone)
+    print("56. persistent agent mode: --agent plans every plain line, in "
+          "the REPL and in a scripted run alike, keeps the running "
+          "commentary to itself and says so in one line a session can "
+          "switch off, a turn with no worker ready costs exactly what an "
+          "ordinary turn costs and says so in its own row, and /agent "
+          "still plans one turn at a time out loud")
 
 
 def check_second_round(tmp, tok, mdl):

@@ -382,6 +382,14 @@ one line saying how many helpers it used. `--agent-quiet` drops that
 line. A turn with no worker ready skips the planning call entirely and
 costs exactly what an ordinary turn costs.
 
+A scripted run reads the flag the same way, so
+`saltChat --agent --turns tasks.json` plans out every plain line of the
+file. A `--turns-out` row for one of those lines carries `planned`,
+saying whether that turn really went through a round or was answered
+plainly because no worker was ready. Items that already name their own
+path are untouched: an `agent` item is planned whether or not the flag
+is on, and an `offload` item still goes straight to its worker.
+
 ### One more round
 
 `--agent-rounds 2` lets the orchestrator look at what came back and ask
