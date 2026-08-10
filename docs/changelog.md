@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.19
+## 2.11.0 - 2.11.20
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -73,6 +73,13 @@ cover the tools, the roster and the limits.
   without answering is given up on there, keeping what arrived and
   leaving the worker usable, rather than generating to its cap and
   reaching the round as a reply that was never an answer.
+- **2.11.20** The session's own model can be held to the plan's shape.
+  Under `--backend vllm-serve` the chat model is reached over HTTP like
+  any helper, so its server is asked once whether it will hold a model
+  to a schema and is handed one when it will, which is the difference
+  between a plan that parses first time and one that needs a repair. A
+  model loaded in the session itself is unchanged: it has no request
+  body for a schema to ride on and is shown the worked example.
 
 ## 2.10.0 - 2.10.123
 

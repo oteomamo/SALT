@@ -6902,6 +6902,87 @@ def check_thinking_policy(tmp, tok, mdl):
           "and not the round")
 
 
+def check_main_schema(tmp, tok, mdl):
+    """Whether the session's own model can be held to a schema is a fact
+    about the wire it is reached over, and is asked of it."""
+    import salt.agents.roster as RR
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+
+    # a model loaded in the session has no request body at all, so plain
+    # is a fact about it and no probe is made
+    plain = quiet_state(tmp, "main_plain", tok, mdl)
+    try:
+        assert O.main_capability(plain) == RR.GUIDED_PLAIN
+        assert getattr(plain, "main_guided", None) is None, (
+            "a session with nothing to probe probed anyway")
+        ep = O.main_endpoint(plain, {})
+        assert ep.capability == RR.GUIDED_PLAIN and not ep.guided, ep
+        ep.send([{"role": "user", "content": "hi"}], guided=True)
+        assert "guided_json" not in plain.runner.overrides[-1], (
+            "a schema was pushed at a sampler that has nowhere to put it")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(plain)
+
+    class _Served:
+        """The two attributes a served chat model is known by. The real
+        runner needs a server holding its weights; the branch under test
+        needs only the url and the name it answers to."""
+
+        kind = "vllm-serve"
+        alias = "stub"
+        cfg = {"alias": "stub", "hf_id": "some/model", "path": "-"}
+        max_input_len = 4096
+        tokenizer = None
+        served_model = "some/model"
+        last_engine_stats = None
+
+        def __init__(self, url, sink):
+            self.server_url = url
+            self.sink = sink
+
+        def stream_chat(self, messages, **over):
+            self.sink.append(dict(over))
+            yield '{"action": "answer", "answer": "x"}'
+
+    for guided, capability, carries in ((True, RR.GUIDED_CAPABLE, True),
+                                        (False, RR.GUIDED_PLAIN, False)):
+        with Stub(cards=CARDS, guided=guided) as s:
+            state = quiet_state(tmp, f"main_wire_{guided}", tok, mdl)
+            sent = []
+            state.runner = _Served(s.url, sent)
+            try:
+                assert O.main_capability(state) == capability, (
+                    guided, state.main_guided)
+                posts = s.posts
+                assert O.main_capability(state) == capability
+                assert s.posts == posts, "the wire was asked twice"
+                ep = O.main_endpoint(state, {})
+                assert ep.guided is carries, (guided, ep.capability)
+                ep.send([{"role": "user", "content": "hi"}],
+                        guided=ep.guided)
+                got = "guided_json" in sent[-1]
+                assert got is carries, (
+                    f"a {capability} endpoint {'carried' if got else 'lost'} "
+                    f"the schema")
+                if carries:
+                    assert sent[-1]["guided_json"] == P.DIRECTIVE_SCHEMA
+                # and the write-up is never held to a directive's shape
+                O.main_endpoint(state, {}, "writeup").send(
+                    [{"role": "user", "content": "hi"}])
+                assert "guided_json" not in sent[-1], (
+                    "the reply to a person was held to the plan's schema")
+            finally:
+                with redirect_stdout(io.StringIO()):
+                    cli.close_ingest(state)
+    print("63. the session's own schema: a model loaded in the session is "
+          "plain because it has no body to carry one, a served one is "
+          "asked of the wire once and handed the schema when the server "
+          "accepts it, one that refuses keeps planning plainly, and the "
+          "write-up is held to no shape either way")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -6976,6 +7057,7 @@ def main():
         check_acceptance(tmp, tok, mdl)
         check_hardening_fixes(tmp, tok, mdl)
         check_thinking_policy(tmp, tok, mdl)
+        check_main_schema(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

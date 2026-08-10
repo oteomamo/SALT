@@ -164,23 +164,56 @@ def session_think(state, kind):
                                          thinking.MODE_TEMPLATE))
 
 
-def main_runner_send(state, gen=None, think=None):
+def main_capability(state):
+    """Whether the session's own chat model can be held to a schema.
+
+    Asked of the wire and kept, exactly as a worker's is, and asked at
+    all only when there is a wire: an in-process model is generated
+    through a sampler with no request body for a schema to ride, so
+    plain is a fact about it rather than a guess. A served one has a
+    body, so the only honest answer is the server's own.
+
+    Inferring the answer from the backend's name is what this avoids.
+    That inference, in mirror image, is the defect that once had a round
+    planning against a schema an endpoint had never accepted.
+    """
+    runner = getattr(state, "runner", None)
+    url = getattr(runner, "server_url", None)
+    served = getattr(runner, "served_model", None)
+    if not url:
+        return GUIDED_PLAIN
+    seen = getattr(state, "main_guided", None) or {}
+    key = (url, served)
+    if key not in seen:
+        from salt.agents.roster import RosterEntry, probe_guided
+        entry = RosterEntry(name=MAIN_LABEL, alias=getattr(runner, "alias",
+                                                           MAIN_LABEL),
+                            role="orchestrator", server_url=url)
+        seen[key] = probe_guided(entry, url=url, served_model=served)[0]
+        state.main_guided = seen
+    return seen[key]
+
+
+def main_runner_send(state, gen=None, think=None, schema=None):
     """One prompt put to the session's chat model, waited out in full.
 
-    ``guided`` is accepted and ignored. Nothing carries a schema through
-    the chat seam, and a capability that cannot be exercised is one the
-    round must not plan around.
+    A schema rides the request body when the caller asks for one and the
+    endpoint has been measured able to hold a model to it. Every backend
+    renders its own prompt, so this changes no prompt bytes and costs
+    the session's prefix cache nothing.
     """
     gen = planning_gen(getattr(state, "runner", None)) if gen is None else gen
     gen = dict(gen, **thinking.gen_kwargs(think))
 
     def send(messages, guided=False):
         pieces = []
-        guard = thinking.ThinkGuard(gen.get("max_new_tokens"))
+        over = dict(gen, guided_json=schema) if (
+            guided and schema is not None) else gen
+        guard = thinking.ThinkGuard(over.get("max_new_tokens"))
         # held in a name rather than left to the loop, so an interrupt
         # closes it here: closing the generator is what stops a model
         # that is still generating
-        stream = state.runner.stream_chat(messages, **gen)
+        stream = state.runner.stream_chat(messages, **over)
         try:
             for piece in stream:
                 pieces.append(piece)
@@ -217,10 +250,16 @@ def main_endpoint(state, gen=None, kind=thinking.PLAN):
         return None
     cfg = getattr(runner, "cfg", None) or {}
     think = session_think(state, kind)
+    capability = main_capability(state)
+    # a schema is carried only where it has been measured to work: an
+    # endpoint that would reject it must not be planned around as though
+    # it would not
+    schema = (protocol.DIRECTIVE_SCHEMA if capability == GUIDED_CAPABLE
+              else None)
     return Endpoint(label=getattr(runner, "alias", None) or MAIN_LABEL,
-                    send=main_runner_send(state, gen, think),
+                    send=main_runner_send(state, gen, think, schema),
                     stream=main_runner_stream(state, gen, think),
-                    capability=GUIDED_PLAIN,
+                    capability=capability,
                     model_id=cfg.get("hf_id"),
                     main=True)
 

@@ -366,12 +366,14 @@ with. A roster can name at most one, and one that is not running costs
 the round nothing, since the session's own model plans instead and the
 turn says which one did.
 
-There is one more difference. A roster endpoint is reached over HTTP, so
-a server that accepts a schema can be handed one and held to it while it
-generates. The chat model is reached through a seam that carries
-generation settings and nothing else, so a model behind it is shown a
-worked example instead. `/roster probe --deep NAME` says which of the
-two a given model will be.
+Either way, whether a schema can be used is a question about the wire
+and is asked of it. A model served over HTTP, which is the chat model
+under `--backend vllm-serve` as much as any helper, is asked once
+whether its server will hold it to one, and is handed the schema when
+the answer is yes. A model loaded in the session itself has no request
+body for a schema to ride on, so it is shown the worked example
+instead, which is a fact about how it is reached rather than a guess.
+`/roster probe --deep NAME` says which of the two a given helper is.
 
 ### Pieces at the same time
 
