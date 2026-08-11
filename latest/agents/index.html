@@ -875,6 +875,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#the-routing-trail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The routing trail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#watching-which-rules-fire" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1626,6 +1637,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#the-routing-trail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The routing trail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#watching-which-rules-fire" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2177,6 +2199,17 @@ census below to see whether it is still saying anything.</p>
 one of them is marked as an example, so none runs unless
 <code>--route-rules-allow-examples</code> asks for it, and none of them has been
 measured on a real conversation.</p>
+<h3 id="the-routing-trail">The routing trail</h3>
+<p>A routed turn says so in two places. <code>agent_trace.jsonl</code> carries a
+<code>route</code> object holding what was decided and which rules decided it, and
+that turn's own record in the KV trace says whether it was planned and
+which rules fired. A turn nobody routed carries an empty object in the
+trace and no extra key at all in the KV record, so a session with no
+route policy keeps exactly the shape it always had.</p>
+<p>Turns routed away from planning are recorded the same way as the ones
+routed into it. That is deliberate: a rules file that quietly turns
+everything off is the failure worth catching, and it is only visible if
+the turns it declined leave a trail too.</p>
 <h3 id="watching-which-rules-fire">Watching which rules fire</h3>
 <p><code>/stats</code> prints every route rule, how many of the turns it was asked
 about it actually fired on, and the note its author left about what it
