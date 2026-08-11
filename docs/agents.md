@@ -405,6 +405,54 @@ plainly because no worker was ready. Items that already name their own
 path are untouched: an `agent` item is planned whether or not the flag
 is on, and an `offload` item still goes straight to its worker.
 
+### Deciding which turns are worth planning
+
+Planning every line is the wrong default in the other direction. A
+planned turn is three or more model calls where a plain turn is one, so
+a line that says thanks pays for a round it never needed.
+`--route-agent` with `--route-rules FILE` lets a rules file decide,
+turn by turn, whether to plan at all and what the plan may spend.
+
+The rules are written in the same language the switch rules are, over a
+wider set of signals: the conversation, the ask itself, who is ready to
+help, and what the last round did. A rule can turn planning off, cap how
+many pieces the plan may hand out, shorten the wall clock, or name the
+helpers its plan may use.
+
+A decision can only spend less than the flags already allow. Whatever a
+rule proposes is clamped against `--agent-max-delegations`,
+`--agent-max-wall` and `--agent-rounds`, a helper the roster does not
+carry is dropped, and a plan left with nobody to plan with becomes a
+plain turn. The reason for every clamp is kept and printed.
+
+The strongest rule to write is not about the size of the ask. It is
+`worker_kinds < 2`: a plan concentrates on one helper unless the roster
+notes describe genuinely different jobs, so a roster of lookalikes never
+fans out however the question is phrased, and a round that pays for a
+fan-out there was never going to get one.
+
+Some signals describe the last round, which means routing decides them
+itself. A rule reading one without also reading `turns_since_round` does
+not merely stop firing, it freezes: "the last round was slow, so do not
+plan" is true once, and then no round runs, so the number never moves
+again. Write `turns_since_round` into any such rule, and read the
+census below to see whether it is still saying anything.
+
+`salt/agents/route_rules_sample.json` ships four rules to read. Every
+one of them is marked as an example, so none runs unless
+`--route-rules-allow-examples` asks for it, and none of them has been
+measured on a real conversation.
+
+### Watching which rules fire
+
+`/stats` prints every route rule, how many of the turns it was asked
+about it actually fired on, and the note its author left about what it
+was for. That whole line is the point: a threshold that never fires and
+one that fires every turn are the two ways a rules file quietly does
+nothing, and both are visible after one session rather than after a
+sweep. A rule reading a signal routing itself moves, without saying how
+stale a number it will act on, is called out there too.
+
 ### One more round
 
 `--agent-rounds 2` lets the orchestrator look at what came back and ask

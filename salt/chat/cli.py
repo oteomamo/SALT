@@ -37,7 +37,7 @@ from pathlib import Path
 import torch
 
 from salt.agents import (ledger, orchestrator, policy, protocol, route,
-                         rules, thinking, trace)
+                         route_rules, rules, thinking, trace)
 from salt.agents import snapshot as snapshot_module
 from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
@@ -299,11 +299,11 @@ class ChatState:
         self.last_round_turn = None
         # who decides whether a turn is planned at all, and what the
         # last such decision was. Nobody, until something says
-        self.route_policy = None
         self.last_route = None
         # who decides how a turn selects. Nobody, until something says
         # otherwise: the default is not asked and changes nothing
         self.switch_policy = build_switch_policy(args).bind(self)
+        self.route_policy = build_route_policy(args).bind(self)
         self.last_overrides = {}
         self.last_audit = ()
         self.agent_stats = resume_rounds(self.trie.cache_dir)
@@ -1691,6 +1691,42 @@ def print_switch_audit(state, decided=None):
         print(f"  {row['id']} ({row['when']}): {changed}")
 
 
+def route_report(state):
+    """What the route policy has decided, and how often each rule has
+    actually fired. Nothing at all from a session nobody is routing."""
+    chooser = getattr(state, "route_policy", None)
+    if chooser is None or not chooser.decides:
+        return {}
+    census = chooser.census() if hasattr(chooser, "census") else ()
+    return {"policy": chooser.name,
+            "path": getattr(chooser, "path", ""),
+            "rules": [dict(row) for row in census]}
+
+
+def print_route_audit(state, routed=None):
+    """Every rule, how often it fired, and what its author expected.
+
+    Printed whole rather than only when something fired, because a rule
+    that has never fired is the finding: a threshold nobody watched is
+    the way a decision layer quietly does nothing, and one session's
+    counts are enough to see it.
+    """
+    routed = route_report(state) if routed is None else routed
+    if not routed:
+        return
+    where = f" ({routed['path']})" if routed["path"] else ""
+    print(f"route agent: {routed['policy']}{where}")
+    for row in routed["rules"]:
+        asked = row["asked"]
+        share = f"{row['fired']}/{asked}" if asked else "not asked yet"
+        note = f" - {row['expected']}" if row["expected"] else ""
+        print(f"  {row['id']}: fired {share}{note}")
+        if row["feedback"]:
+            print(f"    reads {', '.join(row['feedback'])}, which routing "
+                  f"itself moves, without saying how stale a number it "
+                  f"will act on")
+
+
 def print_agent_stats(state, stats=None):
     """What this session has planned out rather than answered. Silent
     until it has planned something: a session that never ran a round has
@@ -1756,6 +1792,7 @@ def build_stats(state):
         "delegations": state.delegation_stats,
         "rounds": state.agent_stats,
         "signals": signals_report(state),
+        "routed": route_report(state),
         "decided": {"policy": state.switch_policy.name,
                     "path": getattr(state.switch_policy, "path", ""),
                     "overrides": dict(state.last_overrides),
@@ -1877,6 +1914,7 @@ def print_stats(state, payload=None):
     print_delegation_stats(state, d["delegations"])
     print_agent_stats(state, d["rounds"])
     print_switch_audit(state, d["decided"])
+    print_route_audit(state, d.get("routed"))
     if d["signals"]:
         print(f"signals: {d['signals']['lines']} turns recorded "
               f"({SIGNALS_NAME})")
@@ -2401,6 +2439,30 @@ def build_switch_policy(args):
         print(f"{path} has no rules in it, so this session selects under "
               f"its own settings.")
     return rules.RulePolicy(loaded, path)
+
+
+def build_route_policy(args):
+    """Who decides which turns are planned, from what this session was
+    launched with. Nobody unless both halves are there, the same way the
+    switch policy needs its own two."""
+    if not getattr(args, "route_agent", False):
+        return route.NullRoute()
+    path = getattr(args, "route_rules", None)
+    if not path:
+        print("--route-agent needs --route-rules FILE to decide by, so "
+              "this session plans every turn a worker is ready for.")
+        return route.NullRoute()
+    examples = getattr(args, "route_rules_allow_examples", False)
+    loaded = route_rules.load(path, allow_examples=examples)
+    n = sum(1 for rule in loaded if rule.example)
+    if n:
+        print(f"--route-rules-allow-examples: {n} unproven "
+              f"{'rule' if n == 1 else 'rules'} from {path} will decide "
+              f"which of this session's turns are planned.")
+    if not loaded:
+        print(f"{path} has no rules in it, so this session plans every "
+              f"turn a worker is ready for.")
+    return route_rules.RouteRulePolicy(loaded, path)
 
 
 def turn_switches(state):
@@ -3234,6 +3296,24 @@ def build_parser():
                         "an example that has not been measured on your own "
                         "conversations is a guess (default: examples are "
                         "skipped and the rest of the file still loads)")
+    p.add_argument("--route-agent", action="store_true",
+                   help="let a policy decide which turns are planned out "
+                        "over the helpers instead of planning every one of "
+                        "them. Needs --route-rules to decide by, and only "
+                        "does anything under --agent (default: off, and "
+                        "every turn with a worker ready is planned)")
+    p.add_argument("--route-rules", metavar="FILE",
+                   help="the rules --route-agent decides by: a JSON file of "
+                        "sentences about the session, the ask and the last "
+                        "round, and what each one changes about planning "
+                        "the turn while it is true. A sample ships as "
+                        "salt/agents/route_rules_sample.json")
+    p.add_argument("--route-rules-allow-examples", action="store_true",
+                   help="load the route rules a file marks as examples too. "
+                        "They are written down to be read rather than run, "
+                        "and none of them has been measured on your own "
+                        "conversations (default: examples are skipped and "
+                        "the rest of the file still loads)")
     p.add_argument("--turns", metavar="FILE",
                    help="run a scripted conversation from a JSON array or "
                         "JSONL file instead of the interactive REPL. Each "
@@ -3384,6 +3464,13 @@ def main(argv=None):
             build_switch_policy(args)
         except (OSError, rules.RuleError) as exc:
             print(f"--switch-rules: {exc}", file=sys.stderr)
+            return 1
+
+    if args.route_agent and args.route_rules:
+        try:
+            build_route_policy(args)
+        except (OSError, rules.RuleError) as exc:
+            print(f"--route-rules: {exc}", file=sys.stderr)
             return 1
 
     models = list_models()

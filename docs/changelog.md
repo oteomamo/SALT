@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.20
+## 2.11.0 - 2.11.25
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -80,6 +80,17 @@ cover the tools, the roster and the limits.
   between a plan that parses first time and one that needs a repair. A
   model loaded in the session itself is unchanged: it has no request
   body for a schema to ride on and is shown the worked example.
+- **2.11.21 - 2.11.25** `--route-agent`. Under `--agent` every line was
+  planned out over the helpers, so a turn that said thanks cost the
+  same three model calls a turn that needed the work did. A rules file
+  can now decide, turn by turn, whether to plan at all and what the
+  plan may spend, written in the same language the switch rules are
+  over a wider set of signals: the conversation, the ask, who is ready
+  to help, and what the last round did. A decision may only spend less
+  than the flags already allow. `/stats` prints how often each rule
+  actually fired beside what its author expected, since a threshold
+  that never fires is the way a decision layer quietly does nothing.
+  Off by default, and every rule in the shipped sample is an example.
 
 ## 2.10.0 - 2.10.123
 

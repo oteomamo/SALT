@@ -69,6 +69,9 @@ Agents:
 | `--agent-max-delegations N` | 4 | how many pieces one `/agent` turn may hand out before the rest are reported as not attempted |
 | `--agent-max-wall SECONDS` | 600 | how long one `/agent` turn may spend handing pieces out before it answers with what it has |
 | `--log-signals` | off | write one line per turn to `signals.jsonl` in the session folder, holding the numbers this session reports about itself |
+| `--route-agent` | off | let a policy decide which turns are planned out over the helpers instead of planning every one of them |
+| `--route-rules FILE` | none | the rules `--route-agent` decides by, as sentences about the session, the ask and the last round |
+| `--route-rules-allow-examples` | off | load the route rules a file marks as examples too, none of which has been measured |
 | `--switch-agent` | off | let a policy decide the memory switches per turn instead of leaving them where the flags set them |
 | `--switch-rules FILE` | none | the rules `--switch-agent` decides by, as sentences about the session and the switch each one changes |
 | `--switch-rules-allow-examples` | off | load the rules a file marks as examples too, which are written down to be read rather than run |

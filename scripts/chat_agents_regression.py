@@ -7180,7 +7180,8 @@ def check_route_seam(tmp, tok, mdl):
     # signals are built to reach it
     bare = quiet_state(tmp, "route_bare", tok, mdl)
     try:
-        assert bare.route_policy is None and bare.last_route is None
+        assert isinstance(bare.route_policy, RT.NullRoute), bare.route_policy
+        assert bare.last_route is None
         built = []
         real = RT.route_signals
         RT.route_signals = lambda *a, **k: built.append(1) or real(*a, **k)
@@ -7255,6 +7256,131 @@ def check_route_seam(tmp, tok, mdl):
           "limits and the helpers its plan may name and nothing else, a "
           "clamp is a reason somebody can read, and a policy that "
           "answers with nonsense costs the turn nothing")
+
+
+def check_route_rules(tmp, tok, mdl):
+    """Route rules, the flags that load them, and the census that says
+    whether any of them is doing anything."""
+    from salt.agents import route as RT
+    from salt.agents import route_rules as RR
+
+    assert RR.SCHEMA == "salt-route-rules/1", RR.SCHEMA
+    assert RR.LANGUAGE.signals == RT.SIGNALS, "route rules read another set"
+    assert "why" not in RR.SETTABLE, "a rule can write the audit trail's why"
+    assert set(RR.SETTABLE) == set(RT.FIELDS) - {"why"}, RR.SETTABLE
+
+    doc = {"version": RR.SCHEMA, "rules": [
+        {"id": "small", "when": "ask_words < 6", "then": {"plan": False},
+         "expected": "thanks is not a round"},
+        {"id": "clones", "when": "worker_kinds < 2",
+         "then": {"max_pieces": 1}},
+        {"id": "slow", "when": "last_round_s > 30", "then": {"plan": False}}]}
+    pol = RR.RouteRulePolicy(RR.loads(doc))
+    assert pol.decides and pol.name == "route rules"
+    got = pol.decide({"ask_words": 2, "worker_kinds": 1, "last_round_s": None})
+    assert got.plan is False and got.max_pieces == 1, got
+    assert pol.fired == ("small", "clones"), pol.fired
+    assert len(pol.explain()) == 2, pol.explain()
+    quiet = pol.decide({"ask_words": 40, "worker_kinds": 3,
+                        "last_round_s": 2.0})
+    assert quiet.quiet, "a turn nothing was true of was decided about anyway"
+    assert pol.explain() == (), "a rule that did not fire explained itself"
+
+    # the census, which is the instrument that was missing when the
+    # first rules of this shape were written
+    census = {row["id"]: row for row in pol.census()}
+    assert census["small"]["fired"] == 1 and census["small"]["asked"] == 2
+    assert census["slow"]["fired"] == 0, census["slow"]
+    assert census["small"]["expected"], "an author's note was dropped"
+    # and a rule reading its own output is named as one
+    assert census["slow"]["feedback"] == ("last_round_s",), census["slow"]
+    assert census["clones"]["feedback"] == (), census["clones"]
+    qualified = RR.loads({"version": RR.SCHEMA, "rules": [
+        {"id": "q", "when": "last_round_s > 30 and turns_since_round <= 1",
+         "then": {"plan": False}}]})
+    assert RR.reads_closed_loop(qualified[0]) == (), (
+        "a rule that said how stale a number it acts on was still flagged")
+
+    for broken, fragment in (
+            ({"version": RR.SCHEMA, "rules": [
+                {"id": "x", "when": "coverage_gc", "then": {"plan": True}}]},
+             "It may read"),
+            ({"version": RR.SCHEMA, "rules": [
+                {"id": "x", "when": "ask_words > 1",
+                 "then": {"coverage_gc": True}}]},
+             "a decision about planning a turn cannot set"),
+            ({"version": RR.SCHEMA, "rules": [
+                {"id": "x", "when": "ask_words > 1", "then": {"plan": 1}}]},
+             "plan is a yes or no"),
+            ({"version": RR.SCHEMA, "rules": [
+                {"id": "x", "when": "ask_words > 1",
+                 "then": {"targets": "w"}}]},
+             "list of worker names")):
+        try:
+            RR.loads(broken)
+            raise AssertionError(f"{broken} loaded")
+        except R.RosterError:
+            raise
+        except Exception as exc:
+            assert fragment in str(exc), (fragment, str(exc))
+
+    # the shipped sample: every rule an example, none of them proven
+    sample = Path(RR.__file__).resolve().parent / "route_rules_sample.json"
+    assert RR.load(sample) == [], (
+        "a route rule ships ready to run without being measured")
+    live = RR.load(sample, allow_examples=True)
+    assert live, "the sample has nothing in it"
+    for rule in live:
+        assert rule.expected, f"{rule.id} says nothing about what it is for"
+        if RR.reads_closed_loop(rule):
+            raise AssertionError(f"{rule.id} reads its own output unqualified")
+    text = sample.read_text(encoding="utf-8")
+    for word in ("audit", "review", "agent ladder", "PROGRESS"):
+        assert word not in text, f"{word!r} is in a shipped sample"
+
+    # the flags, which do nothing apart and refuse a bad file at launch
+    args = cli.build_parser().parse_args(["--device", "cpu"])
+    assert not args.route_agent and args.route_rules is None
+    assert isinstance(cli.build_route_policy(args), RT.NullRoute)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        half = cli.build_route_policy(cli.build_parser().parse_args(
+            ["--device", "cpu", "--route-agent"]))
+    assert isinstance(half, RT.NullRoute) and "--route-rules" in buf.getvalue()
+    both = cli.build_parser().parse_args(
+        ["--device", "cpu", "--route-agent", "--route-rules", str(sample)])
+    with redirect_stdout(io.StringIO()):
+        empty = cli.build_route_policy(both)
+    assert not empty.decides, "the sample's examples ran without being asked"
+    with redirect_stdout(io.StringIO()):
+        loaded = cli.build_route_policy(cli.build_parser().parse_args(
+            ["--device", "cpu", "--route-agent", "--route-rules", str(sample),
+             "--route-rules-allow-examples"]))
+    assert loaded.decides and len(loaded.rules) == len(live)
+
+    st = quiet_state(tmp, "route_census", tok, mdl)
+    try:
+        assert cli.route_report(st) == {}, "a session nobody routes reported"
+        st.route_policy = pol
+        report = cli.route_report(st)
+        assert [r["id"] for r in report["rules"]] == ["small", "clones",
+                                                      "slow"], report
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.print_route_audit(st)
+        out = buf.getvalue()
+        assert "fired 1/2" in out and "slow: fired 0/2" in out, out
+        assert "thanks is not a round" in out, out
+        assert "which routing itself moves" in out, out
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(st)
+    print("67. route rules: the same parser under its own schema, 4 "
+          "malformed rules refused by name, a per-rule firing count "
+          "beside what its author expected so a rule that never fires is "
+          "visible in one session, every rule reading its own output "
+          "named as such, the two flags doing nothing apart, and a "
+          "shipped sample where every rule is an example")
 
 
 def main():
@@ -7335,6 +7461,7 @@ def main():
         check_route_signals(tmp, tok, mdl)
         check_route_decision(tmp, tok, mdl)
         check_route_seam(tmp, tok, mdl)
+        check_route_rules(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:
