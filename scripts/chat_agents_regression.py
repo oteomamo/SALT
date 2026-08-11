@@ -7375,12 +7375,57 @@ def check_route_rules(tmp, tok, mdl):
     finally:
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(st)
+    # the audit trail, in the three arms it has to read the same way
+    with Stub(cards=CARDS,
+              pieces=('{"action": "answer", "answer": "said"}',)) as s:
+        for arm, policy_for in (("off", None),
+                                ("plain", RR.RouteRulePolicy(RR.loads(
+                                    {"version": RR.SCHEMA, "rules": [
+                                        {"id": "never",
+                                         "when": "ask_words > 0",
+                                         "then": {"plan": False}}]}))),
+                                ("planned", RR.RouteRulePolicy(RR.loads(
+                                    {"version": RR.SCHEMA, "rules": [
+                                        {"id": "always",
+                                         "when": "ask_words > 0",
+                                         "then": {"plan": True}}]})))):
+            st = quiet_state(tmp, f"route_trail_{arm}", tok, mdl,
+                             roster=delegation_roster(s.url, tmp))
+            try:
+                if policy_for is not None:
+                    st.route_policy = policy_for
+                before = len(events_of(st))
+                with redirect_stdout(io.StringIO()):
+                    cli.agent_line(st, "what did the sizing say?")
+                event = events_of(st)[before]
+                if arm == "off":
+                    assert "route_planned" not in event, (
+                        "an unrouted turn filed a routing key")
+                    assert cli.route_record(st) == {}, cli.route_record(st)
+                else:
+                    assert event["route_planned"] is (arm == "planned"), event
+                    assert event["route_rules_fired"] == [
+                        "never" if arm == "plain" else "always"], event
+                assert st.pending_route is None, (
+                    "a turn's routing was left to attach to the next one")
+                rows = TRACE.read(st.trie.cache_dir).rounds
+                if arm == "planned":
+                    assert rows[-1]["route"]["plan"] is True, rows[-1]["route"]
+                    assert rows[-1]["route"]["rules"] == ["always"]
+                elif arm == "off":
+                    assert not rows or rows[-1]["route"] == {}, rows[-1]
+            finally:
+                with redirect_stdout(io.StringIO()):
+                    cli.close_ingest(st)
+
     print("67. route rules: the same parser under its own schema, 4 "
           "malformed rules refused by name, a per-rule firing count "
           "beside what its author expected so a rule that never fires is "
           "visible in one session, every rule reading its own output "
-          "named as such, the two flags doing nothing apart, and a "
-          "shipped sample where every rule is an example")
+          "named as such, the two flags doing nothing apart, a "
+          "shipped sample where every rule is an example, and a routing "
+          "trail that reads the same whether the turn was planned, "
+          "turned back into a plain one or never routed at all")
 
 
 def main():

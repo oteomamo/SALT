@@ -443,6 +443,20 @@ one of them is marked as an example, so none runs unless
 `--route-rules-allow-examples` asks for it, and none of them has been
 measured on a real conversation.
 
+### The routing trail
+
+A routed turn says so in two places. `agent_trace.jsonl` carries a
+`route` object holding what was decided and which rules decided it, and
+that turn's own record in the KV trace says whether it was planned and
+which rules fired. A turn nobody routed carries an empty object in the
+trace and no extra key at all in the KV record, so a session with no
+route policy keeps exactly the shape it always had.
+
+Turns routed away from planning are recorded the same way as the ones
+routed into it. That is deliberate: a rules file that quietly turns
+everything off is the failure worth catching, and it is only visible if
+the turns it declined leave a trail too.
+
 ### Watching which rules fire
 
 `/stats` prints every route rule, how many of the turns it was asked

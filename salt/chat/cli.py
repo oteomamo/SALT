@@ -300,6 +300,7 @@ class ChatState:
         # who decides whether a turn is planned at all, and what the
         # last such decision was. Nobody, until something says
         self.last_route = None
+        self.pending_route = None
         # who decides how a turn selects. Nobody, until something says
         # otherwise: the default is not asked and changes nothing
         self.switch_policy = build_switch_policy(args).bind(self)
@@ -459,6 +460,7 @@ class ChatState:
         self.last_round = self.pending_round = None
         self.last_round_turn = None
         self.last_route = None
+        self.pending_route = None
         self.turn_switches = None
         self.agent_stats = resume_rounds(self.trie.cache_dir)
         resume_workers(self)
@@ -1550,6 +1552,11 @@ def agent_line(state, line):
     costs, and so is a turn a route policy decided against."""
     decision, why = turn_route(state, line)
     state.last_route = (decision, why)
+    # filed before the turn runs, so a turn routed AWAY from planning
+    # still records that something decided it. A router that quietly
+    # turns everything off has to be visible in the same place a router
+    # that plans everything is
+    state.pending_route = route_record(state)
     if not decision.plan:
         return chat_turn(state, line)
     return run_agent_turn(state, line, quiet=True, decision=decision)
@@ -1561,11 +1568,12 @@ def run_agent_turn(state, task, quiet=False, decision=None):
     round_ = AgentRound(task, agent_limits(state, decision), endpoint,
                         quiet=quiet,
                         allowed=None if decision is None else decision.targets)
+    routed = route_record(state) if decision is not None else {}
     reply = chat_turn(state, task, reply_fn=round_,
                       reply_model_id=getattr(endpoint, "model_id", None),
                       reply_tokenizer=getattr(endpoint, "tokenizer", None),
                       reply_label=AGENT_LABEL)
-    file_trace(state, round_.record)
+    file_trace(state, round_.record, routed)
     if quiet:
         agent_notice(state, round_)
     return reply
@@ -1587,7 +1595,38 @@ def agent_turn(state, rest):
     return run_agent_turn(state, task)
 
 
-def file_trace(state, record):
+def route_record(state):
+    """What decided this turn was worth planning, as a record. Empty
+    when nobody decided, which is every session with no route policy."""
+    last = getattr(state, "last_route", None)
+    chooser = getattr(state, "route_policy", None)
+    if last is None or chooser is None or not chooser.decides:
+        return {}
+    decision, why = last
+    return {"policy": chooser.name,
+            "plan": bool(decision.plan),
+            "max_pieces": decision.max_pieces,
+            "max_wall_s": decision.max_wall_s,
+            "rounds": decision.rounds,
+            "targets": list(decision.targets or ()),
+            "rules": [row["id"] for row in why]}
+
+
+def route_extra(state):
+    """This turn's routing, as kvtrace keys.
+
+    Empty on a turn nobody routed, so the event keeps exactly the shape
+    it has always had. Taken and cleared for the same reason the round
+    is: it belongs to the turn being recorded now.
+    """
+    record, state.pending_route = getattr(state, "pending_route", None), None
+    if not record:
+        return {}
+    return {"route_planned": bool(record["plan"]),
+            "route_rules_fired": list(record["rules"])}
+
+
+def file_trace(state, record, route=None):
     """File one round in the session's trace and count it. Written after
     the reply is on screen and best effort like the delegation ledger:
     losing the history of a turn must not take the turn with it. The
@@ -1595,7 +1634,7 @@ def file_trace(state, record):
     happened either way."""
     if record is None:
         return
-    rec = trace.record(record)
+    rec = trace.record(record, route)
     trace.tally(state.agent_stats, rec)
     try:
         trace.append(state.trie.cache_dir, rec)
@@ -2672,6 +2711,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         # only the turn that claimed it is gone
         state.pending_delegations = []
         state.pending_round = None
+        state.pending_route = None
         raise
     finally:
         # a borrowed answerer holds a connection, and closing the
@@ -2701,6 +2741,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     extra.update(getattr(state.runner, "last_engine_stats", None) or {})
     extra.update(delegation_extra(state))
     extra.update(agent_extra(state))
+    extra.update(route_extra(state))
     extra.update(switch_extra(state))
     try:
         state.kvtrace.record_turn(

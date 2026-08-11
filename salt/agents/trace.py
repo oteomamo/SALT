@@ -23,7 +23,7 @@ SCHEMA = "salt-agent-trace/1"
 TRACE_NAME = "agent_trace.jsonl"
 FIELDS = ("schema", "ask", "action", "subtasks", "pieces", "synthesis",
           "protocol_failures", "fell_back", "answered_directly", "rounds",
-          "reply_words", "t_start", "t_end", "seconds")
+          "reply_words", "t_start", "t_end", "seconds", "route")
 PIECE_FIELDS = ("id", "target", "status", "ran", "usage", "seconds")
 
 
@@ -55,8 +55,15 @@ def piece(result):
             "seconds": round(result.seconds, 3)}
 
 
-def record(round_):
-    """The line one agent turn leaves behind."""
+def record(round_, route=None):
+    """The line one agent turn leaves behind.
+
+    `route` is what decided this turn was worth planning, empty when
+    nobody decided. Empty rather than absent: a round that nobody routed
+    and a round whose route was lost are different things, and a reader
+    counting how often a policy actually acted has to be able to tell
+    them apart.
+    """
     directive = round_.directive
     subtasks = getattr(directive, "subtasks", ()) or ()
     return {"schema": SCHEMA,
@@ -73,7 +80,8 @@ def record(round_):
             "reply_words": len(round_.text.split()),
             "t_start": round(float(round_.t_start), 3),
             "t_end": round(float(round_.t_end), 3),
-            "seconds": round(round_.seconds, 3)}
+            "seconds": round(round_.seconds, 3),
+            "route": dict(route or {})}
 
 
 def append(session_dir, rec):
