@@ -1002,6 +1002,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#watching-a-switch-rule-over-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching a switch rule over a session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#the-audit-trail" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1764,6 +1775,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#watching-a-switch-rule-over-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching a switch rule over a session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#the-audit-trail" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2338,6 +2360,12 @@ decision is allowed to read, and <code>/stats</code> says how many turns are in
 it. It is off by default, because a file that grows every turn is worth
 asking for. Turn it on for a session or two before trusting a threshold
 you have not watched.</p>
+<h3 id="watching-a-switch-rule-over-a-session">Watching a switch rule over a session</h3>
+<p><code>/stats</code> prints every switch rule, how many of the turns it was asked
+about it actually fired on, and the note its author left. A rule that
+never fires and a rule that fires on nearly every turn are the two ways
+a rules file is quietly useless, and neither is visible in a record of
+one turn. Rules a file marks as examples are labelled as such.</p>
 <h3 id="the-audit-trail">The audit trail</h3>
 <p>A turn a rule changed says so twice. <code>/stats</code> names the policy, the rule
 that fired, the sentence that was true and what it set, and that turn's
