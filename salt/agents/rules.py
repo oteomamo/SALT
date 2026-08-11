@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from salt.agents.policy import KWARGS, SELECTION, SwitchPolicy, check
+from salt.agents.policy import KWARGS, SwitchPolicy, check
 from salt.agents.snapshot import RULE_SIGNALS
 
 SCHEMA = "salt-switch-rules/1"
@@ -229,9 +229,10 @@ class Rule:
         return truth(evaluate(self.node, signals))
 
 
-def read_rule(raw, index):
+def read_rule(raw, index, lang=None):
     """One entry of a rules file, checked against everything it could
     have got wrong before anything is done with it."""
+    lang = SWITCH_LANGUAGE if lang is None else lang
     where = f"rule {index + 1}"
     if not isinstance(raw, dict):
         raise RuleError(f"{where} is a {type(raw).__name__}, and a rule is "
@@ -249,29 +250,22 @@ def read_rule(raw, index):
         raise RuleError(f"{where} has {rule_id!r} for an id, and an id is "
                         f"a name the audit trail can print")
     node = parse(raw["when"])
-    unreadable = sorted(names(node) - set(RULE_SIGNALS))
+    unreadable = sorted(names(node) - set(lang.signals))
     if unreadable:
         raise RuleError(
             f"{rule_id!r} reads {unreadable}, which is not something a "
             f"session reports about itself. It may read: "
-            f"{', '.join(RULE_SIGNALS)}")
+            f"{', '.join(lang.signals)}")
     then = raw["then"]
     if not isinstance(then, dict) or not then:
         raise RuleError(f"{rule_id!r} changes nothing, and a rule that "
                         f"fires has to change something")
-    unsettable = sorted(set(then) - set(SELECTION))
+    unsettable = sorted(set(then) - set(lang.settable))
     if unsettable:
         raise RuleError(
-            f"{rule_id!r} sets {unsettable}, which a turn's selection "
-            f"cannot set. It may set: {', '.join(KWARGS)}")
-    for name, value in then.items():
-        if not isinstance(value, (bool, int, float, type(None))):
-            raise RuleError(f"{rule_id!r} sets {name} to "
-                            f"{type(value).__name__}, and a switch takes a "
-                            f"number, a yes or no, or nothing")
-        if isinstance(value, float) and not math.isfinite(value):
-            raise RuleError(f"{rule_id!r} sets {name} to {value!r}, and a "
-                            f"switch takes a finite number")
+            f"{rule_id!r} sets {unsettable}, which {lang.cannot}. It may "
+            f"set: {', '.join(lang.settable)}")
+    lang.values(rule_id, then)
     return Rule(id=rule_id, when=raw["when"], then=dict(then), node=node,
                 expected=raw.get("expected", "") or "",
                 evidence=raw.get("evidence", "") or "",
@@ -293,7 +287,47 @@ CONFLICTS = (
 )
 
 
-def guard(rules):
+def switch_values(rule_id, then):
+    """What a switch may be set to. A number, a yes or no, or nothing."""
+    for name, value in then.items():
+        if not isinstance(value, (bool, int, float, type(None))):
+            raise RuleError(f"{rule_id!r} sets {name} to "
+                            f"{type(value).__name__}, and a switch takes a "
+                            f"number, a yes or no, or nothing")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise RuleError(f"{rule_id!r} sets {name} to {value!r}, and a "
+                            f"switch takes a finite number")
+    return then
+
+
+@dataclass(frozen=True)
+class Language:
+    """What one kind of rules file is written in.
+
+    Everything above this is signal-agnostic already: the tokenizer, the
+    parser, `evaluate` and `Rule.fires` compare names against numbers
+    and never ask what a name means. What differs between two kinds of
+    rule is the schema they declare, the names they may read, the things
+    they may set, and which combinations are known to cancel. Holding
+    those four in one value is the whole of what it takes to read a
+    second kind of rules file with this parser rather than a second
+    parser.
+    """
+
+    schema: str
+    signals: tuple
+    settable: tuple
+    conflicts: tuple = ()
+    # how a `then` is checked, and how a refusal about one is worded
+    values: object = switch_values
+    cannot: str = "a turn's selection cannot set"
+
+
+SWITCH_LANGUAGE = Language(schema=SCHEMA, signals=RULE_SIGNALS,
+                           settable=KWARGS, conflicts=CONFLICTS)
+
+
+def guard(rules, lang=None):
     """Refuse a set that could turn on two switches known to cancel.
 
     Whether two rules can both fire is not knowable from their text, so
@@ -301,12 +335,13 @@ def guard(rules):
     A rule set is written once and read for a long time, and the cost of
     being wrong here is a switch that quietly does nothing.
     """
+    lang = SWITCH_LANGUAGE if lang is None else lang
     setters = {}
     for rule in rules:
         for name, value in rule.then.items():
             if value:
                 setters.setdefault(name, []).append(rule.id)
-    for one, other, why in CONFLICTS:
+    for one, other, why in lang.conflicts:
         if setters.get(one) and setters.get(other):
             raise RuleError(
                 f"{sorted(set(setters[one]))} turns on {one} and "
@@ -326,20 +361,21 @@ def guard_overrides(overrides):
     return overrides
 
 
-def loads(data, allow_examples=False, where="<rules>"):
+def loads(data, allow_examples=False, where="<rules>", lang=None):
     """A rules document as rules, or a refusal naming what is wrong."""
+    lang = SWITCH_LANGUAGE if lang is None else lang
     if not isinstance(data, dict):
         raise RuleError(f"{where} is a {type(data).__name__}, and a rules "
                         f"file is an object with a version and a list of "
                         f"rules")
     version = data.get("version")
-    if version != SCHEMA:
+    if version != lang.schema:
         raise RuleError(f"{where} is written as {version!r}, and this salt "
-                        f"reads {SCHEMA}")
+                        f"reads {lang.schema}")
     raw = data.get("rules")
     if not isinstance(raw, list):
         raise RuleError(f"{where} has no list of rules")
-    rules = [read_rule(entry, i) for i, entry in enumerate(raw)]
+    rules = [read_rule(entry, i, lang) for i, entry in enumerate(raw)]
     seen = {}
     for rule in rules:
         if rule.id in seen:
@@ -348,14 +384,14 @@ def loads(data, allow_examples=False, where="<rules>"):
                             f"mean either")
         seen[rule.id] = rule
     live = [r for r in rules if allow_examples or not r.example]
-    return guard(live)
+    return guard(live, lang)
 
 
 def _refuse_constant(word):
     raise RuleError(f"{word} is not a value a rules file may carry")
 
 
-def load(path, allow_examples=False):
+def load(path, allow_examples=False, lang=None):
     text = Path(path).read_text(encoding="utf-8")
     try:
         data = json.loads(text, parse_constant=_refuse_constant)
@@ -363,7 +399,8 @@ def load(path, allow_examples=False):
         raise
     except (ValueError, RecursionError) as exc:
         raise RuleError(f"{path} is not readable as JSON: {exc}")
-    return loads(data, allow_examples=allow_examples, where=str(path))
+    return loads(data, allow_examples=allow_examples, where=str(path),
+                 lang=lang)
 
 
 class RulePolicy(SwitchPolicy):

@@ -4830,11 +4830,50 @@ def check_rules_language(tmp, tok, mdl):
         raise AssertionError("a broken file loaded")
     except RU.RuleError as exc:
         assert "not readable as JSON" in str(exc), exc
+    # the four things that differ between one kind of rules file and
+    # another, held in one value. The switch language IS the module's
+    # own constants, so every caller that names none reads as it always
+    # did, and a second kind of rule reuses this parser rather than
+    # growing one of its own
+    lang = RU.SWITCH_LANGUAGE
+    assert (lang.schema, lang.signals, lang.settable, lang.conflicts) == (
+        RU.SCHEMA, S.RULE_SIGNALS, PL.KWARGS, RU.CONFLICTS), lang
+    shipped = Path(RU.__file__).resolve().parent / "switch_rules_sample.json"
+    assert RU.load(shipped, allow_examples=True) == RU.load(
+        shipped, allow_examples=True, lang=lang), (
+        "naming the language a caller was already using changed the read")
+
+    other = RU.Language(schema="other/1", signals=("ask_words",),
+                        settable=("plan",), cannot="a made up seam cannot set",
+                        values=lambda rule_id, then: then)
+    doc = {"version": "other/1",
+           "rules": [{"id": "big", "when": "ask_words > 40",
+                      "then": {"plan": True}}]}
+    got = RU.loads(doc, lang=other)
+    assert len(got) == 1 and got[0].fires({"ask_words": 99}), got
+    assert not got[0].fires({"ask_words": 1}), "a second language misread"
+    for broken, fragment in (
+            ({"version": RU.SCHEMA, "rules": []}, "reads other/1"),
+            ({"version": "other/1",
+              "rules": [{"id": "x", "when": "n_turns > 1",
+                         "then": {"plan": True}}]}, "It may read: ask_words"),
+            ({"version": "other/1",
+              "rules": [{"id": "x", "when": "ask_words > 1",
+                         "then": {"coverage_gc": True}}]},
+             "a made up seam cannot set")):
+        try:
+            RU.loads(broken, lang=other)
+            raise AssertionError(f"{broken} loaded under the wrong language")
+        except RU.RuleError as exc:
+            assert fragment in str(exc), (fragment, str(exc))
+
     print(f"47. the rules language: {len(cases)} expressions read by a "
           f"parser that only compares, every hostile string refused rather "
           f"than run, a signal a session cannot report firing nothing, "
-          f"every way a file can be wrong caught when it loads, and a set "
-          f"that could stack two cancelling switches refused whole")
+          f"every way a file can be wrong caught when it loads, a set "
+          f"that could stack two cancelling switches refused whole, and a "
+          f"second kind of rule read by the same parser under its own "
+          f"schema, signals and settable names")
 
 
 def rules_file(tmp, name, *entries):
