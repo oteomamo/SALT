@@ -409,6 +409,11 @@ class RulePolicy(SwitchPolicy):
     Later rules win a switch two rules both set, which is what makes the
     file order meaningful and lets a narrow rule sit under a broad one.
     What fired is kept so the turn can say why it selected as it did.
+
+    How often each rule has fired is counted for the whole session, not
+    only for the last turn. A rule that never fires and a rule that
+    fires on almost every turn are the two ways a rules file is quietly
+    useless, and neither is visible in a record of one turn.
     """
 
     name = "rules"
@@ -417,17 +422,21 @@ class RulePolicy(SwitchPolicy):
         self.rules = tuple(rules)
         self.path = str(path)
         self.fired = ()
+        self.fires = {rule.id: 0 for rule in self.rules}
+        self.asked = 0
 
     @property
     def decides(self):
         return bool(self.rules)
 
     def decide(self, signals):
+        self.asked += 1
         overrides, fired = {}, []
         for rule in self.rules:
             if rule.fires(signals):
                 overrides.update(rule.then)
                 fired.append(rule.id)
+                self.fires[rule.id] = self.fires.get(rule.id, 0) + 1
         self.fired = tuple(fired)
         return check(overrides)
 
@@ -438,3 +447,11 @@ class RulePolicy(SwitchPolicy):
         return tuple({"id": rule_id, "when": by_id[rule_id].when,
                       "then": dict(by_id[rule_id].then)}
                      for rule_id in self.fired if rule_id in by_id)
+
+    def census(self):
+        """Every rule, how often it has fired, and what its author said
+        it was for. The one-session read that replaces a sweep."""
+        return tuple({"id": rule.id, "fired": self.fires.get(rule.id, 0),
+                      "asked": self.asked, "expected": rule.expected,
+                      "example": bool(rule.example)}
+                     for rule in self.rules)

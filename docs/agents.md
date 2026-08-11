@@ -617,6 +617,14 @@ it. It is off by default, because a file that grows every turn is worth
 asking for. Turn it on for a session or two before trusting a threshold
 you have not watched.
 
+### Watching a switch rule over a session
+
+`/stats` prints every switch rule, how many of the turns it was asked
+about it actually fired on, and the note its author left. A rule that
+never fires and a rule that fires on nearly every turn are the two ways
+a rules file is quietly useless, and neither is visible in a record of
+one turn. Rules a file marks as examples are labelled as such.
+
 ### The audit trail
 
 A turn a rule changed says so twice. `/stats` names the policy, the rule

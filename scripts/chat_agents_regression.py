@@ -4961,8 +4961,14 @@ def check_switch_agent(tmp, tok, mdl):
         event = events_of(state)[-1]
         assert "switch_overrides" not in event, event
         assert "switch_rules_fired" not in event, event
-        assert "switch agent:" not in stats_output(state), (
-            "a turn nothing decided about was explained anyway")
+        out = stats_output(state)
+        assert "changed nothing on the last turn" in out, out
+        # a rule that never fires is the finding, so it is reported
+        # rather than left silent. Both switch-layer embarrassments
+        # were a rule nobody was counting
+        assert "never: fired 0/" in out, out
+        assert "(n_attachments > 5)" not in out, (
+            "a rule that did not fire was explained as though it had")
     finally:
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(state)
@@ -7022,6 +7028,72 @@ def check_main_schema(tmp, tok, mdl):
           "write-up is held to no shape either way")
 
 
+def check_switch_census(tmp, tok, mdl):
+    """How often each switch rule has fired, across the whole session.
+
+    The instrument both switch-layer embarrassments happened without: a
+    shipped example keyed on a scale that did not exist fired on almost
+    every turn, and nothing was counting.
+    """
+    from salt.agents import rules as RU
+
+    doc = {"version": RU.SCHEMA, "rules": [
+        {"id": "always", "when": "n_turns > 0",
+         "then": {"coverage_gc": True}, "expected": "every session"},
+        {"id": "never", "when": "n_attachments > 99",
+         "then": {"per_source_themes": True}, "example": True}]}
+    pol = RU.RulePolicy(RU.loads(doc, allow_examples=True), "f.json")
+    assert pol.asked == 0 and pol.fires == {"always": 0, "never": 0}
+    for turns in (1, 2, 0):
+        pol.decide({"n_turns": turns, "n_attachments": 0})
+    census = {row["id"]: row for row in pol.census()}
+    assert census["always"]["fired"] == 2, census["always"]
+    assert census["never"]["fired"] == 0, census["never"]
+    assert all(row["asked"] == 3 for row in census.values()), census
+    assert census["always"]["expected"] == "every session"
+    assert census["never"]["example"] is True, census["never"]
+    assert census["always"]["example"] is False
+
+    path = rules_file(tmp, "census.json",
+                      {"id": "wide", "when": "n_turns > 0",
+                       "then": {"coverage_gc": True},
+                       "expected": "meant for long sessions only"})
+    st = quiet_state(tmp, "switch_census", tok, mdl,
+                     flags=["--switch-agent", "--switch-rules", str(path)])
+    try:
+        out = stats_output(st)
+        # the finding this exists for: a rule that fires on nearly every
+        # turn reads as one, in one session, without a sweep
+        row = [ln for ln in out.splitlines()
+               if "wide" in ln and "fired " in ln]
+        assert row, out
+        fired, asked = row[0].split("fired ")[1].split()[0].split("/")
+        assert int(fired) == int(asked) and int(asked) > 1, row[0]
+        assert "meant for long sessions only" in row[0], row[0]
+        assert st.last_stats is not None
+        reported = cli.build_stats(st)["decided"]
+        assert [r["id"] for r in reported["rules"]] == ["wide"], reported
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(st)
+
+    # and a session nobody decides for still says nothing at all
+    bare = quiet_state(tmp, "switch_census_off", tok, mdl)
+    try:
+        assert cli.build_stats(bare)["decided"]["rules"] == [], (
+            "a session with no rules reported rules")
+        assert "switch agent:" not in stats_output(bare), (
+            "a session nobody decides for explained itself")
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(bare)
+    print("68. the switch census: every rule counted for the whole "
+          "session rather than the last turn, a rule that never fires "
+          "and one that fires on every turn both visible in one session "
+          "beside what its author expected, examples marked as such, and "
+          "a session nobody decides for still silent")
+
+
 def check_route_signals(tmp, tok, mdl):
     """What a decision about planning a turn is allowed to read."""
     from salt.agents import route as RT
@@ -7503,6 +7575,7 @@ def main():
         check_hardening_fixes(tmp, tok, mdl)
         check_thinking_policy(tmp, tok, mdl)
         check_main_schema(tmp, tok, mdl)
+        check_switch_census(tmp, tok, mdl)
         check_route_signals(tmp, tok, mdl)
         check_route_decision(tmp, tok, mdl)
         check_route_seam(tmp, tok, mdl)

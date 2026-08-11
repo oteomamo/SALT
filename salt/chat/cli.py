@@ -1709,25 +1709,58 @@ def switch_extra(state):
             "switch_rules_fired": [row["id"] for row in state.last_audit]}
 
 
+def switch_report(state):
+    """The switch policy's own state: what it changed on the last turn,
+    and how often each of its rules has fired across the session."""
+    chooser = state.switch_policy
+    census = (chooser.census() if getattr(chooser, "decides", False)
+              and hasattr(chooser, "census") else ())
+    return {"policy": chooser.name,
+            "path": getattr(chooser, "path", ""),
+            "overrides": dict(state.last_overrides),
+            "audit": list(state.last_audit),
+            "rules": [dict(row) for row in census]}
+
+
+def print_rule_census(rows, indent="  "):
+    """Every rule, how often it fired, and what its author expected.
+
+    Printed whole rather than only for the rules that fired, because a
+    rule that has never fired is the finding. Both switch-layer
+    embarrassments would have shown up in one session with this: an
+    example keyed on a scale that did not exist fired on 98.9 percent
+    of turns, and nothing counted.
+    """
+    for row in rows:
+        asked = row["asked"]
+        share = f"{row['fired']}/{asked}" if asked else "not asked yet"
+        note = f" - {row['expected']}" if row.get("expected") else ""
+        mark = " [example]" if row.get("example") else ""
+        print(f"{indent}{row['id']}{mark}: fired {share}{note}")
+
+
 def print_switch_audit(state, decided=None):
-    """Why the last turn selected the way it did. Silent unless
-    something was decided: a session whose policy left every switch
-    alone has nothing to explain."""
-    decided = ({"policy": state.switch_policy.name,
-                "path": getattr(state.switch_policy, "path", ""),
-                "overrides": dict(state.last_overrides),
-                "audit": list(state.last_audit)}
-               if decided is None else decided)
-    if not decided["overrides"]:
+    """Why the last turn selected the way it did, and what this
+    session's rules have been doing. Silent from a session nobody is
+    deciding for."""
+    decided = switch_report(state) if decided is None else decided
+    rows = decided.get("rules") or ()
+    if not decided["overrides"] and not rows:
         return
     where = f" ({decided['path']})" if decided["path"] else ""
-    print(f"switch agent: {decided['policy']}{where} changed "
-          f"{len(decided['overrides'])} switch"
-          f"{'' if len(decided['overrides']) == 1 else 'es'} for the last "
-          f"turn only")
-    for row in decided["audit"]:
-        changed = ", ".join(f"{k}={v}" for k, v in sorted(row["then"].items()))
-        print(f"  {row['id']} ({row['when']}): {changed}")
+    if decided["overrides"]:
+        n = len(decided["overrides"])
+        print(f"switch agent: {decided['policy']}{where} changed {n} "
+              f"switch{'' if n == 1 else 'es'} for the last turn only")
+        for row in decided["audit"]:
+            changed = ", ".join(f"{k}={v}"
+                                for k, v in sorted(row["then"].items()))
+            print(f"  {row['id']} ({row['when']}): {changed}")
+    else:
+        print(f"switch agent: {decided['policy']}{where} changed nothing "
+              f"on the last turn")
+    if rows:
+        print_rule_census(rows)
 
 
 def route_report(state):
@@ -1755,11 +1788,8 @@ def print_route_audit(state, routed=None):
         return
     where = f" ({routed['path']})" if routed["path"] else ""
     print(f"route agent: {routed['policy']}{where}")
+    print_rule_census(routed["rules"])
     for row in routed["rules"]:
-        asked = row["asked"]
-        share = f"{row['fired']}/{asked}" if asked else "not asked yet"
-        note = f" - {row['expected']}" if row["expected"] else ""
-        print(f"  {row['id']}: fired {share}{note}")
         if row["feedback"]:
             print(f"    reads {', '.join(row['feedback'])}, which routing "
                   f"itself moves, without saying how stale a number it "
@@ -1832,10 +1862,7 @@ def build_stats(state):
         "rounds": state.agent_stats,
         "signals": signals_report(state),
         "routed": route_report(state),
-        "decided": {"policy": state.switch_policy.name,
-                    "path": getattr(state.switch_policy, "path", ""),
-                    "overrides": dict(state.last_overrides),
-                    "audit": list(state.last_audit)},
+        "decided": switch_report(state),
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,

@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.25
+## 2.11.0 - 2.11.27
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -91,6 +91,11 @@ cover the tools, the roster and the limits.
   actually fired beside what its author expected, since a threshold
   that never fires is the way a decision layer quietly does nothing.
   Off by default, and every rule in the shipped sample is an example.
+- **2.11.27** `/stats` counts a switch rule over the whole session, not
+  only the last turn. Every rule is listed with how many of the turns it
+  was asked about it fired on and the note its author left, so a rule
+  that never fires and one that fires on nearly every turn are both
+  visible after one conversation.
 
 ## 2.10.0 - 2.10.123
 
