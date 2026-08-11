@@ -1472,6 +1472,21 @@ real session before it is trusted.</p>
 <td>write one line per turn to <code>signals.jsonl</code> in the session folder, holding the numbers this session reports about itself</td>
 </tr>
 <tr>
+<td><code>--route-agent</code></td>
+<td>off</td>
+<td>let a policy decide which turns are planned out over the helpers instead of planning every one of them</td>
+</tr>
+<tr>
+<td><code>--route-rules FILE</code></td>
+<td>none</td>
+<td>the rules <code>--route-agent</code> decides by, as sentences about the session, the ask and the last round</td>
+</tr>
+<tr>
+<td><code>--route-rules-allow-examples</code></td>
+<td>off</td>
+<td>load the route rules a file marks as examples too, none of which has been measured</td>
+</tr>
+<tr>
 <td><code>--switch-agent</code></td>
 <td>off</td>
 <td>let a policy decide the memory switches per turn instead of leaving them where the flags set them</td>

@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21120" class="md-nav__link">
+  <a href="#2110-21125" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.20
+        2.11.0 - 2.11.25
       
     </span>
   </a>
@@ -1261,10 +1261,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21120" class="md-nav__link">
+  <a href="#2110-21125" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.20
+        2.11.0 - 2.11.25
       
     </span>
   </a>
@@ -1426,7 +1426,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21120">2.11.0 - 2.11.20</h2>
+<h2 id="2110-21125">2.11.0 - 2.11.25</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1502,6 +1502,17 @@ cover the tools, the roster and the limits.</p>
   between a plan that parses first time and one that needs a repair. A
   model loaded in the session itself is unchanged: it has no request
   body for a schema to ride on and is shown the worked example.</li>
+<li><strong>2.11.21 - 2.11.25</strong> <code>--route-agent</code>. Under <code>--agent</code> every line was
+  planned out over the helpers, so a turn that said thanks cost the
+  same three model calls a turn that needed the work did. A rules file
+  can now decide, turn by turn, whether to plan at all and what the
+  plan may spend, written in the same language the switch rules are
+  over a wider set of signals: the conversation, the ask, who is ready
+  to help, and what the last round did. A decision may only spend less
+  than the flags already allow. <code>/stats</code> prints how often each rule
+  actually fired beside what its author expected, since a threshold
+  that never fires is the way a decision layer quietly does nothing.
+  Off by default, and every rule in the shipped sample is an example.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name

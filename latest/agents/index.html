@@ -864,6 +864,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#deciding-which-turns-are-worth-planning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deciding which turns are worth planning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#watching-which-rules-fire" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching which rules fire
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#one-more-round" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1593,6 +1615,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#deciding-which-turns-are-worth-planning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deciding which turns are worth planning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#watching-which-rules-fire" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching which rules fire
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#one-more-round" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2102,6 +2146,45 @@ saying whether that turn really went through a round or was answered
 plainly because no worker was ready. Items that already name their own
 path are untouched: an <code>agent</code> item is planned whether or not the flag
 is on, and an <code>offload</code> item still goes straight to its worker.</p>
+<h3 id="deciding-which-turns-are-worth-planning">Deciding which turns are worth planning</h3>
+<p>Planning every line is the wrong default in the other direction. A
+planned turn is three or more model calls where a plain turn is one, so
+a line that says thanks pays for a round it never needed.
+<code>--route-agent</code> with <code>--route-rules FILE</code> lets a rules file decide,
+turn by turn, whether to plan at all and what the plan may spend.</p>
+<p>The rules are written in the same language the switch rules are, over a
+wider set of signals: the conversation, the ask itself, who is ready to
+help, and what the last round did. A rule can turn planning off, cap how
+many pieces the plan may hand out, shorten the wall clock, or name the
+helpers its plan may use.</p>
+<p>A decision can only spend less than the flags already allow. Whatever a
+rule proposes is clamped against <code>--agent-max-delegations</code>,
+<code>--agent-max-wall</code> and <code>--agent-rounds</code>, a helper the roster does not
+carry is dropped, and a plan left with nobody to plan with becomes a
+plain turn. The reason for every clamp is kept and printed.</p>
+<p>The strongest rule to write is not about the size of the ask. It is
+<code>worker_kinds &lt; 2</code>: a plan concentrates on one helper unless the roster
+notes describe genuinely different jobs, so a roster of lookalikes never
+fans out however the question is phrased, and a round that pays for a
+fan-out there was never going to get one.</p>
+<p>Some signals describe the last round, which means routing decides them
+itself. A rule reading one without also reading <code>turns_since_round</code> does
+not merely stop firing, it freezes: "the last round was slow, so do not
+plan" is true once, and then no round runs, so the number never moves
+again. Write <code>turns_since_round</code> into any such rule, and read the
+census below to see whether it is still saying anything.</p>
+<p><code>salt/agents/route_rules_sample.json</code> ships four rules to read. Every
+one of them is marked as an example, so none runs unless
+<code>--route-rules-allow-examples</code> asks for it, and none of them has been
+measured on a real conversation.</p>
+<h3 id="watching-which-rules-fire">Watching which rules fire</h3>
+<p><code>/stats</code> prints every route rule, how many of the turns it was asked
+about it actually fired on, and the note its author left about what it
+was for. That whole line is the point: a threshold that never fires and
+one that fires every turn are the two ways a rules file quietly does
+nothing, and both are visible after one session rather than after a
+sweep. A rule reading a signal routing itself moves, without saying how
+stale a number it will act on, is called out there too.</p>
 <h3 id="one-more-round">One more round</h3>
 <p><code>--agent-rounds 2</code> lets the orchestrator look at what came back and ask
 once for one more thing before the turn is written up. Pieces it names
