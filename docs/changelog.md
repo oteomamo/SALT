@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.27
+## 2.11.0 - 2.11.38
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -96,6 +96,49 @@ cover the tools, the roster and the limits.
   was asked about it fired on and the note its author left, so a rule
   that never fires and one that fires on nearly every turn are both
   visible after one conversation.
+- **2.11.29** Room to reason. A helper that writes its working before
+  its answer used to plan under a chat reply's length and spend all of
+  it on the working, so the round got a reply that was never an answer.
+  A roster call that names no length is now sized from the window its
+  endpoint actually serves, and an entry that asks for the working with
+  a reply shorter than 2048 is refused when the roster loads, with the
+  fix in the message.
+- **2.11.30** The write-up reads the turn's memory. The model that
+  writes a planned turn's reply was sent the helpers' pieces alone, so
+  it answered without the memory the plan itself was shown. That block
+  now travels with the write-up, cut to whole sections when the pieces
+  leave less room than it needs.
+- **2.11.31** A planned turn records what its own calls cost. The trace
+  line said what every piece cost and nothing about the plan, the
+  follow-up and the write-up, and its write-up field was filled in only
+  on turns that gave up and answered directly. Both now land on that
+  line as `planning` and `synthesis`.
+- **2.11.32** A route rule that would freeze does not load. A rule that
+  reads what routing itself decides, without saying how stale a number
+  it will act on, fires once and then answers every later turn from that
+  one reading, because the number only moves when a round runs. Such a
+  rule is refused when the file loads, naming the signals and the fix.
+- **2.11.33** `--route-policy model`. The question of whether a turn is
+  worth planning can go to the model instead of a rules file, which is
+  what a session with no rules to give needed. It is shown the
+  conversation as numbers, what the session allows and who is ready, and
+  what it asks for is clamped against the same flags a rule is. Off by
+  default and experimental.
+- **2.11.34** `--route-agent` without `--agent` prints the recipe. Such
+  a session built the policy, read the rules file and routed nothing,
+  saying so nowhere. It now says what the whole recipe is and carries on
+  with routing off, rather than refusing to start.
+- **2.11.35 - 2.11.36** `--roster auto`. A roster can be fitted instead
+  of written: SALT reads the models you have registered and the memory
+  free on each card, sizes a helper for each job it knows about, and
+  writes the file to the session folder. A share covers weights, KV
+  cache and a flat reserve with room on top, because a share sized to
+  exactly what a model needs is one vLLM refuses to start on. Each
+  fitted helper is described in words the other one does not use, since
+  a planner shown two identical descriptions has no reason to send one
+  piece here and the other there. When two helpers do not fit it prints
+  the roster it would have written, with the arithmetic for each entry
+  that missed, and writes nothing. Fitting starts nothing on its own.
 
 ## 2.10.0 - 2.10.123
 
