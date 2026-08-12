@@ -7335,6 +7335,7 @@ def check_route_rules(tmp, tok, mdl):
     whether any of them is doing anything."""
     from salt.agents import route as RT
     from salt.agents import route_rules as RR
+    from salt.agents import rules as RU
 
     assert RR.SCHEMA == "salt-route-rules/1", RR.SCHEMA
     assert RR.LANGUAGE.signals == RT.SIGNALS, "route rules read another set"
@@ -7345,9 +7346,13 @@ def check_route_rules(tmp, tok, mdl):
         {"id": "small", "when": "ask_words < 6", "then": {"plan": False},
          "expected": "thanks is not a round"},
         {"id": "clones", "when": "worker_kinds < 2",
-         "then": {"max_pieces": 1}},
-        {"id": "slow", "when": "last_round_s > 30", "then": {"plan": False}}]}
-    pol = RR.RouteRulePolicy(RR.loads(doc))
+         "then": {"max_pieces": 1}}]}
+    # a rule reading its own output unqualified no longer loads, so the
+    # one the census has to be able to name is built the way a policy
+    # assembled in code can still hold one
+    slow = RU.read_rule({"id": "slow", "when": "last_round_s > 30",
+                         "then": {"plan": False}}, 2, RR.LANGUAGE)
+    pol = RR.RouteRulePolicy(list(RR.loads(doc)) + [slow])
     assert pol.decides and pol.name == "route rules"
     got = pol.decide({"ask_words": 2, "worker_kinds": 1, "last_round_s": None})
     assert got.plan is False and got.max_pieces == 1, got
@@ -7840,6 +7845,83 @@ def check_round_cost(tmp, tok, mdl):
           "turn's own event")
 
 
+def check_route_strict(tmp, tok, mdl):
+    """A route rule that would freeze does not load at all."""
+    from salt.agents import route as RT
+    from salt.agents import route_rules as RR
+    from salt.agents import rules as RU
+
+    refusals = []
+    for signal in RT.CLOSED_LOOP:
+        try:
+            RR.loads({"version": RR.SCHEMA, "rules": [
+                {"id": "frozen", "when": f"{signal} > 0",
+                 "then": {"plan": False}}]})
+            raise AssertionError(f"a rule reading {signal} loaded")
+        except RU.RuleError as exc:
+            refusals.append(str(exc))
+    for text in refusals:
+        assert "turns_since_round" in text and "freezes" in text, text
+        # the refusal quotes what it is worth, so somebody who wants the
+        # rule anyway is arguing with a number rather than with a rule
+        assert "+0.19 points at t=+0.93" in text, text
+        assert "-0.69 points at t=-3.28" in text, text
+        for word in ("audit", "review", "PROGRESS", "plan/", "ladder"):
+            assert word not in text, f"{word!r} is in a refusal a person reads"
+
+    # saying how stale a number it will act on is the whole difference
+    for when in ("last_round_s > 30 and turns_since_round <= 1",
+                 "turns_since_round > 3", "ask_words < 8",
+                 "worker_kinds < 2 and n_workers_ready > 1"):
+        loaded = RR.loads({"version": RR.SCHEMA, "rules": [
+            {"id": "fine", "when": when, "then": {"plan": False}}]})
+        assert len(loaded) == 1 and RR.reads_closed_loop(loaded[0]) == (), when
+
+    # an example nobody asked to run is text, and asking for it makes it
+    # a rule, which is when it meets the refusal
+    example = {"version": RR.SCHEMA, "rules": [
+        {"id": "frozen", "when": "last_round_s > 30",
+         "then": {"plan": False}, "example": True}]}
+    assert RR.loads(example) == [], (
+        "an example that was never going to run was refused anyway")
+    try:
+        RR.loads(example, allow_examples=True)
+        raise AssertionError("an example ran without saying how stale a "
+                             "number it acts on")
+    except RU.RuleError as exc:
+        assert "frozen" in str(exc), exc
+
+    # the shipped sample is still loadable with its examples asked for
+    sample = Path(RR.__file__).resolve().parent / "route_rules_sample.json"
+    live = RR.load(sample, allow_examples=True)
+    assert live, "the sample has nothing in it"
+    for rule in live:
+        assert RR.reads_closed_loop(rule) == (), (
+            f"{rule.id} could not be loaded by the rule this ships")
+
+    # and it is refused where every other thing a rules file gets wrong
+    # is refused: at launch, before a conversation starts routing by it
+    path = Path(tmp) / "frozen_rules.json"
+    path.write_text(json.dumps({"version": RR.SCHEMA, "rules": [
+        {"id": "went-nowhere", "when": "last_round_answered == 0",
+         "then": {"plan": False}}]}), encoding="utf-8")
+    try:
+        with redirect_stdout(io.StringIO()):
+            cli.build_route_policy(cli.build_parser().parse_args(
+                ["--device", "cpu", "--agent", "--route-agent",
+                 "--route-rules", str(path)]))
+        raise AssertionError("a rule that freezes reached a session")
+    except RU.RuleError as exc:
+        assert "went-nowhere" in str(exc) and "last_round_answered" in str(exc)
+    print(f"71. the frozen-rule refusal: each of the {len(RT.CLOSED_LOOP)} "
+          f"signals routing itself decides refused at load when a rule "
+          f"reads it without constraining turns_since_round, the "
+          f"measurement quoted in the refusal so the cost of being wrong "
+          f"is a number, the same rule loading once it says how stale a "
+          f"number it will act on, an unloaded example left as text, and "
+          f"the file refused at launch rather than mid-conversation")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -7923,6 +8005,7 @@ def main():
         check_writeup_memory(tmp, tok, mdl)
         check_thinking_room(tmp)
         check_round_cost(tmp, tok, mdl)
+        check_route_strict(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

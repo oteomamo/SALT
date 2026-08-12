@@ -17,9 +17,9 @@ worse than the same mistake in a switch rule. "The last round was slow,
 so do not plan" fires once, the next turn is plain, and then the signal
 never updates because no round ran, so the rule is answered forever by a
 number from an hour ago. `turns_since_round` keeps moving when nothing
-is planned, which is what a rule reading the other five has to be
-qualified by, and the firing census beside `/stats` is what shows a rule
-that has stopped saying anything.
+is planned, so a rule reading any of the other five is qualified by it
+or it does not load at all, and the firing census beside `/stats` is
+what shows a rule that has stopped saying anything.
 """
 
 from salt.agents import rules
@@ -50,12 +50,14 @@ LANGUAGE = rules.Language(schema=SCHEMA, signals=SIGNALS, settable=SETTABLE,
 
 
 def loads(data, allow_examples=False, where="<route rules>"):
-    return rules.loads(data, allow_examples=allow_examples, where=where,
-                       lang=LANGUAGE)
+    return refuse_unqualified(
+        rules.loads(data, allow_examples=allow_examples, where=where,
+                    lang=LANGUAGE))
 
 
 def load(path, allow_examples=False):
-    return rules.load(path, allow_examples=allow_examples, lang=LANGUAGE)
+    return refuse_unqualified(
+        rules.load(path, allow_examples=allow_examples, lang=LANGUAGE))
 
 
 def reads_closed_loop(rule):
@@ -70,6 +72,34 @@ def reads_closed_loop(rule):
     if "turns_since_round" in read:
         return ()
     return tuple(sorted(read & set(CLOSED_LOOP)))
+
+
+def refuse_unqualified(rule_list):
+    """Refuse a rule that acts forever on one reading of its own output.
+
+    The freeze is not a firing rate that drifts, it is a rule that stops
+    being about the session at all, and no census can tell that apart
+    from a threshold that happens to be true. So it is refused where
+    everything else a rules file can get wrong is refused: at the door,
+    naming the rule, the signals and the fix.
+    """
+    for rule in rule_list:
+        read = reads_closed_loop(rule)
+        if not read:
+            continue
+        raise rules.RuleError(
+            f"{rule.id!r} reads {', '.join(read)}, which routing itself "
+            f"decides, without constraining turns_since_round. A rule like "
+            f"that does not stop firing, it freezes: it fires once, the turn "
+            f"after it is plain, no round runs, so the number it reads never "
+            f"moves again and the rule answers every later turn from one "
+            f"reading. The best per-turn decision measured on real "
+            f"conversations moved recall by +0.19 points at t=+0.93, and a "
+            f"set of unmeasured example rules moved it by -0.69 points at "
+            f"t=-3.28, so a rule frozen on a stale number is well inside the "
+            f"range that costs more than it buys. Add turns_since_round to "
+            f"its 'when'.")
+    return rule_list
 
 
 class RouteRulePolicy(RoutePolicy):

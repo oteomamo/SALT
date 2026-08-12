@@ -452,8 +452,16 @@ Some signals describe the last round, which means routing decides them
 itself. A rule reading one without also reading `turns_since_round` does
 not merely stop firing, it freezes: "the last round was slow, so do not
 plan" is true once, and then no round runs, so the number never moves
-again. Write `turns_since_round` into any such rule, and read the
-census below to see whether it is still saying anything.
+again and the rule answers every later turn from one reading. Such a
+rule is refused when the file loads, naming the signals it read and the
+fix, which is to write `turns_since_round` into it and say how stale a
+number it is willing to act on.
+
+The refusal quotes what is at stake. The best per-turn decision measured
+on real conversations moved recall by +0.19 points at t=+0.93, and a set
+of unmeasured example rules moved it by -0.69 points at t=-3.28. Effects
+that small in either direction are the range a frozen rule lives in, so
+a rule that cannot stop acting is worth refusing rather than watching.
 
 `salt/agents/route_rules_sample.json` ships four rules to read. Every
 one of them is marked as an example, so none runs unless
@@ -481,8 +489,9 @@ about it actually fired on, and the note its author left about what it
 was for. That whole line is the point: a threshold that never fires and
 one that fires every turn are the two ways a rules file quietly does
 nothing, and both are visible after one session rather than after a
-sweep. A rule reading a signal routing itself moves, without saying how
-stale a number it will act on, is called out there too.
+sweep. A rule reading a signal routing itself moves is called out there
+too, which a file cannot carry past the load refusal but a policy built
+in code still can.
 
 ### One more round
 
