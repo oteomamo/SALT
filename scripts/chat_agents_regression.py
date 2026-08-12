@@ -7422,17 +7422,18 @@ def check_route_rules(tmp, tok, mdl):
     buf = io.StringIO()
     with redirect_stdout(buf):
         half = cli.build_route_policy(cli.build_parser().parse_args(
-            ["--device", "cpu", "--route-agent"]))
+            ["--device", "cpu", "--agent", "--route-agent"]))
     assert isinstance(half, RT.NullRoute) and "--route-rules" in buf.getvalue()
     both = cli.build_parser().parse_args(
-        ["--device", "cpu", "--route-agent", "--route-rules", str(sample)])
+        ["--device", "cpu", "--agent", "--route-agent", "--route-rules",
+         str(sample)])
     with redirect_stdout(io.StringIO()):
         empty = cli.build_route_policy(both)
     assert not empty.decides, "the sample's examples ran without being asked"
     with redirect_stdout(io.StringIO()):
         loaded = cli.build_route_policy(cli.build_parser().parse_args(
-            ["--device", "cpu", "--route-agent", "--route-rules", str(sample),
-             "--route-rules-allow-examples"]))
+            ["--device", "cpu", "--agent", "--route-agent", "--route-rules",
+             str(sample), "--route-rules-allow-examples"]))
     assert loaded.decides and len(loaded.rules) == len(live)
 
     st = quiet_state(tmp, "route_census", tok, mdl)
@@ -8065,6 +8066,69 @@ def check_route_strict(tmp, tok, mdl):
           f"the file refused at launch rather than mid-conversation")
 
 
+def check_route_recipe(tmp, tok, mdl):
+    """--route-agent with nothing to route: the recipe, and a session
+    that is exactly the session it would have been."""
+    from salt.agents import route as RT
+    from salt.agents import route_rules as RR
+
+    sample = Path(RR.__file__).resolve().parent / "route_rules_sample.json"
+    for flags in (["--route-agent"],
+                  ["--route-agent", "--route-rules", str(sample)],
+                  ["--route-agent", "--route-rules", str(sample),
+                   "--route-rules-allow-examples"],
+                  ["--route-agent", "--route-policy", "model"]):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            chooser = cli.build_route_policy(
+                cli.build_parser().parse_args(["--device", "cpu", *flags]))
+        said = buf.getvalue()
+        assert isinstance(chooser, RT.NullRoute), (flags, chooser)
+        assert not chooser.decides, flags
+        assert "saltChat --agent --route-agent" in said, (flags, said)
+
+    # a file nothing was ever going to read is not read, so an unreadable
+    # one is not a reason to refuse the launch
+    bad = Path(tmp) / "unreadable_rules.json"
+    bad.write_text("{ not json at all", encoding="utf-8")
+    with redirect_stdout(io.StringIO()):
+        chooser = cli.build_route_policy(cli.build_parser().parse_args(
+            ["--device", "cpu", "--route-agent", "--route-rules", str(bad)]))
+    assert isinstance(chooser, RT.NullRoute), (
+        "a rules file nothing was going to decide by was read anyway")
+
+    # with the half it was missing, it decides again
+    with redirect_stdout(io.StringIO()):
+        chooser = cli.build_route_policy(cli.build_parser().parse_args(
+            ["--device", "cpu", "--agent", "--route-agent", "--route-rules",
+             str(sample), "--route-rules-allow-examples"]))
+    assert chooser.decides, "the recipe was followed and nothing decided"
+
+    # and the session that got the recipe is the session it would have
+    # been without the flag: nothing routed, nothing recorded
+    st = quiet_state(tmp, "route_recipe", tok, mdl,
+                     flags=["--route-agent", "--route-rules", str(sample)])
+    try:
+        assert isinstance(st.route_policy, RT.NullRoute), st.route_policy
+        before = len(events_of(st))
+        with redirect_stdout(io.StringIO()):
+            cli.chat_turn(st, "and the inverter?")
+        assert "route_planned" not in events_of(st)[before], (
+            "a session that routes nothing filed a routing key")
+        assert cli.route_report(st) == {}, cli.route_report(st)
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(st)
+    print("72. --route-agent with no --agent to route: the recipe "
+          "printed and the null policy taken rather than the launch "
+          "refused, in all four shapes of the flag, a rules file nobody "
+          "was going to decide by never read, and the session left "
+          "exactly as it would have been with no routing flag at all")
+
+
+# ---- provisioning: the fitted roster and the refusal that shows its work
+
+# the two A5000s the fit was calibrated on
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -8150,6 +8214,7 @@ def main():
         check_round_cost(tmp, tok, mdl)
         check_route_model(tmp, tok, mdl)
         check_route_strict(tmp, tok, mdl)
+        check_route_recipe(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

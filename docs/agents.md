@@ -428,7 +428,10 @@ Planning every line is the wrong default in the other direction. A
 planned turn is three or more model calls where a plain turn is one, so
 a line that says thanks pays for a round it never needed.
 `--route-agent` with `--route-rules FILE` lets a rules file decide,
-turn by turn, whether to plan at all and what the plan may spend.
+turn by turn, whether to plan at all and what the plan may spend. It
+decides about the turns `--agent` would have planned, so a session
+launched without `--agent` says so and routes nothing rather than
+refusing to start.
 
 The rules are written in the same language the switch rules are, over a
 wider set of signals: the conversation, the ask itself, who is ready to

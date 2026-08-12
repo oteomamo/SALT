@@ -2613,9 +2613,17 @@ def build_switch_policy(args):
 
 def build_route_policy(args):
     """Who decides which turns are planned, from what this session was
-    launched with. Nobody unless both halves are there, the same way the
-    switch policy needs its own two."""
+    launched with. Nobody unless every half is there: something that
+    plans turns, the switch that decides which of them, and something to
+    decide by. A missing half says so and leaves the session as it
+    was, the way the switch policy handles its own."""
     if not getattr(args, "route_agent", False):
+        return route.NullRoute()
+    if not getattr(args, "agent", False):
+        print("--route-agent decides which of --agent's turns are worth "
+              "planning, and this session was not launched with --agent, so "
+              "nothing is routed. The whole recipe is: saltChat --agent "
+              "--route-agent --route-rules FILE")
         return route.NullRoute()
     if getattr(args, "route_policy", "rule") == "model":
         return route.ModelRoute()
@@ -3648,7 +3656,7 @@ def main(argv=None):
             print(f"--switch-rules: {exc}", file=sys.stderr)
             return 1
 
-    if (args.route_agent and args.route_rules
+    if (args.route_agent and args.route_rules and args.agent
             and args.route_policy != "model"):
         try:
             build_route_policy(args)
