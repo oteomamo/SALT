@@ -7584,8 +7584,7 @@ def check_writeup_memory(tmp, tok, mdl):
         finally:
             with redirect_stdout(io.StringIO()):
                 cli.close_ingest(state)
-    print("70. the write-up's memory: the turn's own block reaches the "
-          "call that writes the reply, byte for byte what the plan was "
+    print("69. the write-up's memory: the turn's own block reaches the "          "call that writes the reply, byte for byte what the plan was "
           "shown, cut to whole sections when the pieces leave less room "
           "than the block needs and left off entirely when they leave "
           "none")
@@ -7675,8 +7674,7 @@ def check_thinking_room(tmp):
     doc = (REPO / "docs" / "agents.md").read_text(encoding="utf-8")
     assert str(R.THINK_FLOOR) in doc, (
         "the page does not say how much room an entry that thinks needs")
-    print("69. room to reason: the floor an entry that asks for the "
-          "working has to name, derived from the working a plan is "
+    print("70. room to reason: the floor an entry that asks for the "          "working has to name, derived from the working a plan is "
           "budgeted and the share the runaway guard gives up at, a "
           "smaller one refused at load with the fix, every other call "
           "sized from the endpoint's own window instead of the reply "
@@ -7836,8 +7834,7 @@ def check_round_cost(tmp, tok, mdl):
     doc = (REPO / "docs" / "agents.md").read_text(encoding="utf-8")
     assert "planning" in doc and "prompt tokens" in doc, (
         "the page does not say what a planned turn's own calls cost")
-    print("70. what the round itself cost: the planner's calls and the "
-          "write-up's kept as they are made rather than read back off a "
+    print("71. what the round itself cost: the planner's calls and the "          "write-up's kept as they are made rather than read back off a "
           "client the next call overwrites, both on the trace line that "
           "already carries what the pieces cost, a write-up cost that is "
           "the write-up's own prompt, a round that fell back reporting "
@@ -7979,7 +7976,7 @@ def check_route_model(tmp, tok, mdl):
         ["--device", "cpu", "--agent", "--route-policy", "model"])),
         RT.NullRoute), (
         "a model routed a session that never turned the route agent on")
-    print(f"70. the model route policy: the same seam with the model "
+    print(f"72. the model route policy: the same seam with the model "
           f"where the file would be, needing no rules file, asked once "
           f"and never again on an answer it cannot read, shown the "
           f"numbers and the ceiling and who is ready, "
@@ -8057,7 +8054,7 @@ def check_route_strict(tmp, tok, mdl):
         raise AssertionError("a rule that freezes reached a session")
     except RU.RuleError as exc:
         assert "went-nowhere" in str(exc) and "last_round_answered" in str(exc)
-    print(f"71. the frozen-rule refusal: each of the {len(RT.CLOSED_LOOP)} "
+    print(f"73. the frozen-rule refusal: each of the {len(RT.CLOSED_LOOP)} "
           f"signals routing itself decides refused at load when a rule "
           f"reads it without constraining turns_since_round, the "
           f"measurement quoted in the refusal so the cost of being wrong "
@@ -8119,8 +8116,7 @@ def check_route_recipe(tmp, tok, mdl):
     finally:
         with redirect_stdout(io.StringIO()):
             cli.close_ingest(st)
-    print("72. --route-agent with no --agent to route: the recipe "
-          "printed and the null policy taken rather than the launch "
+    print("74. --route-agent with no --agent to route: the recipe "          "printed and the null policy taken rather than the launch "
           "refused, in all four shapes of the flag, a rules file nobody "
           "was going to decide by never read, and the session left "
           "exactly as it would have been with no routing flag at all")
@@ -8351,8 +8347,7 @@ def check_roster_fit(tmp):
     pulled = imports_pulled("salt.agents.provision",
                             ("torch", "transformers", "requests", "vllm"))
     assert not pulled, f"importing salt.agents.provision pulled {pulled}"
-    print("73. --roster auto: the sizing that reproduces both live "
-          "deaths, two workers on two cards, max_tokens on every entry, "
+    print("75. --roster auto: the sizing that reproduces both live "          "deaths, two workers on two cards, max_tokens on every entry, "
           "the planner left as the chat model, the live free reading "
           "binding where the shipped placement rule does not, and a "
           "refusal that prints the near miss it would have written")
@@ -8463,8 +8458,7 @@ def check_roster_notes(tmp):
     doc = (REPO / "docs" / "agents.md").read_text()
     assert "`notes`" in doc and '`"think": false`' in doc, (
         "the page does not say a fitted entry is described, or how")
-    print("74. fitted competency notes: what targets_for shows the "
-          "planner for every generated entry, two jobs described in "
+    print("76. fitted competency notes: what targets_for shows the "          "planner for every generated entry, two jobs described in "
           "vocabularies that do not meet with the guard that refuses a "
           "roster of clones, the window and the thinking setting the "
           "model turned out to have written into the description")
