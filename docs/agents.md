@@ -341,8 +341,10 @@ list of pieces and the helper each piece goes to. Each piece then goes
 to its helper, one at a time, with the conversation's memory selected
 for that piece alone, so a helper never sees the plan or the other
 pieces and every task has to stand on its own. What comes back goes to
-the chat model once more with the original question under it, and what
-it writes is the reply.
+the chat model once more, with this conversation's memory and the
+original question under it, and what it writes is the reply. That last
+call reads the same memory block the plan read, cut to whole sections
+when the pieces leave it less room than the block needs.
 
 The turn is an ordinary turn. The same memory is selected for it, the
 same pair enters the verbatim tail, the same record is kept, and the

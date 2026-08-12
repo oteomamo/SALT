@@ -1298,6 +1298,88 @@ def file_round(state, results):
         record_delegation(state, result, remembered)
 
 
+def memory_sections(block):
+    """The sections of a memory block, or None when the text is not one.
+
+    Read back through the same template that wrote it, so a block whose
+    shape is not recognized is handled as not a block at all rather than
+    cut at a guessed offset.
+    """
+    prefix, _, suffix = MEMORY_BLOCK.partition("{body}")
+    if not (block.startswith(prefix) and block.endswith(suffix)):
+        return None
+    return block[len(prefix):len(block) - len(suffix)].split("\n\n")
+
+
+def fit_memory_block(block, words):
+    """The same block under a word ceiling, whole sections at a time.
+
+    Sections rather than lines or words: every section is a header and
+    the excerpts it labels, and half a section is an excerpt whose
+    source the model can no longer name. A ceiling nothing fits under
+    leaves no block, which is the state the call was in before it
+    carried one.
+    """
+    sections = memory_sections(block)
+    if sections is None:
+        return ""
+    kept, spent = [], 0
+    for section in sections:
+        n = len(section.split())
+        if spent + n > words:
+            break
+        kept.append(section)
+        spent += n
+    return MEMORY_BLOCK.format(body="\n\n".join(kept)) if kept else ""
+
+
+def synthesis_memory(state, memory_block, ask, results):
+    """This turn's memory block, cut to what the write-up has room for.
+
+    The block was sized for the ordinary prompt, and the write-up is a
+    different prompt: no tail, no attachments, no reading guide, but the
+    pieces the helpers came back with, which the ordinary prompt never
+    carries. So the room is measured against that call rather than
+    assumed from the turn's own cap. An unknowable window caps nothing,
+    the way the session's own memory cap does not cap what it cannot
+    measure.
+    """
+    if not memory_block:
+        return ""
+    runner = getattr(state, "runner", None)
+    limit = int(runner.input_budget() or 0) if runner is not None else 0
+    if not limit:
+        return memory_block
+    base = orchestrator.synthesis_messages(ask, results)
+    spent = state.count_tokens("\n\n".join(m["content"] for m in base))
+    have = state.count_tokens(memory_block)
+    if spent is None or have is None:
+        return memory_block
+    room = limit - spent - MEMORY_CAP_RESERVE
+    if have <= room:
+        return memory_block
+    words = int(max(room, 0) / max(state.tokens_per_word, 0.1))
+    return fit_memory_block(memory_block, words)
+
+
+def round_cost(endpoint, kept=()):
+    """What a round's own calls to one model cost.
+
+    A roster endpoint keeps every call's numbers as it makes them,
+    because the next call queued on the same handle overwrites what its
+    client reports. The session's own model has nowhere to leave them
+    but its runner, where the round's next call overwrites them too, so
+    what was taken off it at the time is what there is. An in process
+    backend has no request body for a server to count and reports
+    nothing at all, which reads here as nothing rather than as free.
+    """
+    calls = []
+    for fn in (getattr(endpoint, "send", None),
+               getattr(endpoint, "stream", None)):
+        calls.extend(getattr(fn, "usage", None) or ())
+    return trace.call_cost(calls or [c for c in kept if c])
+
+
 class AgentRound:
     """One turn answered by planning it out first.
 
@@ -1432,9 +1514,10 @@ class AgentRound:
             # a roster endpoint's write-up cost is not on this object,
             # and reading it there would report the planning call's
             self.wrote_here = writer.main
-            stream = orchestrator.synthesis_stream(state, self.task,
-                                                   self.results,
-                                                   endpoint=writer)
+            stream = orchestrator.synthesis_stream(
+                state, self.task, self.results,
+                synthesis_memory(state, memory_block, self.task, self.results),
+                endpoint=writer)
             try:
                 for piece in stream:
                     pieces.append(piece)

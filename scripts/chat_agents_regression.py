@@ -5959,8 +5959,7 @@ def check_partial_failure(tmp, tok, mdl):
                 "the working was never shown to the person")
             assert state.tail[-1]["content"] == final, state.tail[-1]
             written = state.runner.prompts[-1][1]["content"]
-            assert written.startswith("2 pieces, 1 answered and 1 not"), \
-                written[:80]
+            assert "2 pieces, 1 answered and 1 not" in written, written[:80]
             assert "outcome: was not attempted" in written.splitlines(), \
                 written
             assert f"{O.QUOTE}{said}" in written.splitlines(), written
@@ -6213,7 +6212,7 @@ def check_second_round(tmp, tok, mdl):
             assert f"{O.QUOTE}{said}" in asked.splitlines(), asked
             assert O.FOLLOW_UP_ASK in asked, asked
             written = state.runner.prompts[2][1]["content"]
-            assert written.startswith("2 pieces, all answered."), written[:60]
+            assert "2 pieces, all answered." in written, written[:60]
             record = state.last_round
             assert record.rounds == 2 and len(record.results) == 2, record
             rec = T.read(state.trie.cache_dir).rounds[0]
@@ -7501,6 +7500,91 @@ def check_route_rules(tmp, tok, mdl):
           "turned back into a plain one or never routed at all")
 
 
+def check_writeup_memory(tmp, tok, mdl):
+    """The model that writes the reply reads the same memory the plan
+    read, cut to what that call has room for."""
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+
+    body = "[a]\none two three\n\n[b]\nfour five six"
+    block = cli.MEMORY_BLOCK.format(body=body)
+    one = cli.MEMORY_BLOCK.format(body="[a]\none two three")
+    assert cli.memory_sections(block) == body.split("\n\n"), (
+        cli.memory_sections(block))
+    assert cli.memory_sections("SALT memory: one two three") is None, (
+        "text that is not a memory block was read back as one")
+    assert cli.fit_memory_block(block, 8) == block, (
+        "a block that fits was cut anyway")
+    assert cli.fit_memory_block(block, 7) == one, (
+        f"a cut block kept something other than whole sections: "
+        f"{cli.fit_memory_block(block, 7)!r}")
+    assert cli.memory_sections(cli.fit_memory_block(block, 7)) == [
+        "[a]\none two three"], "a cut block is no longer a block"
+    assert cli.fit_memory_block(block, 3) == "", (
+        "a ceiling nothing fits under still produced a block")
+    assert cli.fit_memory_block("not a block", 100) == "", (
+        "text of an unknown shape was cut at a guessed offset")
+
+    ask = "what size battery does that argue for"
+    said = "Nine kilowatt hours of storage covers the evening draw."
+    final = "A 9 kWh bank covers the evening, and the inverter is unchecked."
+    plan_json = json.dumps(
+        {"version": P.SCHEMA, "action": "delegate",
+         "subtasks": [{"id": "1", "task": "size the bank", "target": "w"}]})
+    results = [made_result(task="size the bank", text=said)]
+
+    with Stub(cards=CARDS, pieces=(said,)) as s:
+        state = canned_state(tmp, "writeup_memory", tok, mdl,
+                             [plan_json, final],
+                             delegation_roster(s.url, tmp))
+        try:
+            assert cli.synthesis_memory(state, "", ask, results) == "", (
+                "a turn with no memory invented a block for its write-up")
+            assert cli.synthesis_memory(state, block, ask, results) == block, (
+                "a block the write-up had room for was cut")
+            base = state.count_tokens("\n\n".join(
+                m["content"] for m in O.synthesis_messages(ask, results)))
+            window = state.runner.max_input_len
+            # the pieces alone fill the call: what is left is the reserve,
+            # so no memory fits and none is sent
+            state.runner.max_input_len = base + cli.MEMORY_CAP_RESERVE
+            assert cli.synthesis_memory(state, block, ask, results) == "", (
+                "a write-up with no room for memory was handed some anyway")
+            state.runner.max_input_len = (base + cli.MEMORY_CAP_RESERVE
+                                          + int(5 * state.tokens_per_word) + 1)
+            assert cli.synthesis_memory(state, block, ask, results) == one, (
+                "a squeezed write-up was handed something other than the "
+                "sections that fit")
+            state.runner.max_input_len = window
+
+            out = agent_line(state, f"/agent {ask}")
+            assert final in out, out
+            assert len(state.runner.prompts) == 2, (
+                f"the round cost {len(state.runner.prompts)} calls rather "
+                f"than a plan and a write-up")
+            planned = state.runner.prompts[0][-1]["content"]
+            turn_block = planned.split(f"\n\n{O.ASK_HEADER}")[0]
+            assert cli.memory_sections(turn_block) is not None, (
+                f"the plan call carried no memory block: {planned[:120]!r}")
+            wrote = state.runner.prompts[1][-1]["content"]
+            assert wrote.startswith(f"{turn_block}\n\n"), (
+                f"the model that wrote the reply did not read the memory the "
+                f"plan read: {wrote[:120]!r}")
+            assert O.results_header(state.last_round.results) in wrote, (
+                "the pieces were dropped from the call that carries memory")
+            assert wrote.endswith(f"\n\n{O.ASK_HEADER}{ask}"), (
+                f"the ask is not the last thing under the pieces: "
+                f"{wrote[-120:]!r}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("70. the write-up's memory: the turn's own block reaches the "
+          "call that writes the reply, byte for byte what the plan was "
+          "shown, cut to whole sections when the pieces leave less room "
+          "than the block needs and left off entirely when they leave "
+          "none")
+
+
 def check_thinking_room(tmp):
     from salt.agents import orchestrator as O
     from salt.agents import thinking as TH
@@ -7674,6 +7758,7 @@ def main():
         check_route_decision(tmp, tok, mdl)
         check_route_seam(tmp, tok, mdl)
         check_route_rules(tmp, tok, mdl)
+        check_writeup_memory(tmp, tok, mdl)
         check_thinking_room(tmp)
         print("PASS")
     finally:

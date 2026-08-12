@@ -8,7 +8,8 @@ is not a directive costs a repair and then stops costing anything,
 because a model that would not plan still said something and what it
 said is an answer. Executing sends each piece to its helper in the order
 the plan put them. Synthesis puts the pieces back to the same model with
-the original question under them, and what comes back is the reply.
+this session's memory and the original question under them, and what
+comes back is the reply.
 
 Nothing here writes. Coverage is never committed, no ledger is appended,
 no file is touched, and the memory blocks arrive already built. A round
@@ -981,14 +982,14 @@ def synthesis_stream(state, ask, results, memory_block="", endpoint=None):
     return endpoint.stream(synthesis_messages(ask, results, memory_block))
 
 
-def synthesize(state, ask, directive, results, endpoint=None, outcome=None,
-               started=None):
+def synthesize(state, ask, directive, results, memory_block="",
+               endpoint=None, outcome=None, started=None):
     """The answer this round adds up to, and the record of the round.
 
-    One call, holding the pieces and the question that was asked of
-    them. A round that delegated nothing skips it: what the plan
-    answered is the answer already, and asking a model to rewrite its
-    own reply costs a call and loses wording.
+    One call, holding the pieces, this session's memory and the question
+    that was asked of them. A round that delegated nothing skips it:
+    what the plan answered is the answer already, and asking a model to
+    rewrite its own reply costs a call and loses wording.
 
     A round where nothing came back is still written up here, and told
     so in as many words. A caller with somewhere better to fall back to
@@ -999,7 +1000,7 @@ def synthesize(state, ask, directive, results, endpoint=None, outcome=None,
     if results:
         text = protocol.reply_text(
             writing_endpoint(state, endpoint).send(
-                synthesis_messages(ask, results)) or "")
+                synthesis_messages(ask, results, memory_block)) or "")
     else:
         text = protocol.reply_text(getattr(directive, "answer", "") or "")
     return text, round_record(ask, directive, results, text, outcome, t_start)
