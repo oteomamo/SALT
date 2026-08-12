@@ -493,6 +493,27 @@ sweep. A rule reading a signal routing itself moves is called out there
 too, which a file cannot carry past the load refusal but a policy built
 in code still can.
 
+### A model instead of a route file
+
+`--route-policy model` puts the same question to the model rather than
+to a file. It is shown the conversation as numbers, what this session
+already allows and which helpers are ready, and it answers with whether
+to plan the turn, what that plan may spend, and one sentence saying why.
+It is experimental.
+
+It proposes and the same guard disposes. What it asks for is checked by
+name and by type, then clamped against `--agent-max-delegations`,
+`--agent-max-wall` and `--agent-rounds`, a helper this session does not
+have is dropped, and a plan left with nobody to plan with becomes a
+plain turn. A model cannot route a turn into spending more than the
+flags already allow.
+
+It is asked once. A reply that is not a decision leaves the turn to be
+answered the way an unrouted turn is, and the reason is kept where the
+rules that fired would be. The cost is one model call per turn before
+any memory is selected, and a turn it decides to plan pays for its round
+on top of that.
+
 ### One more round
 
 `--agent-rounds 2` lets the orchestrator look at what came back and ask

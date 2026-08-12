@@ -2617,6 +2617,8 @@ def build_route_policy(args):
     switch policy needs its own two."""
     if not getattr(args, "route_agent", False):
         return route.NullRoute()
+    if getattr(args, "route_policy", "rule") == "model":
+        return route.ModelRoute()
     path = getattr(args, "route_rules", None)
     if not path:
         print("--route-agent needs --route-rules FILE to decide by, so "
@@ -3480,6 +3482,14 @@ def build_parser():
                         "round, and what each one changes about planning "
                         "the turn while it is true. A sample ships as "
                         "salt/agents/route_rules_sample.json")
+    p.add_argument("--route-policy", choices=("rule", "model"),
+                   default="rule",
+                   help="what decides which turns are planned under "
+                        "--route-agent: the rules file, or the model itself. "
+                        "EXPERIMENTAL: the model is asked once per turn, and "
+                        "what it proposes is clamped against this session's "
+                        "own limits exactly as a written rule is (default: "
+                        "rule)")
     p.add_argument("--route-rules-allow-examples", action="store_true",
                    help="load the route rules a file marks as examples too. "
                         "They are written down to be read rather than run, "
@@ -3638,7 +3648,8 @@ def main(argv=None):
             print(f"--switch-rules: {exc}", file=sys.stderr)
             return 1
 
-    if args.route_agent and args.route_rules:
+    if (args.route_agent and args.route_rules
+            and args.route_policy != "model"):
         try:
             build_route_policy(args)
         except (OSError, rules.RuleError) as exc:

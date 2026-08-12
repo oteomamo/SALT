@@ -72,6 +72,7 @@ Agents:
 | `--route-agent` | off | let a policy decide which turns are planned out over the helpers instead of planning every one of them |
 | `--route-rules FILE` | none | the rules `--route-agent` decides by, as sentences about the session, the ask and the last round |
 | `--route-rules-allow-examples` | off | load the route rules a file marks as examples too, none of which has been measured |
+| `--route-policy rule\|model` | rule | what decides under `--route-agent`: the rules file, or the model itself (experimental) |
 | `--switch-agent` | off | let a policy decide the memory switches per turn instead of leaving them where the flags set them |
 | `--switch-rules FILE` | none | the rules `--switch-agent` decides by, as sentences about the session and the switch each one changes |
 | `--switch-rules-allow-examples` | off | load the rules a file marks as examples too, which are written down to be read rather than run |

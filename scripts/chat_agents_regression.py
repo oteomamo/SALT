@@ -7845,6 +7845,149 @@ def check_round_cost(tmp, tok, mdl):
           "turn's own event")
 
 
+def check_route_model(tmp, tok, mdl):
+    """A model deciding which turns are worth planning, and the ceiling
+    it cannot talk its way past."""
+    from salt.agents import route as RT
+    from salt.agents import thinking as TH
+    from salt.chat import runner as RUN
+
+    assert RT.DECISION == "salt-route-decision/1", RT.DECISION
+    # the shape a model is shown has to be a shape this salt reads back
+    shown = RT.read_decision(RT.decision_example())
+    assert shown.plan is False and shown.why, shown
+    assert RT.read_decision(f"<think>weigh it</think>ok:\n"
+                            f"{RT.decision_example()}").why, (
+        "a model that reasons out loud was read by what it considered")
+
+    bad_replies = (("I would plan that one.", "no JSON object"),
+                   ('{"plan": true, "hurry": 1}', "not something it can set"),
+                   ('{"plan": "yes"}', "plan is a yes or no"),
+                   ('{"targets": "w"}', "list of worker names"),
+                   ('{"version": "salt-route-decision/2", "plan": true}',
+                    "this salt reads"),
+                   ('{"plan": NaN}', "not a value a route decision may carry"),
+                   ('{"plan": tru}', "not readable as JSON"))
+    for reply, fragment in bad_replies:
+        try:
+            RT.read_decision(reply)
+            raise AssertionError(f"{reply!r} was read as a decision")
+        except RT.RouteError as exc:
+            assert fragment in str(exc), (reply, str(exc))
+
+    said = json.dumps({"version": RT.DECISION, "plan": True, "max_pieces": 2,
+                       "targets": ["w"], "why": "two pieces, two helpers"})
+    with Stub(cards=CARDS, pieces=("ok",)) as s:
+        st = canned_state(tmp, "route_model", tok, mdl, [said],
+                          delegation_roster(s.url, tmp))
+        try:
+            st.route_policy = RT.ModelRoute().bind(st)
+            decision, why = cli.turn_route(st, "draft the note and check it")
+            assert decision.plan is True and decision.max_pieces == 2, decision
+            assert decision.targets == ("w",), decision
+            assert len(st.runner.prompts) == 1, (
+                f"routing one turn cost {len(st.runner.prompts)} calls")
+            assert why and why[0]["id"] == "model", why
+            assert "two pieces, two helpers" in why[0]["when"], why
+            assert why[0]["then"] == {"plan": True, "max_pieces": 2,
+                                      "targets": ("w",)}, why[0]
+            body = st.runner.prompts[0][1]["content"]
+            for line in ("THIS CONVERSATION", "n_turns", "ask_words",
+                         "WHAT THIS SESSION ALLOWS", "max_pieces: 4 at most",
+                         "HELPERS THAT ARE READY", "- w"):
+                assert line in body, (line, body[:400])
+
+            # THE CEILING, which is the whole of what a model is held to:
+            # every number is clamped down to the session's own flags and
+            # never up, and each clamp is a reason somebody can read
+            greedy = json.dumps({"version": RT.DECISION, "plan": True,
+                                 "max_pieces": 99, "rounds": 7,
+                                 "max_wall_s": 9999, "why": "all of it"})
+            st.runner.canned = CannedReplies([greedy])
+            decision, why = cli.turn_route(st, "and now the whole thing")
+            assert decision.max_pieces == st.agent_max_delegations, decision
+            assert decision.rounds == st.agent_rounds, decision
+            assert decision.max_wall_s == st.agent_max_wall, decision
+            limits = cli.agent_limits(st, decision)
+            assert limits.max_delegations_per_turn == st.agent_max_delegations
+            assert limits.depth == st.agent_rounds, limits
+            assert sum(1 for row in why
+                       if "more than this session allows" in row["when"]) == 3, why
+
+            # and a helper this session has not got is dropped, which
+            # leaves a plan with nobody to plan with
+            st.runner.canned = CannedReplies([json.dumps(
+                {"version": RT.DECISION, "plan": True, "targets": ["ghost"],
+                 "why": "the one that is not there"})])
+            decision, why = cli.turn_route(st, "hand it all to the ghost")
+            assert decision.plan is False, decision
+            assert any("no ready worker called" in row["when"]
+                       for row in why), why
+
+            # a decision that says nothing decides nothing, and the turn
+            # goes the way the session would have taken it
+            st.runner.canned = CannedReplies([json.dumps(
+                {"version": RT.DECISION, "why": "no opinion either way"})])
+            decision, why = cli.turn_route(st, "a quiet line")
+            assert decision.plan is True and why == (), (decision, why)
+
+            # a reply that is not a decision costs the turn nothing and is
+            # not asked again
+            for reply, fragment in bad_replies[:3]:
+                st.runner.canned = CannedReplies([reply])
+                st.runner.prompts.clear()
+                decision, why = cli.turn_route(st, f"what about {fragment}")
+                assert decision.plan is True, (reply, decision)
+                assert len(st.runner.prompts) == 1, (
+                    "an unreadable answer was asked for again")
+                assert why[0]["id"] == "model" and why[0]["then"] == {}, why
+                assert fragment in why[0]["when"], (reply, why)
+
+            # a session with no model to ask is answered, not raised at
+            runner, st.runner = st.runner, None
+            try:
+                decision, why = cli.turn_route(st, "with nothing to ask")
+                assert decision.plan is True, decision
+                assert "no model to ask" in why[0]["when"], why
+            finally:
+                st.runner = runner
+
+            # asked as a piece is asked, not as a plan: a session that
+            # wants only its plans to reason does not pay for reasoning
+            # about whether to plan
+            st.agent_think = TH.MODE_PLAN
+            st.runner.canned = CannedReplies([said])
+            st.runner.overrides.clear()
+            cli.turn_route(st, "one more with the thinking mode set")
+            over = st.runner.overrides[-1]
+            assert over.get(RUN.TEMPLATE_KEY) == {TH.KEY: False}, over
+            st.agent_think = TH.MODE_TEMPLATE
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(st)
+
+    # the flag: rule by default, the model path opt-in, and needing no
+    # rules file of its own
+    args = cli.build_parser().parse_args(["--device", "cpu"])
+    assert args.route_policy == "rule", args.route_policy
+    chooser = cli.build_route_policy(cli.build_parser().parse_args(
+        ["--device", "cpu", "--agent", "--route-agent", "--route-policy",
+         "model"]))
+    assert isinstance(chooser, RT.ModelRoute) and chooser.decides, chooser
+    assert isinstance(cli.build_route_policy(cli.build_parser().parse_args(
+        ["--device", "cpu", "--agent", "--route-policy", "model"])),
+        RT.NullRoute), (
+        "a model routed a session that never turned the route agent on")
+    print(f"70. the model route policy: the same seam with the model "
+          f"where the file would be, needing no rules file, asked once "
+          f"and never again on an answer it cannot read, shown the "
+          f"numbers and the ceiling and who is ready, "
+          f"{len(bad_replies)} answers refused by name, every number it "
+          f"asks for clamped down to the session's own flags, a helper "
+          f"this session has not got dropped, and a session with nothing "
+          f"to ask answered rather than raised at")
+
+
 def check_route_strict(tmp, tok, mdl):
     """A route rule that would freeze does not load at all."""
     from salt.agents import route as RT
@@ -8005,6 +8148,7 @@ def main():
         check_writeup_memory(tmp, tok, mdl)
         check_thinking_room(tmp)
         check_round_cost(tmp, tok, mdl)
+        check_route_model(tmp, tok, mdl)
         check_route_strict(tmp, tok, mdl)
         print("PASS")
     finally:

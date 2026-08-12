@@ -24,6 +24,7 @@ rule, and the live firing census exists to notice when one has stopped
 saying anything.
 """
 
+import json
 from dataclasses import dataclass, field, replace
 
 from salt.agents.snapshot import KEYS as SNAPSHOT_KEYS
@@ -333,3 +334,176 @@ class NullRoute(RoutePolicy):
 
     name = "none"
     decides = False
+
+
+DECISION = "salt-route-decision/1"
+MODEL_ASK = ("Decide whether this turn is worth planning out over the "
+             "helpers, or is better answered plainly.")
+MODEL_INSTRUCTIONS = (
+    "You are deciding whether one turn of a conversation gets planned out "
+    "over helper models before it is answered. You are given that "
+    "conversation as numbers, then what this session already allows and "
+    "who is ready to help.\n\n"
+    "A planned turn is three or more model calls where a plain turn is "
+    "one. It is worth it for work that splits into pieces different "
+    "helpers can take at the same time, and it is not worth it for a line "
+    "that is a reply.\n\n"
+    "Reply with one JSON object and nothing else, shaped like this:\n\n"
+    "{example}\n\n"
+    "- \"plan\" is true or false and is the decision. Leaving it out "
+    "leaves this turn to be decided the way the session would have "
+    "decided it.\n"
+    "- \"max_pieces\", \"max_wall_s\" and \"rounds\" may only ask for less "
+    "than this session allows. Anything more is cut back to what it "
+    "allows.\n"
+    "- \"targets\" holds names from the ready helpers you were given, and "
+    "nothing else.\n"
+    "- \"why\" is one sentence saying why. A person reads it. Nothing "
+    "acts on it.")
+
+
+def decision_example():
+    return json.dumps({"version": DECISION, "plan": False,
+                       "why": "why this turn, in one sentence"}, indent=2)
+
+
+def route_messages(signals, ceiling_):
+    """What a model is asked when it is asked to route a turn.
+
+    The ceiling is quoted to it rather than left to be discovered. A
+    number over it is clamped either way, and a decision that never had
+    to be clamped is one a person reading the trail can take at face
+    value.
+    """
+    from salt.agents.orchestrator import ASK_HEADER
+    numbers = "\n".join(f"- {name}: {value}"
+                        for name, value in sorted(signals.items()))
+    allows = "\n".join((f"- max_pieces: {ceiling_.max_pieces} at most",
+                        f"- max_wall_s: {ceiling_.max_wall_s:g} at most",
+                        f"- rounds: {ceiling_.rounds} at most"))
+    ready = "\n".join(f"- {name}" for name in ceiling_.ready)
+    return [{"role": "system",
+             "content": MODEL_INSTRUCTIONS.format(example=decision_example())},
+            {"role": "user",
+             "content": (f"THIS CONVERSATION\n{numbers}\n\nWHAT THIS SESSION "
+                         f"ALLOWS\n{allows}\n\nHELPERS THAT ARE READY\n"
+                         f"{ready or '- (none)'}\n\n{ASK_HEADER}"
+                         f"{MODEL_ASK}")}]
+
+
+def _refuse_constant(word):
+    raise RouteError(f"{word} is not a value a route decision may carry")
+
+
+def read_decision(text):
+    """One model reply as a proposal, or a refusal naming what is wrong.
+
+    Tolerant at the front and strict after it, the way a directive is
+    read: a model that reasons out loud, or writes a sentence before the
+    object, is read by what it decided rather than by what it
+    considered. What is inside the object meets `check`, which is the
+    refusal a written rule meets, so nothing reaches the guard by having
+    been generated rather than typed.
+    """
+    from salt.agents.protocol import find_object, strip_think
+    body = find_object(strip_think(text or ""))
+    if body is None:
+        raise RouteError("the reply carries no JSON object")
+    try:
+        raw = json.loads(body, parse_constant=_refuse_constant)
+    except RouteError:
+        raise
+    except (ValueError, RecursionError) as exc:
+        raise RouteError(f"the reply is not readable as JSON: {exc}") from None
+    if not isinstance(raw, dict):
+        raise RouteError(f"a route decision is an object, and this reply "
+                         f"carried a {type(raw).__name__}")
+    raw = dict(raw)
+    version = raw.pop("version", DECISION)
+    if version != DECISION:
+        raise RouteError(f"this salt reads {DECISION}, and the reply says "
+                         f"{version!r}")
+    return check(raw)
+
+
+def route_endpoint(state):
+    """Which model answers the routing question.
+
+    The roster's orchestrator when there is one, the session's own chat
+    model otherwise, exactly as a plan is answered. Asked as a piece
+    rather than as a plan where the session only wants its plans to
+    reason: routing is a classification in front of a turn, and a turn
+    it declines has to cost less than the round it declined.
+    """
+    from salt.agents import orchestrator, thinking
+    return orchestrator.orchestrator_endpoint(state, kind=thinking.PIECE)
+
+
+class ModelRoute(RoutePolicy):
+    """Ask this session's own model whether the turn is worth planning,
+    and hold it to everything a written rule is held to.
+
+    EXPERIMENTAL, and the sibling of deciding the switches with a model.
+    The model proposes and the guard disposes: what comes back is
+    checked by name and by type, then clamped against the session's own
+    flags, so a proposal cannot reach a round having spent more than the
+    person allowed. Nothing here clamps anything itself, because a
+    second place that clamps is a second answer to one question.
+
+    Asked ONCE. A planning call repairs itself and asks again, which is
+    right for the call that does the work and wrong for the call that
+    decides whether to do any: a router that has to be asked twice has
+    already spent what routing exists to save. Anything other than a
+    usable proposal is kept as the reason and the turn goes the way an
+    unrouted turn goes.
+    """
+
+    name = "model"
+    decides = True
+
+    def __init__(self, state=None, endpoint=None):
+        self.state = state
+        self.endpoint = endpoint
+        self.proposed = RouteDecision()
+        self.reason = ""
+        self.refused = ""
+
+    def bind(self, state):
+        self.state = state
+        return self
+
+    def decide(self, signals):
+        self.proposed, self.reason, self.refused = RouteDecision(), "", ""
+        endpoint = self.endpoint
+        if endpoint is None and self.state is not None:
+            endpoint = route_endpoint(self.state)
+        if endpoint is None:
+            self.refused = "this session has no model to ask"
+            return RouteDecision()
+        try:
+            said = endpoint.send(route_messages(signals, ceiling(self.state)))
+        except Exception as exc:
+            # a model that cannot be reached is the commonest way a
+            # decision goes wrong, and the contract is that the turn pays
+            # nothing for one that does
+            self.refused = (f"the model could not be asked "
+                            f"({type(exc).__name__}: {exc})")
+            return RouteDecision()
+        try:
+            self.proposed = read_decision(said)
+        except RouteError as exc:
+            self.refused = str(exc)
+            return RouteDecision()
+        self.reason = self.proposed.why
+        return self.proposed
+
+    def explain(self):
+        if self.refused:
+            return ({"id": self.name, "when": self.refused, "then": {}},)
+        if self.proposed.quiet:
+            return ()
+        return ({"id": self.name, "when": self.reason or "the model's call",
+                 "then": {name: getattr(self.proposed, name)
+                          for name in FIELDS
+                          if name != "why"
+                          and getattr(self.proposed, name) is not None}},)
