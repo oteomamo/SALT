@@ -36,8 +36,8 @@ from pathlib import Path
 
 import torch
 
-from salt.agents import (ledger, orchestrator, policy, protocol, route,
-                         route_rules, rules, thinking, trace)
+from salt.agents import (ledger, orchestrator, policy, protocol, provision,
+                         route, route_rules, rules, thinking, trace)
 from salt.agents import snapshot as snapshot_module
 from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
@@ -3359,7 +3359,14 @@ def build_parser():
                         "to spawn one. Loading validates the file only, so "
                         "nothing is contacted or started. See "
                         "salt/agents/roster_sample.json, and /roster in the "
-                        "REPL for what was loaded.")
+                        "REPL for what was loaded. Pass 'auto' instead of a "
+                        "path to fit one from the registered models and the "
+                        "memory free on each card right now, written to the "
+                        "session folder as roster.auto.json. A fit that does "
+                        "not leave room for two workers prints the roster it "
+                        "would have written and stops. Fitting still starts "
+                        "nothing: --workers-autostart is what starts a spawn "
+                        "entry.")
     p.add_argument("--workers-autostart", action="store_true",
                    help="start every spawn entry in --roster once the chat "
                         "model is loaded, instead of waiting for /worker "
@@ -3640,6 +3647,35 @@ def main(argv=None):
     # same reason for the roster: a bad entry, or a worker whose weights
     # are missing, must fail before the chat model is loaded
     roster = None
+    if args.roster == provision.AUTO:
+        # the fitted file is named after the session it was fitted for,
+        # so the id is settled here and the launch below reuses it
+        args.conversation_id = args.conversation_id or fresh_conversation_id()
+        if not valid_session_id(args.conversation_id):
+            print(f"--conversation-id: {args.conversation_id!r} is not a "
+                  f"valid session name.", file=sys.stderr)
+            return 1
+        chat_cards = [int(c) for c in (parse_gpu_list(args.gpu) or ())]
+        if not chat_cards:
+            chat_cards = [i for i in (cuda_index(args.device),)
+                          if i is not None]
+        try:
+            fit = provision.fit_session(
+                list_models(),
+                provision.chat_alias_for(list_models(), args.model),
+                backend=args.backend,
+                chat_gpus=[] if args.backend == "vllm-serve" else chat_cards,
+                chat_mem_util=args.gpu_mem_util,
+                bge_gpu=cuda_index(args.bge_device or args.device))
+        except provision.ProvisionError as exc:
+            print(f"--roster auto: {exc}", file=sys.stderr)
+            return 1
+        if not fit.ok:
+            print(fit.report(), file=sys.stderr)
+            return 1
+        path = provision.write_roster(fit, SESSIONS_DIR / args.conversation_id)
+        print(fit.with_path(path).report())
+        args.roster = str(path)
     if args.roster:
         try:
             roster = load_roster(args.roster)

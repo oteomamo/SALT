@@ -81,6 +81,45 @@ the launch instead of failing later. This file ships as
 `salt/agents/roster_sample.json`, ready to copy, with one entry of each
 mode in it.
 
+## Letting the session write the roster
+
+```bash
+saltChat --model qwen3-8b --backend vllm-serve --roster auto
+```
+
+`--roster auto` writes the roster instead of asking you to. It reads the
+models you have registered, reads how much memory is free on each card
+right now, and sizes a worker for each of the jobs it knows about. The
+file lands in the session folder as `roster.auto.json` and the session
+then loads it like any other roster, so you can read it, edit it, and
+pass it back with `--roster` next time.
+
+Sizing a worker means picking its `gpu_mem_util`, and the number has to
+cover three things inside the share it declares: the model's weights,
+the KV cache for the window it serves, and a flat reserve for everything
+else a server keeps resident. A worker sized to exactly what it needs
+sits on the line vLLM refuses to start at, so the fit adds room on top,
+rounds the share up, and never goes below a floor that has nothing to do
+with the model, because a server costs something even when its weights
+are tiny.
+
+Placement follows the free memory, not a guess. Each worker goes on the
+roomiest card that still has space for it once the workers already
+fitted are counted, and a card with no worker on it yet is preferred, so
+two workers land on two cards where the memory allows it and pieces can
+run at the same time.
+
+Nothing is started. A fitted entry is a spawn entry like any other, so
+the servers come up on `/worker start` or with `--workers-autostart`,
+and a fit on its own only writes a file.
+
+When two workers do not fit, the session refuses rather than shipping a
+roster that cannot fan out. It prints the roster it would have written,
+each entry that does not fit marked as such with the arithmetic behind
+it, and every candidate model it tried with the reason it was turned
+down. Nothing is written and nothing is started. Free a card, or write
+the file yourself and pass it as `--roster FILE`.
+
 ## Asking a model to reason, or not to
 
 Some models write their working before their answer, and a few of those

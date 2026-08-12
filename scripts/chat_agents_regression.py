@@ -8129,6 +8129,234 @@ def check_route_recipe(tmp, tok, mdl):
 # ---- provisioning: the fitted roster and the refusal that shows its work
 
 # the two A5000s the fit was calibrated on
+A5000_GIB = 24564 / 1024.0
+
+# the four model shapes the arithmetic was measured against: layers, KV
+# heads, head dim, weights in GiB, and the window the checkpoint allows
+FIT_SHAPES = {
+    "big": (36, 8, 128, 7.49, 262144),
+    "small": (28, 8, 128, 1.40, 40960),
+    "tiny": (30, 3, 64, 0.25, 8192),
+    "thinker": (64, 8, 128, 18.00, 40960),
+}
+
+
+def fake_registry(tmp):
+    """Registry entries whose snapshots carry the measured shapes.
+
+    The weight files are sparse, so an 18 GiB checkpoint costs no disk.
+    Every directory also gets a decoy the fit must not count: a snapshot
+    ships tokenizers and exported formats beside its checkpoint, and
+    counting those sizes a 135M model as though it were ten times
+    itself.
+    """
+    from salt.agents import provision as PROV
+    entries = []
+    for alias, (layers, kv_heads, head_dim, gib, maxpos) in FIT_SHAPES.items():
+        folder = tmp / "fitreg" / alias
+        folder.mkdir(parents=True, exist_ok=True)
+        with open(folder / "model.safetensors", "wb") as f:
+            f.truncate(int(gib * PROV.GIB))
+        with open(folder / "model.onnx", "wb") as f:
+            f.truncate(int(4 * PROV.GIB))
+        (folder / "config.json").write_text(json.dumps({
+            "num_hidden_layers": layers, "num_key_value_heads": kv_heads,
+            "num_attention_heads": kv_heads * 4, "head_dim": head_dim,
+            "hidden_size": head_dim * kv_heads * 4,
+            "max_position_embeddings": maxpos}))
+        entries.append({"alias": alias, "hf_id": f"fixture/{alias}",
+                        "path": str(folder), "downloaded": True})
+    return entries
+
+
+def fake_thinks(model):
+    from salt.agents.thinking import ALWAYS, UNSET
+    return ALWAYS if model.alias == "thinker" else UNSET
+
+
+def check_roster_fit(tmp):
+    from salt.agents import provision as PROV
+
+    # THE ARITHMETIC. A worker holds its weights, its KV cache and a flat
+    # reserve inside util * TOTAL, and the two numbers below are the two
+    # live deaths this sizing exists to stop repeating
+    assert PROV.RESERVE_GIB == 1.5, PROV.RESERVE_GIB
+    cfg = {"num_hidden_layers": 36, "num_key_value_heads": 8,
+           "num_attention_heads": 32, "head_dim": 128}
+    assert PROV.kv_bytes_per_token(cfg) == 144 * 1024, "144 KiB a token"
+    # head_dim left out is derived rather than dropped
+    assert PROV.kv_bytes_per_token(
+        {"num_hidden_layers": 30, "num_key_value_heads": 3,
+         "num_attention_heads": 9, "hidden_size": 576}) == 30 * 3 * 64 * 4
+
+    models = fake_registry(tmp)
+    facts = {m["alias"]: PROV.model_facts(m) for m in models}
+    for alias, shape in FIT_SHAPES.items():
+        assert abs(facts[alias].weights_gib - shape[3]) < 0.01, (
+            f"{alias} sized {facts[alias].weights_gib}: the fit is counting "
+            f"files that are not the checkpoint")
+
+    # Qwen3-0.6B asked for an 8192 window at 0.15 and vLLM refused it
+    # with 0.72 GiB of KV cache against the 0.88 GiB it needed
+    small = facts["small"]
+    assert abs(small.need_gib(8192) - 3.775) < 0.01, small.need_gib(8192)
+    assert PROV.util_for(small.need_gib(8192), A5000_GIB) == 0.20, (
+        "an 8192 window on this model is the share vLLM refused at 0.15")
+    # and the 135M model sized fine at 0.14, then ran out of memory
+    # warming its sampler up: a server costs something its weights do not
+    tiny = facts["tiny"]
+    assert tiny.need_gib(8192) < PROV.FLOOR_GIB, tiny.need_gib(8192)
+    assert PROV.util_for(tiny.need_gib(8192), A5000_GIB) == 0.18, (
+        "a worker with almost no weights was sized under the floor that "
+        "killed the 135M model at 0.12")
+    assert PROV.util_for(facts["big"].need_gib(16384), A5000_GIB) == 0.50
+
+    thinks = fake_thinks
+    cards = {0: A5000_GIB, 1: A5000_GIB}
+
+    # THE FIT. Card 0 already carries the chat model's server, card 1 is
+    # clear, which is the lane the reference roster was measured on
+    fit = PROV.fit_session(models, "chat", backend="vllm-serve", bge_gpu=1,
+                           free_fractions={0: 0.37, 1: 0.99},
+                           totals_gib=cards, thinks=thinks)
+    assert fit.ok and len(fit.placements) == 2, fit.report()
+    by_job = {p.job.name: p for p in fit.placements}
+    assert by_job["writer"].model.alias == "big", by_job["writer"]
+    assert by_job["finder"].model.alias == "small", by_job["finder"]
+    assert (by_job["writer"].util, by_job["writer"].window) == (0.50, 16384)
+    assert (by_job["finder"].util, by_job["finder"].window) == (0.20, 8192)
+    # fan-out is the point, so two workers take two cards where the
+    # memory allows it rather than contending for one
+    assert by_job["writer"].card != by_job["finder"].card, fit.report()
+
+    doc = fit.document()
+    assert doc["version"] == R.ROSTER_SCHEMA, doc
+    seen = set()
+    for raw in doc["models"]:
+        # every entry has to carry max_tokens: without one, a call falls
+        # back on the endpoint's window_max_tokens and leaves half the
+        # window for the prompt
+        assert raw["max_tokens"], raw
+        assert raw["role"] == "worker", raw
+        spawn = raw["spawn"]
+        assert spawn["gpu"] and spawn["gpu_mem_util"] and spawn[
+            "max_model_len"], spawn
+        # and it has to be a roster file, not merely a dict shaped like
+        # one, so it is put through the parser that reads real ones
+        parsed = R._parse_entry(tmp / "fitted.json", 0, raw, seen)
+        assert parsed.max_tokens == raw["max_tokens"], parsed
+        assert R.entry_cards(parsed) == (int(spawn["gpu"]),), parsed
+    # the planner is the chat model, not a fourth server: an A/B against
+    # a roster that planned with someone else is a model comparison
+    assert all(raw["alias"] != "chat" for raw in doc["models"]), doc
+    assert not any(raw["role"] == "orchestrator" for raw in doc["models"])
+    assert "the planner is chat" in fit.report(), fit.report()
+    # a model that always reasons cannot serve a job capped at a chat
+    # reply's worth of tokens, whatever its size says
+    assert all(raw["alias"] != "thinker" for raw in doc["models"]), doc
+
+    # WHAT IS WRITTEN, and what is not started
+    folder = tmp / "fitsession"
+    path = PROV.write_roster(fit, folder)
+    assert path == folder / PROV.ROSTER_FILENAME and path.is_file()
+    assert json.loads(path.read_text()) == doc, path
+    report = fit.with_path(path).report()
+    assert str(path) in report and "Nothing was started" in report, report
+    assert "--workers-autostart" in report, (
+        "the report does not say what actually starts a server")
+    # the fit reads live memory, and says why that reading is the only
+    # guard here: under vllm-serve the session declares no card of its own
+    assert "vllm-serve" in report and "static placement rule" in report
+
+    # THE LIVE READING IS WHAT BINDS. check_placement is happy to put a
+    # second worker on a card whose free memory the first one has not
+    # taken yet, because the first one is not running
+    entry = R.RosterEntry(name="finder", alias="small", role="worker",
+                          spawn={"port": "auto", "gpu": "0",
+                                 "gpu_mem_util": 0.20,
+                                 "max_model_len": 8192},
+                          max_tokens=256)
+    refusal, _ = check_placement(entry, chat_gpus=[], free_fractions={0: 0.70},
+                                 running=[("writer", (0,), 0.50)])
+    assert refusal is None, (
+        f"the shipped rule refused a pair it used to allow: {refusal}")
+    one_card = PROV.fit_session(models, "chat", free_fractions={0: 0.70},
+                                totals_gib={0: A5000_GIB}, thinks=thinks)
+    assert one_card.ok, one_card.report()
+    pair = {p.job.name: p.model.alias for p in one_card.placements}
+    assert pair != {"writer": "big", "finder": "small"}, (
+        "the fit placed a pair only the not-yet-running first worker "
+        "makes room for")
+    assert pair == {"writer": "small", "finder": "tiny"}, pair
+    assert {p.card for p in one_card.placements} == {0}, one_card.report()
+
+    # THE REFUSAL. One worker is not a roster that can fan out
+    short = PROV.fit_session(models, "chat", free_fractions={0: 0.30,
+                                                             1: 0.05},
+                             totals_gib=cards, thinks=thinks)
+    assert not short.ok and len(short.placements) == 1, short.report()
+    text = short.report()
+    for fragment in ("could not fit 2 workers", "cannot fan out",
+                     "1 of 2 fitted", "DOES NOT FIT",
+                     "Nothing was written and nothing was started"):
+        assert fragment in text, (fragment, text)
+    # the near miss is the point: the entry it wanted, with the shortfall
+    near = short.document(near_miss=True)["models"]
+    assert len(near) == 2 and near != short.document()["models"], near
+    block = "\n".join("  " + ln for ln in short.text(True).rstrip().splitlines())
+    assert block in text, text
+    assert short.wanted and short.wanted[0].shortfall, short.wanted
+    assert "is free there once every worker already fitted is counted" in text
+    # and every candidate it turned down says why, once each
+    turned = [ln for ln in text.splitlines() if "thinker" in ln]
+    assert turned and "always reasons" in turned[0], turned
+    try:
+        PROV.write_roster(short, tmp / "never")
+        raise AssertionError("a roster that does not fit was written")
+    except PROV.ProvisionError as exc:
+        assert "never written" in str(exc), exc
+    assert not (tmp / "never").exists(), "a refused fit left a folder behind"
+
+    # NOTHING TO FIT, and nothing to fit it on, are answers rather than
+    # tracebacks
+    for kwargs, fragment in (
+            ({"free_fractions": {}, "totals_gib": {}},
+             "no GPU memory could be read"),
+            ({"free_fractions": {0: 0.9}, "totals_gib": {0: A5000_GIB}},
+             "no downloaded model beside")):
+        try:
+            PROV.fit_session([m for m in models if m["alias"] == "big"],
+                             "big", thinks=thinks, **kwargs)
+            raise AssertionError(f"fit_session accepted {kwargs}")
+        except PROV.ProvisionError as exc:
+            assert fragment in str(exc), (fragment, str(exc))
+    try:
+        PROV.chat_alias_for(models)
+        raise AssertionError("an ambiguous registry picked a chat model")
+    except PROV.ProvisionError as exc:
+        assert "--model" in str(exc), exc
+    assert PROV.chat_alias_for(models, "fixture/big") == "big"
+
+    # THE FLAG, and the page that documents it
+    assert cli.build_parser().parse_args([]).roster is None
+    assert cli.build_parser().parse_args(["--roster", "auto"]).roster == "auto"
+    assert PROV.AUTO == "auto"
+    opts = (REPO / "docs" / "options.md").read_text()
+    assert "`--roster FILE`" in opts and "auto" in opts, (
+        "options.md does not say --roster takes auto")
+    assert "roster.auto.json" in (REPO / "docs" / "agents.md").read_text()
+
+    # and fitting costs nothing to import, like the rest of the layer
+    pulled = imports_pulled("salt.agents.provision",
+                            ("torch", "transformers", "requests", "vllm"))
+    assert not pulled, f"importing salt.agents.provision pulled {pulled}"
+    print("73. --roster auto: the sizing that reproduces both live "
+          "deaths, two workers on two cards, max_tokens on every entry, "
+          "the planner left as the chat model, the live free reading "
+          "binding where the shipped placement rule does not, and a "
+          "refusal that prints the near miss it would have written")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -8215,6 +8443,7 @@ def main():
         check_route_model(tmp, tok, mdl)
         check_route_strict(tmp, tok, mdl)
         check_route_recipe(tmp, tok, mdl)
+        check_roster_fit(tmp)
         print("PASS")
     finally:
         if not args.keep:
