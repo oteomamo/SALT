@@ -94,6 +94,21 @@ such setting is unaffected by it, and one that always reasons keeps
 reasoning whatever the file says. Write it for the models that offer the
 choice, and expect nothing from it on the ones that do not.
 
+Asking for the working costs reply length, so an entry that says
+`"think": true` has to leave itself room for both. Name a `max_tokens`
+of at least 2048, or leave `max_tokens` out and let the endpoint's own
+window size the call. A smaller number is refused when the roster loads,
+with the entry named and the fix in the message. The reason is that a
+model writing its working into a reply sized for a chat answer spends
+the whole of it on the working, and what comes back never reaches the
+answer.
+
+An entry that names no `max_tokens` at all is sized from the window the
+endpoint is actually serving, up to a quarter of it. That is the same
+allowance a planning call gets, and it is used rather than the reply
+length the model was registered with, which is a length for a chat reply
+to a person and not for a model that has two things to write.
+
 ## Attach or spawn
 
 Each entry either attaches to a server that is already running or

@@ -3871,9 +3871,10 @@ def check_plan_call(tmp, tok, mdl):
     assert O.entry_gen(plain, None, _Windowed(8192))["max_new_tokens"] == 2048
     assert O.entry_gen(said, None, _Windowed(8192))["max_new_tokens"] == 64, (
         "an entry that named its own reply length lost it to the plan")
-    # a write-up is not a directive call and is generated as a reply
-    assert "max_new_tokens" not in O.entry_gen(plain, O.SYNTHESIS_GEN,
-                                               _Windowed(8192))
+    # a write-up is not a directive call, and it is still sized from the
+    # endpoint's window rather than left to the registered chat length
+    assert O.entry_gen(plain, O.SYNTHESIS_GEN,
+                       _Windowed(8192))["max_new_tokens"] == 2048
     print("40. the plan call: one ask, one directive, repaired once and "
           "then fallen back on, asked under a byte-stable head that names "
           "the helpers, with room to reason bounded by a quarter of the "
@@ -6878,12 +6879,12 @@ def check_thinking_policy(tmp, tok, mdl):
     entry = R.RosterEntry(name="w", alias="a", role="worker",
                           server_url="http://h")
     said = R.replace(entry, think=True)
-    assert O.entry_gen(entry, {}) == {}, (
+    assert TEMPLATE_KEY not in O.entry_gen(entry, {}), (
         "an entry with no opinion carried a thinking setting anyway")
-    assert O.entry_gen(entry, {}, think=False) == {
-        TEMPLATE_KEY: {TH.KEY: False}}
-    assert O.entry_gen(said, {}, think=False) == {
-        TEMPLATE_KEY: {TH.KEY: True}}, "the round overrode the roster"
+    assert O.entry_gen(entry, {}, think=False)[TEMPLATE_KEY] == {
+        TH.KEY: False}
+    assert O.entry_gen(said, {}, think=False)[TEMPLATE_KEY] == {
+        TH.KEY: True}, "the round overrode the roster"
     req = D.DelegationRequest(task="t", think=False)
     assert D.call_overrides(said, req) == {TEMPLATE_KEY: {TH.KEY: True}}, (
         "a piece overrode the entry that named its own setting")
@@ -7500,6 +7501,99 @@ def check_route_rules(tmp, tok, mdl):
           "turned back into a plain one or never routed at all")
 
 
+def check_thinking_room(tmp):
+    from salt.agents import orchestrator as O
+    from salt.agents import thinking as TH
+    from salt.chat import registry as REG
+
+    # the length this guards against inheriting: what a registered model
+    # may generate for one reply to a person
+    assert REG.CHAT_REPLY_TOKENS == 512, REG.CHAT_REPLY_TOKENS
+    assert inspect.signature(REG.register_model).parameters[
+        "max_new_tokens"].default == REG.CHAT_REPLY_TOKENS, (
+        "a registered model's reply length is no longer the named one")
+
+    # the floor is derived rather than picked: the working a directive
+    # call budgets for has to stay under the share the runaway guard
+    # gives up at, so 1536 of working needs 2048 of room to survive
+    assert R.THINK_FLOOR == O.PLAN_ANSWER_TOKENS + O.PLAN_THINK_TOKENS, (
+        R.THINK_FLOOR, O.PLAN_ANSWER_TOKENS, O.PLAN_THINK_TOKENS)
+    assert O.PLAN_THINK_TOKENS <= R.THINK_FLOOR * TH.THINK_SHARE, (
+        "the floor no longer holds the working a plan is budgeted")
+
+    good = {"name": "w", "alias": SAMPLE_ALIAS,
+            "server_url": "http://127.0.0.1:8081"}
+    bad = tmp / "think_room.json"
+    write_roster(bad, [dict(good, think=True,
+                            max_tokens=REG.CHAT_REPLY_TOKENS)])
+    refuses(bad, "think is true but max_tokens is 512")
+    write_roster(bad, [dict(good, think=True, max_tokens=R.THINK_FLOOR - 1)])
+    refuses(bad, f"Raise max_tokens to {R.THINK_FLOOR} or more")
+    # the two ways to write an entry that asks for the working and can
+    # still finish, plus the entries that never asked for it
+    for entry in (dict(good, think=True, max_tokens=R.THINK_FLOOR),
+                  dict(good, think=True),
+                  dict(good, think=False, max_tokens=64),
+                  dict(good, max_tokens=64)):
+        parsed = R._parse_entry(bad, 0, entry, set())
+        assert parsed.max_tokens == entry.get("max_tokens"), entry
+
+    class _Windowed:
+        def __init__(self, window):
+            self.max_input_len = window
+
+    plain = R.RosterEntry(name="w", alias="a", role="worker")
+    said = R.RosterEntry(name="w", alias="a", role="worker", max_tokens=64)
+    # every way a call can be made, and none of them reaches a model
+    # without saying how much it may write
+    for gen in (None, O.SYNTHESIS_GEN, {"temperature": 0.6}):
+        for runner in (_Windowed(32768), _Windowed(4096), None):
+            over = O.entry_gen(plain, gen, runner)
+            assert over.get("max_new_tokens") == O.planning_tokens(runner), (
+                f"a call under {gen!r} was left to the registered reply "
+                f"length: {over!r}")
+            assert O.entry_gen(said, gen, runner)["max_new_tokens"] == 64, (
+                "an entry that named its own reply length lost it")
+    assert O.planning_tokens(_Windowed(4096)) == 1024, (
+        "a small window no longer bounds what a call may ask for")
+
+    # the runaway guard measures against the call's own reply length, so
+    # a call that named none was a guard that could never trip
+    assert TH.ThinkGuard(None).settled and not TH.ThinkGuard(None).limit
+    room = O.entry_gen(plain, O.SYNTHESIS_GEN, _Windowed(32768))
+    assert not TH.ThinkGuard(room["max_new_tokens"]).settled, (
+        "the write-up call cannot be given up on, whatever it spends")
+
+    class _Handle:
+        def __init__(self, entry):
+            self.entry = entry
+            self.overrides = []
+
+        def opened(self):
+            return _Windowed(32768)
+
+        def call(self, messages, **over):
+            self.overrides.append(dict(over))
+            yield "ok"
+
+    handle = _Handle(plain)
+    assert O.handle_send(handle, O.SYNTHESIS_GEN)([]) == "ok"
+    list(O.handle_stream(handle, O.SYNTHESIS_GEN)([]))
+    for over in handle.overrides:
+        assert over["max_new_tokens"] == R.THINK_FLOOR, handle.overrides
+
+    doc = (REPO / "docs" / "agents.md").read_text(encoding="utf-8")
+    assert str(R.THINK_FLOOR) in doc, (
+        "the page does not say how much room an entry that thinks needs")
+    print("69. room to reason: the floor an entry that asks for the "
+          "working has to name, derived from the working a plan is "
+          "budgeted and the share the runaway guard gives up at, a "
+          "smaller one refused at load with the fix, every other call "
+          "sized from the endpoint's own window instead of the reply "
+          "length the model was registered with, and a guard that can "
+          "trip because the length it measures is stated")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -7580,6 +7674,7 @@ def main():
         check_route_decision(tmp, tok, mdl)
         check_route_seam(tmp, tok, mdl)
         check_route_rules(tmp, tok, mdl)
+        check_thinking_room(tmp)
         print("PASS")
     finally:
         if not args.keep:

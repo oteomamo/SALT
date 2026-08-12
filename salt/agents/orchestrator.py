@@ -272,10 +272,20 @@ def entry_gen(entry, gen=None, runner=None, think=None):
     written down for it has that number for a reason, and a round that
     overrode it in the name of determinism would be deciding how to run
     a model it was only told to use.
+
+    What nobody named is named here rather than left out. A call that
+    carries no reply length falls back on the registered model's own,
+    which is a length for a chat reply to a person: a model that writes
+    its working first spends the whole of it on the working and reaches
+    the round as a reply that was never an answer. The window this
+    endpoint actually has is the honest number, and stating it also
+    gives the runaway guard the length it measures against.
     """
     over = dict(planning_gen(runner) if gen is None else gen)
     if entry.max_tokens is not None:
         over["max_new_tokens"] = int(entry.max_tokens)
+    elif over.get("max_new_tokens") is None:
+        over["max_new_tokens"] = planning_tokens(runner)
     if entry.temperature is not None:
         over["temperature"] = float(entry.temperature)
     over.update(thinking.gen_kwargs(thinking.settle(think, entry.think)))

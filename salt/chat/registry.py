@@ -24,6 +24,10 @@ from pathlib import Path
 MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
 
 VALID_DTYPES = ("bfloat16", "float16", "float32")
+# what a registered model may generate for one chat reply. It is a
+# length for an answer to a person, so a call that also has to write its
+# working sizes itself from the endpoint's window instead of taking this
+CHAT_REPLY_TOKENS = 512
 _ALIAS_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
@@ -54,7 +58,8 @@ def _load_entry(alias):
 
 
 def register_model(hf_id, alias=None, *, dtype="bfloat16",
-                   attn_implementation="sdpa", max_new_tokens=512,
+                   attn_implementation="sdpa",
+                   max_new_tokens=CHAT_REPLY_TOKENS,
                    temperature=0.7, force=False):
     """Download ``hf_id`` (into the normal HF cache) and register it.
 

@@ -26,6 +26,13 @@ from pathlib import Path
 ROSTER_SCHEMA = "salt-roster/1"
 ROLES = ("worker", "orchestrator")
 
+# the smallest reply length an entry that asks for the working may name.
+# A model told to reason writes the working before the answer, and a
+# call that has spent three quarters of its reply length reasoning
+# without answering is given up on, so a cap under this one is a cap the
+# working alone can finish
+THINK_FLOOR = 2048
+
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _TOP_KEYS = {"version", "models"}
 _ENTRY_KEYS = {"name", "alias", "role", "server_url", "spawn", "max_tokens",
@@ -220,6 +227,13 @@ def _parse_entry(path, index, raw, seen_names):
     if think is not None and not isinstance(think, bool):
         _fail(path, name, f"think must be true or false, or left out to "
                           f"send no thinking setting at all, got {think!r}")
+    if think and max_tokens is not None and max_tokens < THINK_FLOOR:
+        _fail(path, name, f"think is true but max_tokens is {max_tokens}, "
+                          f"and a model writing its working into a reply "
+                          f"that short never reaches the answer. Raise "
+                          f"max_tokens to {THINK_FLOOR} or more, or leave it "
+                          f"out and let the endpoint's own window size the "
+                          f"call.")
     return RosterEntry(
         name=name, alias=alias, role=role, server_url=server_url,
         spawn=spawn, max_tokens=max_tokens, temperature=temperature,
