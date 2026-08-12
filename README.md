@@ -317,6 +317,11 @@ page covers the server, and the
 flag in one line each, including the off-by-default switches that make
 long sessions better.
 
+Helper models can take a turn apart and answer the pieces before the
+reply is written. The
+[Agents](https://oteomamo.github.io/SALT/latest/agents/) page covers the
+roster, the round, and the flags that turn it on.
+
 ## 🔬 Results
 
 The full per-dataset table is on the
