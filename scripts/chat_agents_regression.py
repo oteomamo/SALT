@@ -8135,6 +8135,7 @@ A5000_GIB = 24564 / 1024.0
 # heads, head dim, weights in GiB, and the window the checkpoint allows
 FIT_SHAPES = {
     "big": (36, 8, 128, 7.49, 262144),
+    "narrow": (36, 8, 128, 6.00, 8192),
     "small": (28, 8, 128, 1.40, 40960),
     "tiny": (30, 3, 64, 0.25, 8192),
     "thinker": (64, 8, 128, 18.00, 40960),
@@ -8357,6 +8358,118 @@ def check_roster_fit(tmp):
           "refusal that prints the near miss it would have written")
 
 
+def check_roster_notes(tmp):
+    import dataclasses
+
+    from salt.agents import orchestrator as O
+    from salt.agents import provision as PROV
+    from salt.agents.thinking import TOGGLE, UNSET
+
+    models = fake_registry(tmp)
+    cards = {0: A5000_GIB, 1: A5000_GIB}
+    fit = PROV.fit_session(models, "chat", free_fractions={0: 0.99, 1: 0.99},
+                           totals_gib=cards, thinks=fake_thinks)
+    assert fit.ok, fit.report()
+    notes = {p.job.name: p.notes for p in fit.placements}
+    assert len(notes) == 2, notes
+
+    # WHAT THE PLANNER IS SHOWN. targets_for hands over `notes or alias`,
+    # so an entry with no notes reaches the plan as a bare name and a
+    # roster of bare names is a roster of clones
+    entries, seen = [], set()
+    for raw in fit.document()["models"]:
+        assert raw["notes"], raw
+        entries.append(dataclasses.replace(
+            R._parse_entry(tmp / "noted.json", 0, raw, seen), model=STUB_CFG))
+    roster = R.Roster(path=str(tmp / "noted.json"), entries=tuple(entries))
+
+    class _Held:
+        pass
+
+    held = _Held()
+    held.roster = roster
+    targets = O.targets_for(held)
+    assert len(targets) == 2, targets
+    for name, shown in targets:
+        assert shown == notes[name] and shown != name, (name, shown)
+
+    # DISJOINT, WHICH IS THE PROPERTY THAT MAKES FAN-OUT FIRE. Two
+    # descriptions sharing a content word describe one job twice
+    words = [PROV.content_words(n) for n in notes.values()]
+    assert words[0] and words[1], words
+    assert not (words[0] & words[1]), sorted(words[0] & words[1])
+    # bare numbers describe nothing, so two workers clamped to the same
+    # window are not two workers doing the same job
+    assert PROV.content_words("holds 8192 tokens") == {"holds", "tokens"}
+
+    # and the guard is a guard, not a comment
+    clone = fit.placements[0]
+    try:
+        PROV.check_notes([clone, dataclasses.replace(
+            fit.placements[1], notes=clone.notes)])
+        raise AssertionError("two workers were described the same way")
+    except PROV.ProvisionError as exc:
+        assert "which piece belongs to which" in str(exc), exc
+    try:
+        PROV.check_notes([dataclasses.replace(clone, notes="")])
+        raise AssertionError("a worker with no notes was accepted")
+    except PROV.ProvisionError as exc:
+        assert "carries no notes" in str(exc), exc
+
+    # WHAT THE MODEL TURNED OUT TO BE, written into the note. The tiny
+    # fixture's checkpoint stops at 8192, so the writer's window is
+    # clamped under what the job asked for and the note says so
+    short = PROV.fit_session(
+        [m for m in models if m["alias"] in ("tiny", "small")], "chat",
+        free_fractions={0: 0.99, 1: 0.99}, totals_gib=cards,
+        thinks=lambda m: UNSET)
+    by_job = {p.job.name: p for p in short.placements}
+    assert by_job["writer"].model.alias == "small", by_job["writer"]
+    assert by_job["finder"].window == 8192 and by_job[
+        "finder"].model.alias == "tiny"
+    clamped = PROV.fit_session(
+        [m for m in models if m["alias"] in ("narrow", "tiny")], "chat",
+        free_fractions={0: 0.99, 1: 0.99}, totals_gib=cards,
+        thinks=lambda m: UNSET)
+    assert clamped.ok, clamped.report()
+    written = {p.job.name: p for p in clamped.placements}
+    assert written["writer"].model.alias == "narrow", written["writer"]
+    assert written["writer"].window == 8192, written["writer"]
+    assert "8192" in written["writer"].notes, written["writer"].notes
+    assert not (PROV.content_words(written["writer"].notes)
+                & PROV.content_words(written["finder"].notes))
+
+    # a model that can be told to skip its working is told to, and the
+    # note says that too. One that has no such setting is written down
+    # with no setting at all, which is the entry that changes no bytes
+    toggles = PROV.fit_session(models, "chat",
+                               free_fractions={0: 0.99, 1: 0.99},
+                               totals_gib=cards, thinks=lambda m: TOGGLE)
+    for raw in toggles.document()["models"]:
+        assert raw["think"] is False, raw
+        assert raw["max_tokens"] < R.THINK_FLOOR, raw
+        parsed = R._parse_entry(tmp / "think.json", 0, raw, set())
+        assert parsed.think is False and parsed.notes == raw["notes"]
+    unset = PROV.fit_session(models, "chat",
+                             free_fractions={0: 0.99, 1: 0.99},
+                             totals_gib=cards, thinks=lambda m: UNSET)
+    for raw in unset.document()["models"]:
+        assert "think" not in raw, raw
+        assert R._parse_entry(tmp / "unset.json", 0, raw, set()).think is None
+    assert ({p.notes for p in toggles.placements}
+            != {p.notes for p in unset.placements}), (
+        "the notes say the same thing whatever the model turned out to be")
+
+    doc = (REPO / "docs" / "agents.md").read_text()
+    assert "`notes`" in doc and '`"think": false`' in doc, (
+        "the page does not say a fitted entry is described, or how")
+    print("74. fitted competency notes: what targets_for shows the "
+          "planner for every generated entry, two jobs described in "
+          "vocabularies that do not meet with the guard that refuses a "
+          "roster of clones, the window and the thinking setting the "
+          "model turned out to have written into the description")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -8444,6 +8557,7 @@ def main():
         check_route_strict(tmp, tok, mdl)
         check_route_recipe(tmp, tok, mdl)
         check_roster_fit(tmp)
+        check_roster_notes(tmp)
         print("PASS")
     finally:
         if not args.keep:

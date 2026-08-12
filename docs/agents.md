@@ -109,6 +109,22 @@ fitted are counted, and a card with no worker on it yet is preferred, so
 two workers land on two cards where the memory allows it and pieces can
 run at the same time.
 
+Every fitted entry is given `notes`, and the notes are the part that
+makes the roster worth having. A planning model is shown each worker's
+notes, or its alias when it has none, and two workers described the same
+way give it no reason to send one piece here and the other there. So the
+jobs are described in words that do not overlap, one for prose and one
+for short factual lookups, and the descriptions pick up what the model
+turned out to be: a worker whose endpoint serves a shorter window than
+the job asked for says so, and one that can be told to skip its working
+says that too. A fit whose two descriptions ever share a word stops
+rather than writing a roster that cannot fan out.
+
+A worker that can be asked not to reason is also written down with
+`"think": false`, since these jobs are sized for an answer and not for
+an answer with the reasoning in front of it. A model with no such
+setting is written down with none.
+
 Nothing is started. A fitted entry is a spawn entry like any other, so
 the servers come up on `/worker start` or with `--workers-autostart`,
 and a fit on its own only writes a file.

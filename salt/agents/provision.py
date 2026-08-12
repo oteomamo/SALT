@@ -53,6 +53,7 @@ bare one cannot.
 
 import json
 import math
+import re
 import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -90,16 +91,83 @@ class Job:
     one that asks for the most window and the longest reply is filled
     first so the smaller one takes what is left rather than the other
     way round.
+
+    ``notes`` is what the planner is actually shown, because
+    ``targets_for`` puts ``notes or alias`` in front of it. Two workers
+    described the same way are two workers one piece of work can be
+    given, so the descriptions are written from vocabularies that do not
+    meet and ``check_notes`` holds them to it. The two clauses are added
+    from what the model turned out to be, and they are written in the
+    job's own words for the same reason.
     """
     name: str
     window: int
     max_tokens: int
+    notes: str
+    clamped: str
+    plain: str
 
 
 JOBS = (
-    Job("writer", 16384, 512),
-    Job("finder", 8192, 256),
+    Job("writer", 16384, 512,
+        "writes prose: summaries, comparisons, and anything that has to "
+        "read several excerpts and say what they add up to.",
+        " Its endpoint stops at {window} tokens.",
+        " Skips the working before the prose."),
+    Job("finder", 8192, 256,
+        "short factual lookups: dates, names, numbers, and one line "
+        "answers pulled straight out of the memory it is handed.",
+        " Its server tops out at {window} of context.",
+        " Replies straight away, with no reasoning."),
 )
+
+# words that describe nothing, so two notes sharing one share nothing.
+# Bare numbers go with them: a window size is a fact about an endpoint
+# rather than a competency, and two workers clamped to the same window
+# would otherwise read as two workers doing the same job
+STOPWORDS = frozenset(
+    "a an and are as at be by for from has have in is it its no not of on "
+    "or that the these this those to up what with".split())
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def content_words(note):
+    return {w for w in _WORD_RE.findall((note or "").lower())
+            if w not in STOPWORDS and not w.isdigit()}
+
+
+def note_for(placement, think):
+    """What the planner is shown about this worker."""
+    job = placement.job
+    note = job.notes
+    if placement.window < job.window:
+        note += job.clamped.format(window=placement.window)
+    if think is False:
+        note += job.plain
+    return note
+
+
+def check_notes(placements):
+    """Every worker described in words no other worker's notes use.
+
+    A planner shown two descriptions that overlap has no reason to send
+    one piece here and the other there, so a roster of near clones never
+    fans out however much memory it fits into.
+    """
+    for i, first in enumerate(placements):
+        if not first.notes:
+            raise ProvisionError(
+                f"the {first.job.name} entry carries no notes, so the "
+                f"planner would be shown its alias and nothing about what "
+                f"it is for")
+        for second in placements[i + 1:]:
+            shared = content_words(first.notes) & content_words(second.notes)
+            if shared:
+                raise ProvisionError(
+                    f"the {first.job.name} and {second.job.name} entries are "
+                    f"both described with {', '.join(sorted(shared))}, so "
+                    f"nothing in the roster tells the planner which piece "
+                    f"belongs to which")
 
 
 @dataclass(frozen=True)
@@ -128,6 +196,8 @@ class Placement:
     total_gib: float
     free_before: float
     shortfall: str = ""
+    notes: str = ""
+    think: bool = None
 
     @property
     def need_gib(self):
@@ -140,12 +210,15 @@ class Placement:
                 f"{self.need_gib:.2f} GiB of {self.total_gib:.2f}")
 
     def entry(self):
-        return {"name": self.job.name, "alias": self.model.alias,
-                "role": "worker",
-                "spawn": {"port": "auto", "gpu": str(self.card),
-                          "gpu_mem_util": self.util,
-                          "max_model_len": self.window},
-                "max_tokens": self.job.max_tokens}
+        row = {"name": self.job.name, "alias": self.model.alias,
+               "role": "worker",
+               "spawn": {"port": "auto", "gpu": str(self.card),
+                         "gpu_mem_util": self.util,
+                         "max_model_len": self.window},
+               "max_tokens": self.job.max_tokens, "notes": self.notes}
+        if self.think is not None:
+            row["think"] = self.think
+        return row
 
 
 @dataclass(frozen=True)
@@ -337,13 +410,20 @@ def _reasons_to_think(job, model, ctx):
     return None
 
 
-def _sized(job, model, card, cards):
+def _sized(job, model, card, cards, ctx):
+    from salt.agents.thinking import TOGGLE
     window = min(job.window, model.max_position)
     total = cards.totals[card]
-    return Placement(job=job, model=model, card=card,
-                     util=util_for(model.need_gib(window), total),
-                     window=window, total_gib=total,
-                     free_before=cards.free[card])
+    # a worker that can be asked to skip its working is asked to: the
+    # jobs here are sized for an answer, not for an answer with the
+    # reasoning in front of it. A model with no such setting is written
+    # down with none, which is the entry that changes no bytes
+    think = False if ctx["thinking_of"](model) == TOGGLE else None
+    placement = Placement(job=job, model=model, card=card,
+                          util=util_for(model.need_gib(window), total),
+                          window=window, total_gib=total,
+                          free_before=cards.free[card], think=think)
+    return replace(placement, notes=note_for(placement, think))
 
 
 def _shortfall(placement, cards):
@@ -373,7 +453,7 @@ def _place(job, model, cards, running, ctx):
         return None, said
     closest = None
     for card in cards.order():
-        placement = _sized(job, model, card, cards)
+        placement = _sized(job, model, card, cards, ctx)
         short = _shortfall(placement, cards)
         if short is None:
             refusal, _ = check_placement(
@@ -397,7 +477,7 @@ def _near_miss(job, pool, used, cards, ctx):
         card = next(iter(cards.order()), None)
         if card is None:
             return None
-        placement = _sized(job, model, card, cards)
+        placement = _sized(job, model, card, cards, ctx)
         return replace(placement, shortfall=_shortfall(placement, cards) or
                        f"{model.alias} was refused on GPU {card}")
     return None
@@ -469,6 +549,7 @@ def fit_session(models, chat_alias, *, backend=None, chat_gpus=(),
     placements = _assign(list(JOBS), pool, set(), cards, running, ctx,
                          refusals)
     if placements is not None:
+        check_notes(placements)
         return Fit(placements=tuple(placements), refusals=(),
                    chat_alias=chat_alias, free_fractions=free,
                    totals_gib=totals, backend=backend)
@@ -526,9 +607,12 @@ def _row(placement):
             f"util {p.util:.2f}  window {p.window}  "
             f"max_tokens {p.job.max_tokens}")
     body = f"           {p.arithmetic}"
+    told = f"           told: {p.notes}"
     if p.shortfall:
-        return [head + "   DOES NOT FIT", body, f"           {p.shortfall}"]
-    return [head, body + f", and GPU {p.card} had {p.free_before:.2f} free"]
+        return [head + "   DOES NOT FIT", body, f"           {p.shortfall}",
+                told]
+    return [head, body + f", and GPU {p.card} had {p.free_before:.2f} free",
+            told]
 
 
 def _report_lines(fit):
