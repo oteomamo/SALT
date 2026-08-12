@@ -1048,10 +1048,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21127" class="md-nav__link">
+  <a href="#2110-21138" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.27
+        2.11.0 - 2.11.38
       
     </span>
   </a>
@@ -1261,10 +1261,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21127" class="md-nav__link">
+  <a href="#2110-21138" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.27
+        2.11.0 - 2.11.38
       
     </span>
   </a>
@@ -1426,7 +1426,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21127">2.11.0 - 2.11.27</h2>
+<h2 id="2110-21138">2.11.0 - 2.11.38</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1518,6 +1518,49 @@ cover the tools, the roster and the limits.</p>
   was asked about it fired on and the note its author left, so a rule
   that never fires and one that fires on nearly every turn are both
   visible after one conversation.</li>
+<li><strong>2.11.29</strong> Room to reason. A helper that writes its working before
+  its answer used to plan under a chat reply's length and spend all of
+  it on the working, so the round got a reply that was never an answer.
+  A roster call that names no length is now sized from the window its
+  endpoint actually serves, and an entry that asks for the working with
+  a reply shorter than 2048 is refused when the roster loads, with the
+  fix in the message.</li>
+<li><strong>2.11.30</strong> The write-up reads the turn's memory. The model that
+  writes a planned turn's reply was sent the helpers' pieces alone, so
+  it answered without the memory the plan itself was shown. That block
+  now travels with the write-up, cut to whole sections when the pieces
+  leave less room than it needs.</li>
+<li><strong>2.11.31</strong> A planned turn records what its own calls cost. The trace
+  line said what every piece cost and nothing about the plan, the
+  follow-up and the write-up, and its write-up field was filled in only
+  on turns that gave up and answered directly. Both now land on that
+  line as <code>planning</code> and <code>synthesis</code>.</li>
+<li><strong>2.11.32</strong> A route rule that would freeze does not load. A rule that
+  reads what routing itself decides, without saying how stale a number
+  it will act on, fires once and then answers every later turn from that
+  one reading, because the number only moves when a round runs. Such a
+  rule is refused when the file loads, naming the signals and the fix.</li>
+<li><strong>2.11.33</strong> <code>--route-policy model</code>. The question of whether a turn is
+  worth planning can go to the model instead of a rules file, which is
+  what a session with no rules to give needed. It is shown the
+  conversation as numbers, what the session allows and who is ready, and
+  what it asks for is clamped against the same flags a rule is. Off by
+  default and experimental.</li>
+<li><strong>2.11.34</strong> <code>--route-agent</code> without <code>--agent</code> prints the recipe. Such
+  a session built the policy, read the rules file and routed nothing,
+  saying so nowhere. It now says what the whole recipe is and carries on
+  with routing off, rather than refusing to start.</li>
+<li><strong>2.11.35 - 2.11.36</strong> <code>--roster auto</code>. A roster can be fitted instead
+  of written: SALT reads the models you have registered and the memory
+  free on each card, sizes a helper for each job it knows about, and
+  writes the file to the session folder. A share covers weights, KV
+  cache and a flat reserve with room on top, because a share sized to
+  exactly what a model needs is one vLLM refuses to start on. Each
+  fitted helper is described in words the other one does not use, since
+  a planner shown two identical descriptions has no reason to send one
+  piece here and the other there. When two helpers do not fit it prints
+  the roster it would have written, with the arithmetic for each entry
+  that missed, and writes nothing. Fitting starts nothing on its own.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name

@@ -1399,7 +1399,7 @@ real session before it is trusted.</p>
 <tr>
 <td><code>--roster FILE</code></td>
 <td>none</td>
-<td>JSON file naming the worker models this session may reach, listed by <code>/roster</code></td>
+<td>JSON file naming the worker models this session may reach, listed by <code>/roster</code>. <code>auto</code> fits one from the registry and the memory free right now, and writes it to the session folder</td>
 </tr>
 <tr>
 <td><code>--workers-autostart</code></td>
@@ -1485,6 +1485,11 @@ real session before it is trusted.</p>
 <td><code>--route-rules-allow-examples</code></td>
 <td>off</td>
 <td>load the route rules a file marks as examples too, none of which has been measured</td>
+</tr>
+<tr>
+<td><code>--route-policy rule\|model</code></td>
+<td>rule</td>
+<td>what decides under <code>--route-agent</code>: the rules file, or the model itself (experimental)</td>
 </tr>
 <tr>
 <td><code>--switch-agent</code></td>

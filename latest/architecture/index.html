@@ -1660,7 +1660,8 @@ answer or a list of pieces and the helper each piece goes to. Every
 piece then goes out with the memory selected for it alone, so a helper
 never sees the plan or the other pieces and each task has to stand on
 its own. What comes back goes to the orchestrator once more, with the
-original question under it, and what it writes is the reply. Pieces for
+conversation's memory and the original question under it, and what it
+writes is the reply. Pieces for
 different helpers run at the same time. The thread that owns the session
 does every trie read and every write, and the threads do HTTP only.</p>
 <p>The answer becomes an ordinary turn. Same memory selected for it, same

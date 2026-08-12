@@ -731,6 +731,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-the-session-write-the-roster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting the session write the roster
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#asking-a-model-to-reason-or-not-to" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -890,6 +901,17 @@
     <span class="md-ellipsis">
       
         Watching which rules fire
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-model-instead-of-a-route-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A model instead of a route file
       
     </span>
   </a>
@@ -1504,6 +1526,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-the-session-write-the-roster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting the session write the roster
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#asking-a-model-to-reason-or-not-to" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1663,6 +1696,17 @@
     <span class="md-ellipsis">
       
         Watching which rules fire
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-model-instead-of-a-route-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A model instead of a route file
       
     </span>
   </a>
@@ -1927,6 +1971,51 @@ bad port, an unknown alias or a model whose weights are missing stops
 the launch instead of failing later. This file ships as
 <code>salt/agents/roster_sample.json</code>, ready to copy, with one entry of each
 mode in it.</p>
+<h2 id="letting-the-session-write-the-roster">Letting the session write the roster</h2>
+<div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen3-8b<span class="w"> </span>--backend<span class="w"> </span>vllm-serve<span class="w"> </span>--roster<span class="w"> </span>auto
+</code></pre></div>
+<p><code>--roster auto</code> writes the roster instead of asking you to. It reads the
+models you have registered, reads how much memory is free on each card
+right now, and sizes a worker for each of the jobs it knows about. The
+file lands in the session folder as <code>roster.auto.json</code> and the session
+then loads it like any other roster, so you can read it, edit it, and
+pass it back with <code>--roster</code> next time.</p>
+<p>Sizing a worker means picking its <code>gpu_mem_util</code>, and the number has to
+cover three things inside the share it declares: the model's weights,
+the KV cache for the window it serves, and a flat reserve for everything
+else a server keeps resident. A worker sized to exactly what it needs
+sits on the line vLLM refuses to start at, so the fit adds room on top,
+rounds the share up, and never goes below a floor that has nothing to do
+with the model, because a server costs something even when its weights
+are tiny.</p>
+<p>Placement follows the free memory, not a guess. Each worker goes on the
+roomiest card that still has space for it once the workers already
+fitted are counted, and a card with no worker on it yet is preferred, so
+two workers land on two cards where the memory allows it and pieces can
+run at the same time.</p>
+<p>Every fitted entry is given <code>notes</code>, and the notes are the part that
+makes the roster worth having. A planning model is shown each worker's
+notes, or its alias when it has none, and two workers described the same
+way give it no reason to send one piece here and the other there. So the
+jobs are described in words that do not overlap, one for prose and one
+for short factual lookups, and the descriptions pick up what the model
+turned out to be: a worker whose endpoint serves a shorter window than
+the job asked for says so, and one that can be told to skip its working
+says that too. A fit whose two descriptions ever share a word stops
+rather than writing a roster that cannot fan out.</p>
+<p>A worker that can be asked not to reason is also written down with
+<code>"think": false</code>, since these jobs are sized for an answer and not for
+an answer with the reasoning in front of it. A model with no such
+setting is written down with none.</p>
+<p>Nothing is started. A fitted entry is a spawn entry like any other, so
+the servers come up on <code>/worker start</code> or with <code>--workers-autostart</code>,
+and a fit on its own only writes a file.</p>
+<p>When two workers do not fit, the session refuses rather than shipping a
+roster that cannot fan out. It prints the roster it would have written,
+each entry that does not fit marked as such with the arithmetic behind
+it, and every candidate model it tried with the reason it was turned
+down. Nothing is written and nothing is started. Free a card, or write
+the file yourself and pass it as <code>--roster FILE</code>.</p>
 <h2 id="asking-a-model-to-reason-or-not-to">Asking a model to reason, or not to</h2>
 <p>Some models write their working before their answer, and a few of those
 let a caller decide per call whether to. An entry can say which it wants
@@ -1937,6 +2026,19 @@ the same prompt it has always sent.</p>
 such setting is unaffected by it, and one that always reasons keeps
 reasoning whatever the file says. Write it for the models that offer the
 choice, and expect nothing from it on the ones that do not.</p>
+<p>Asking for the working costs reply length, so an entry that says
+<code>"think": true</code> has to leave itself room for both. Name a <code>max_tokens</code>
+of at least 2048, or leave <code>max_tokens</code> out and let the endpoint's own
+window size the call. A smaller number is refused when the roster loads,
+with the entry named and the fix in the message. The reason is that a
+model writing its working into a reply sized for a chat answer spends
+the whole of it on the working, and what comes back never reaches the
+answer.</p>
+<p>An entry that names no <code>max_tokens</code> at all is sized from the window the
+endpoint is actually serving, up to a quarter of it. That is the same
+allowance a planning call gets, and it is used rather than the reply
+length the model was registered with, which is a length for a chat reply
+to a person and not for a model that has two things to write.</p>
 <h2 id="attach-or-spawn">Attach or spawn</h2>
 <p>Each entry either attaches to a server that is already running or
 describes one to start. An attach entry carries <code>server_url</code> and points
@@ -2127,8 +2229,10 @@ list of pieces and the helper each piece goes to. Each piece then goes
 to its helper, one at a time, with the conversation's memory selected
 for that piece alone, so a helper never sees the plan or the other
 pieces and every task has to stand on its own. What comes back goes to
-the chat model once more with the original question under it, and what
-it writes is the reply.</p>
+the chat model once more, with this conversation's memory and the
+original question under it, and what it writes is the reply. That last
+call reads the same memory block the plan read, cut to whole sections
+when the pieces leave it less room than the block needs.</p>
 <p>The turn is an ordinary turn. The same memory is selected for it, the
 same pair enters the verbatim tail, the same record is kept, and the
 reply is remembered the way any reply is. What a helper said is kept
@@ -2195,7 +2299,10 @@ is on, and an <code>offload</code> item still goes straight to its worker.</p>
 planned turn is three or more model calls where a plain turn is one, so
 a line that says thanks pays for a round it never needed.
 <code>--route-agent</code> with <code>--route-rules FILE</code> lets a rules file decide,
-turn by turn, whether to plan at all and what the plan may spend.</p>
+turn by turn, whether to plan at all and what the plan may spend. It
+decides about the turns <code>--agent</code> would have planned, so a session
+launched without <code>--agent</code> says so and routes nothing rather than
+refusing to start.</p>
 <p>The rules are written in the same language the switch rules are, over a
 wider set of signals: the conversation, the ask itself, who is ready to
 help, and what the last round did. A rule can turn planning off, cap how
@@ -2215,8 +2322,15 @@ fan-out there was never going to get one.</p>
 itself. A rule reading one without also reading <code>turns_since_round</code> does
 not merely stop firing, it freezes: "the last round was slow, so do not
 plan" is true once, and then no round runs, so the number never moves
-again. Write <code>turns_since_round</code> into any such rule, and read the
-census below to see whether it is still saying anything.</p>
+again and the rule answers every later turn from one reading. Such a
+rule is refused when the file loads, naming the signals it read and the
+fix, which is to write <code>turns_since_round</code> into it and say how stale a
+number it is willing to act on.</p>
+<p>The refusal quotes what is at stake. The best per-turn decision measured
+on real conversations moved recall by +0.19 points at t=+0.93, and a set
+of unmeasured example rules moved it by -0.69 points at t=-3.28. Effects
+that small in either direction are the range a frozen rule lives in, so
+a rule that cannot stop acting is worth refusing rather than watching.</p>
 <p><code>salt/agents/route_rules_sample.json</code> ships four rules to read. Every
 one of them is marked as an example, so none runs unless
 <code>--route-rules-allow-examples</code> asks for it, and none of them has been
@@ -2238,8 +2352,26 @@ about it actually fired on, and the note its author left about what it
 was for. That whole line is the point: a threshold that never fires and
 one that fires every turn are the two ways a rules file quietly does
 nothing, and both are visible after one session rather than after a
-sweep. A rule reading a signal routing itself moves, without saying how
-stale a number it will act on, is called out there too.</p>
+sweep. A rule reading a signal routing itself moves is called out there
+too, which a file cannot carry past the load refusal but a policy built
+in code still can.</p>
+<h3 id="a-model-instead-of-a-route-file">A model instead of a route file</h3>
+<p><code>--route-policy model</code> puts the same question to the model rather than
+to a file. It is shown the conversation as numbers, what this session
+already allows and which helpers are ready, and it answers with whether
+to plan the turn, what that plan may spend, and one sentence saying why.
+It is experimental.</p>
+<p>It proposes and the same guard disposes. What it asks for is checked by
+name and by type, then clamped against <code>--agent-max-delegations</code>,
+<code>--agent-max-wall</code> and <code>--agent-rounds</code>, a helper this session does not
+have is dropped, and a plan left with nobody to plan with becomes a
+plain turn. A model cannot route a turn into spending more than the
+flags already allow.</p>
+<p>It is asked once. A reply that is not a decision leaves the turn to be
+answered the way an unrouted turn is, and the reason is kept where the
+rules that fired would be. The cost is one model call per turn before
+any memory is selected, and a turn it decides to plan pays for its round
+on top of that.</p>
 <h3 id="one-more-round">One more round</h3>
 <p><code>--agent-rounds 2</code> lets the orchestrator look at what came back and ask
 once for one more thing before the turn is written up. Pieces it names
@@ -2300,6 +2432,15 @@ a line in <code>delegations.jsonl</code>. <code>/stats</code> reads the file bac
 session opens and reports how many turns were planned out, how many
 pieces went out, how many came back empty and what a round costs on
 average.</p>
+<p>A round also makes calls of its own, on top of the pieces it hands out:
+the plan, the one question about whether anything is still missing, and
+the write-up. What those cost is on the same line under <code>planning</code> and
+<code>synthesis</code>, each holding how many calls were made and the prompt tokens
+the model that answered them reported. A turn that gave up on its
+helpers and answered itself has a planning cost and no write-up, because
+there was no write-up. A model with no server in front of it reports no
+numbers of its own, and both fields stay empty rather than saying a call
+cost nothing.</p>
 <h2 id="letting-a-session-decide-its-own-switches">Letting a session decide its own switches</h2>
 <p>SALT ships a set of memory switches that are off by default: how long a
 surfaced theme stays suppressed, whether attached files are profiled
