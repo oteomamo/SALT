@@ -298,14 +298,23 @@ def handle_send(handle, gen=None, schema=None, think=None):
 
     Unlike the chat seam, this one can carry a schema, so a server that
     said it would hold a model to one is actually asked to.
+
+    What each call cost lands in `send.usage`, one entry per call in the
+    order they were made. Written as the call ends rather than read back
+    off the client afterwards: the next call queued on the same handle
+    overwrites what the client reports, and a round puts more than one
+    question to its planner.
     """
+    usage = []
+
     def send(messages, guided=False):
         over = entry_gen(handle.entry, gen, handle.opened(), think)
         if guided and schema is not None:
             over["guided_json"] = schema
         pieces = []
         guard = thinking.ThinkGuard(over.get("max_new_tokens"))
-        stream = handle.call(messages, **over)
+        spent = {}
+        stream = handle.call(messages, usage_out=spent, **over)
         try:
             for piece in stream:
                 pieces.append(piece)
@@ -313,16 +322,32 @@ def handle_send(handle, gen=None, schema=None, think=None):
                     break
         finally:
             close_quietly(stream)
+            usage.append(spent)
         return "".join(pieces)
 
+    send.usage = usage
     return send
 
 
 def handle_stream(handle, gen=None, think=None):
-    def stream(messages):
-        return handle.call(messages, **entry_gen(handle.entry, gen,
-                                                 handle.opened(), think))
+    """The same call, left running, for text somebody is waiting to read.
 
+    Its cost lands in `stream.usage` too, filled in when the reply ends,
+    whether it ended by finishing or by being walked away from. The
+    entry is put there before the call rather than after, because what
+    comes back is a generator the caller owns and this is the last point
+    at which this side of it is in hand.
+    """
+    usage = []
+
+    def stream(messages):
+        spent = {}
+        usage.append(spent)
+        return handle.call(messages, usage_out=spent,
+                           **entry_gen(handle.entry, gen, handle.opened(),
+                                       think))
+
+    stream.usage = usage
     return stream
 
 

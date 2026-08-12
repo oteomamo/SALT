@@ -7678,6 +7678,168 @@ def check_thinking_room(tmp):
           "trip because the length it measures is stated")
 
 
+def measured_runner(state, counts):
+    """This session's chat model, reporting a different prompt size for
+    every call it is asked to make. The fake runner has no engine behind
+    it, so the numbers a round reads off it are put there here."""
+    plain = state.runner.stream_chat
+
+    def stream_chat(messages, **over):
+        state.runner.last_engine_stats = {"engine_backend": "fake",
+                                          "apc_prompt_tokens": next(counts),
+                                          "apc_cached_tokens": 0}
+        yield from plain(messages, **over)
+
+    state.runner.stream_chat = stream_chat
+    return state
+
+
+def check_round_cost(tmp, tok, mdl):
+    """What the round's own calls cost, on the line that already says
+    what its pieces cost."""
+    from salt.agents import orchestrator as O
+    from salt.agents import protocol as P
+    from salt.agents import trace as T
+
+    # the arithmetic, over both shapes the numbers arrive in
+    assert T.call_cost(()) == {} and T.call_cost(None) == {}
+    assert T.call_cost([{}, None]) == {}, "a call nobody measured was counted"
+    assert T.call_cost([{"prompt_tokens": None,
+                         "cached_tokens": None}]) == {}, (
+        "a backend with no request body reported a call costing nothing")
+    one = T.call_cost([{"prompt_tokens": 40, "cached_tokens": 8}])
+    assert tuple(one) == T.CALL_FIELDS, sorted(one)
+    assert one == {"calls": 1, "prompt_tokens": 40, "cached_tokens": 8}, one
+    both = T.call_cost([{"prompt_tokens": 40, "cached_tokens": 8},
+                        {"engine_backend": "vllm-serve",
+                         "apc_prompt_tokens": 60, "apc_cached_tokens": None},
+                        {}])
+    assert both == {"calls": 2, "prompt_tokens": 100,
+                    "cached_tokens": 8}, both
+
+    ask = "what size battery does that argue for"
+    plan_json = json.dumps({"version": P.SCHEMA, "action": "delegate",
+                            "subtasks": [{"id": "1", "task": "size the bank",
+                                          "target": "w"}]})
+    final = "A 9 kWh bank covers the evening."
+    said = "Nine kilowatt hours of storage covers the evening draw."
+
+    # a round planned and written up by a roster endpoint: its own two
+    # calls, kept as they were made
+    with Stub(cards=CARDS, guided=True, usage=True,
+              canned=CannedReplies(["{", "ok", plan_json, final])) as boss, \
+            Stub(cards=CARDS, pieces=(said,), usage=True) as w:
+        roster = boss_roster(boss.url, tmp)
+        roster = R.Roster(path=roster.path, entries=(
+            delegation_roster(w.url, tmp).entries[0], roster.entries[1]))
+        state = replayed_state(tmp, "round_cost_boss", tok, mdl, roster=roster)
+        try:
+            end = O.orchestrator_endpoint(state)
+            hello = [{"role": "user", "content": "hi"}]
+            end.send(hello)
+            end.send(hello)
+            assert len(end.send.usage) == 2, (
+                f"two calls to one endpoint left {len(end.send.usage)} sets "
+                f"of numbers")
+            assert set(end.send.usage[0]) == {"prompt_tokens",
+                                              "cached_tokens"}, (
+                sorted(end.send.usage[0]))
+
+            out = agent_line(state, f"/agent {ask}")
+            assert final in out, out
+            rec = TRACE.read(state.trie.cache_dir).rounds[-1]
+            assert set(rec) == set(T.FIELDS), (
+                f"the trace line and its own field list disagree: "
+                f"{sorted(set(rec) ^ set(T.FIELDS))}")
+            plan, wrote = rec["planning"], rec["synthesis"]
+            assert tuple(plan) == T.CALL_FIELDS, plan
+            assert tuple(wrote) == T.CALL_FIELDS, wrote
+            assert plan["calls"] == 1 and wrote["calls"] == 1, rec
+            assert plan["prompt_tokens"] > 0, (
+                f"the model that planned the turn reported nothing: {plan}")
+            assert wrote["prompt_tokens"] == len(
+                boss.httpd.last_payload["prompt"]), (
+                f"the write-up's cost is not the write-up's: {wrote}")
+            assert plan["prompt_tokens"] != wrote["prompt_tokens"], (
+                f"the plan and the write-up cost the same prompt, which is "
+                f"what reading the numbers back off the client afterwards "
+                f"reports: {rec}")
+            assert rec["pieces"][0]["usage"]["prompt_tokens"] > 0, rec
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+
+        # the session's own model reports one call at a time, so the
+        # plan's numbers are taken when the plan is made
+        here = measured_runner(
+            canned_state(tmp, "round_cost_here", tok, mdl,
+                         [plan_json, final], delegation_roster(w.url, tmp)),
+            iter([111, 222, 333]))
+        try:
+            with redirect_stdout(io.StringIO()):
+                cli.handle_command(f"/agent {ask}", here)
+            rec = TRACE.read(here.trie.cache_dir).rounds[-1]
+            assert rec["planning"] == {"calls": 1, "prompt_tokens": 111,
+                                       "cached_tokens": 0}, rec["planning"]
+            assert rec["synthesis"] == {"calls": 1, "prompt_tokens": 222,
+                                        "cached_tokens": 0}, rec["synthesis"]
+            event = events_of(here)[-1]
+            assert event["agent_turn"] is True, event
+            assert "planning" not in event and "synthesis" not in event, (
+                f"the turn's own event grew a key: {sorted(event)}")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(here)
+
+        # a model that reports no numbers at all says so, rather than
+        # reporting a round that cost nothing
+        quiet = canned_state(tmp, "round_cost_quiet", tok, mdl,
+                             [plan_json, final], delegation_roster(w.url, tmp))
+        try:
+            with redirect_stdout(io.StringIO()):
+                cli.handle_command(f"/agent {ask}", quiet)
+            rec = TRACE.read(quiet.trie.cache_dir).rounds[-1]
+            assert rec["planning"] == {} and rec["synthesis"] == {}, rec
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(quiet)
+
+    # a round that gave up on its helpers: the plan it paid for is
+    # recorded, and the answer it fell back on is not called a write-up
+    nobody = json.dumps({"version": P.SCHEMA, "action": "delegate",
+                         "subtasks": [{"id": "1", "task": "t",
+                                       "target": "gone"}]})
+    fell = measured_runner(
+        canned_state(tmp, "round_cost_fell", tok, mdl, [nobody, "no help"],
+                     delegation_roster("http://127.0.0.1:1", tmp)),
+        iter([444, 555, 666]))
+    try:
+        with redirect_stdout(io.StringIO()):
+            cli.handle_command(f"/agent {ask}", fell)
+        rec = TRACE.read(fell.trie.cache_dir).rounds[-1]
+        assert rec["answered_directly"] is True, rec
+        assert rec["synthesis"] == {}, (
+            f"a round that wrote nothing up reported what writing it up "
+            f"cost: {rec['synthesis']}")
+        assert rec["planning"] == {"calls": 1, "prompt_tokens": 444,
+                                   "cached_tokens": 0}, rec["planning"]
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(fell)
+
+    doc = (REPO / "docs" / "agents.md").read_text(encoding="utf-8")
+    assert "planning" in doc and "prompt tokens" in doc, (
+        "the page does not say what a planned turn's own calls cost")
+    print("70. what the round itself cost: the planner's calls and the "
+          "write-up's kept as they are made rather than read back off a "
+          "client the next call overwrites, both on the trace line that "
+          "already carries what the pieces cost, a write-up cost that is "
+          "the write-up's own prompt, a round that fell back reporting "
+          "the plan it paid for and no write-up at all, a model that "
+          "measures nothing reporting nothing, and no new key on the "
+          "turn's own event")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -7760,6 +7922,7 @@ def main():
         check_route_rules(tmp, tok, mdl)
         check_writeup_memory(tmp, tok, mdl)
         check_thinking_room(tmp)
+        check_round_cost(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

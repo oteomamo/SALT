@@ -21,10 +21,11 @@ from pathlib import Path
 
 SCHEMA = "salt-agent-trace/1"
 TRACE_NAME = "agent_trace.jsonl"
-FIELDS = ("schema", "ask", "action", "subtasks", "pieces", "synthesis",
-          "protocol_failures", "fell_back", "answered_directly", "rounds",
-          "reply_words", "t_start", "t_end", "seconds", "route")
+FIELDS = ("schema", "ask", "action", "subtasks", "pieces", "planning",
+          "synthesis", "protocol_failures", "fell_back", "answered_directly",
+          "rounds", "reply_words", "t_start", "t_end", "seconds", "route")
 PIECE_FIELDS = ("id", "target", "status", "ran", "usage", "seconds")
+CALL_FIELDS = ("calls", "prompt_tokens", "cached_tokens")
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,45 @@ def piece(result):
             "seconds": round(result.seconds, 3)}
 
 
-def record(round_, route=None):
+def call_numbers(stats):
+    """One call's engine numbers, whichever way they were written down.
+
+    A worker handle writes what a call cost into a dict the caller
+    holds; a runner leaves the same two numbers on itself under the
+    names its engine gave them. Both are read here so a round planned by
+    a roster endpoint and one planned by the session's own model are
+    added up the same way.
+    """
+    stats = stats or {}
+    prompt = stats.get("prompt_tokens")
+    if prompt is None:
+        prompt = stats.get("apc_prompt_tokens")
+    cached = stats.get("cached_tokens")
+    if cached is None:
+        cached = stats.get("apc_cached_tokens")
+    return prompt, cached
+
+
+def call_cost(calls):
+    """What a round's own calls to one model cost, added up.
+
+    Empty when nothing was measured, so a call that never happened and a
+    backend that reports nothing read the same way. A zero would be a
+    call that cost no prompt at all, which no call does, and an in
+    process model has no request body for a server to count.
+    """
+    rows = [call_numbers(c) for c in calls or ()]
+    rows = [(p, c) for p, c in rows if p is not None or c is not None]
+    if not rows:
+        return {}
+    prompt = [int(p) for p, _ in rows if p is not None]
+    cached = [int(c) for _, c in rows if c is not None]
+    return {"calls": len(rows),
+            "prompt_tokens": sum(prompt) if prompt else None,
+            "cached_tokens": sum(cached) if cached else None}
+
+
+def record(round_, route=None, planning=None):
     """The line one agent turn leaves behind.
 
     `route` is what decided this turn was worth planning, empty when
@@ -63,6 +102,11 @@ def record(round_, route=None):
     and a round whose route was lost are different things, and a reader
     counting how often a policy actually acted has to be able to tell
     them apart.
+
+    `planning` is what the round's own questions to its planner cost,
+    the way `synthesis` is what writing it up cost. Both are the numbers
+    the model that answered reported, so a turn's whole prompt bill is
+    this line plus the pieces under it.
     """
     directive = round_.directive
     subtasks = getattr(directive, "subtasks", ()) or ()
@@ -72,6 +116,7 @@ def record(round_, route=None):
             "subtasks": [{"id": s.id, "task": s.task, "target": s.target}
                          for s in subtasks],
             "pieces": [piece(r) for r in round_.results],
+            "planning": dict(planning or {}),
             "synthesis": dict(round_.synthesis or {}),
             "protocol_failures": int(round_.protocol_failures),
             "fell_back": bool(round_.fell_back),

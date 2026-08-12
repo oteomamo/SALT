@@ -559,6 +559,16 @@ session opens and reports how many turns were planned out, how many
 pieces went out, how many came back empty and what a round costs on
 average.
 
+A round also makes calls of its own, on top of the pieces it hands out:
+the plan, the one question about whether anything is still missing, and
+the write-up. What those cost is on the same line under `planning` and
+`synthesis`, each holding how many calls were made and the prompt tokens
+the model that answered them reported. A turn that gave up on its
+helpers and answered itself has a planning cost and no write-up, because
+there was no write-up. A model with no server in front of it reports no
+numbers of its own, and both fields stay empty rather than saying a call
+cost nothing.
+
 ## Letting a session decide its own switches
 
 SALT ships a set of memory switches that are off by default: how long a

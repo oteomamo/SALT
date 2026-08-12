@@ -1416,6 +1416,13 @@ class AgentRound:
         # A round that never got that far, or one written by a roster
         # endpoint, has no cost to read off this session's runner
         self.wrote_here = False
+        # which model wrote the round up, and what the questions put to
+        # the planner cost. Kept as they are asked: the session's own
+        # model reports its last call only, so the write-up's numbers
+        # would stand where the plan's are if they were read off it later
+        self.writer = None
+        self.calls = []
+        self.planning = {}
         # how many rounds of delegating this turn took, and what asking
         # for the second one cost in refused replies
         self.rounds = 1
@@ -1437,6 +1444,13 @@ class AgentRound:
             said = f"{said}: {result.error}"
         print(f"  {self.done}. {result.target}: {said}")
 
+    def note_cost(self, state, endpoint):
+        """Keep what the call just made cost, when the model that made
+        it was this session's own. A roster endpoint has already written
+        its own numbers down and they are read from it at the end."""
+        if endpoint is not None and endpoint.main:
+            self.calls.append(getattr(state.runner, "last_engine_stats", None))
+
     def take_another(self, state, endpoint, started):
         """One more round, if the turn is allowed one and the
         orchestrator wants it.
@@ -1455,6 +1469,7 @@ class AgentRound:
             return
         more = orchestrator.follow_up(state, self.task, self.results,
                                       endpoint, allowed=self.allowed)
+        self.note_cost(state, endpoint)
         self.extra_failures = more.failures
         if not more.directive.delegates:
             return
@@ -1478,6 +1493,7 @@ class AgentRound:
         self.say(f"planning with {endpoint.label} ...")
         outcome = orchestrator.plan(state, self.task, memory_block,
                                     endpoint=endpoint, allowed=self.allowed)
+        self.note_cost(state, endpoint)
         directive = outcome.directive
         pieces = []
         try:
@@ -1510,9 +1526,11 @@ class AgentRound:
                 return
             self.say("  writing it up ...")
             writer = orchestrator.writing_endpoint(state)
-            # only the session's own runner reports what it was asked;
-            # a roster endpoint's write-up cost is not on this object,
-            # and reading it there would report the planning call's
+            # kept because the round is recorded once the write-up has
+            # streamed, and what it cost is on whichever endpoint made
+            # it: a roster one holds its own numbers, and the session's
+            # own model leaves them on the runner it streamed through
+            self.writer = writer
             self.wrote_here = writer.main
             stream = orchestrator.synthesis_stream(
                 state, self.task, self.results,
@@ -1532,12 +1550,15 @@ class AgentRound:
             # what this turn kept rather than what streamed past. A
             # reasoning orchestrator's working is most of the stream and
             # none of the reply
+            self.planning = round_cost(endpoint, self.calls)
             self.record = orchestrator.round_record(
                 self.task, directive, self.results,
                 protocol.reply_text("".join(pieces)),
                 outcome, started,
-                synthesis=(getattr(state.runner, "last_engine_stats", None)
-                           if self.wrote_here else None),
+                synthesis=round_cost(
+                    self.writer,
+                    [getattr(state.runner, "last_engine_stats", None)]
+                    if self.wrote_here else ()),
                 answered_directly=self.fell_through, rounds=self.rounds,
                 protocol_failures=outcome.failures + self.extra_failures)
             state.last_round = state.pending_round = self.record
@@ -1656,7 +1677,7 @@ def run_agent_turn(state, task, quiet=False, decision=None):
                       reply_model_id=getattr(endpoint, "model_id", None),
                       reply_tokenizer=getattr(endpoint, "tokenizer", None),
                       reply_label=AGENT_LABEL)
-    file_trace(state, round_.record, routed)
+    file_trace(state, round_.record, routed, round_.planning)
     if quiet:
         agent_notice(state, round_)
     return reply
@@ -1709,7 +1730,7 @@ def route_extra(state):
             "route_rules_fired": list(record["rules"])}
 
 
-def file_trace(state, record, route=None):
+def file_trace(state, record, route=None, planning=None):
     """File one round in the session's trace and count it. Written after
     the reply is on screen and best effort like the delegation ledger:
     losing the history of a turn must not take the turn with it. The
@@ -1717,7 +1738,7 @@ def file_trace(state, record, route=None):
     happened either way."""
     if record is None:
         return
-    rec = trace.record(record, route)
+    rec = trace.record(record, route, planning)
     trace.tally(state.agent_stats, rec)
     try:
         trace.append(state.trie.cache_dir, rec)
