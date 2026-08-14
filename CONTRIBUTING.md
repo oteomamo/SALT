@@ -47,7 +47,7 @@ One command runs the right suites for an area:
 
 ```bash
 bash scripts/verify.sh chat      # after touching the chat loop or session trie
-bash scripts/verify.sh all      # every CPU suite plus the eval smoke run
+bash scripts/verify.sh all       # every CPU suite plus the eval smoke run
 ```
 
 The script picks the `salt` conda environment automatically when it
