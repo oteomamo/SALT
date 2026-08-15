@@ -4740,6 +4740,16 @@ def check_rules_language(tmp, tok, mdl):
                  "topic_shift"):
         assert RU.truth(RU.evaluate(RU.parse(text), blind)) is False, text
 
+    # a number that is not one reads as nothing as well, so a bare name
+    # and an ordering against the same signal cannot answer differently
+    nan = dict(blind, drift_cos=float("nan"))
+    for text in ("drift_cos", "drift_cos > 0", "drift_cos <= 0",
+                 "drift_cos == 0"):
+        assert RU.truth(RU.evaluate(RU.parse(text), nan)) is False, (
+            f"{text!r} fired on a signal that is not a number")
+    assert RU.truth(RU.evaluate(RU.parse("not drift_cos"), nan)) is True, (
+        "a signal that is not a number read as a yes under `not`")
+
     # nothing that is not a comparison is a valid expression
     for bad in ("n_attachments + 1 > 0", "__import__('os')",
                 "trie.n_sentences > 0", "n_attachments > 0)",
@@ -4871,6 +4881,8 @@ def check_rules_language(tmp, tok, mdl):
     print(f"47. the rules language: {len(cases)} expressions read by a "
           f"parser that only compares, every hostile string refused rather "
           f"than run, a signal a session cannot report firing nothing, "
+          f"a signal that is not a number reading the same way whether a "
+          f"rule names it bare or orders against it, "
           f"every way a file can be wrong caught when it loads, a set "
           f"that could stack two cancelling switches refused whole, and a "
           f"second kind of rule read by the same parser under its own "

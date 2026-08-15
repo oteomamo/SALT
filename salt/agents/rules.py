@@ -172,8 +172,13 @@ def names(node):
 
 def truth(value):
     """A bare signal read as a yes or a no. Nothing is a no: a session
-    that cannot say has not said yes."""
-    return bool(value) if value is not None else False
+    that cannot say has not said yes, and a number that is not one is
+    the same kind of nothing. `compare` already answers false to every
+    ordering against it, so a bare name that read it as yes would let
+    one signal mean two things in one rules file."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return False
+    return bool(value)
 
 
 def compare(op, left, right):

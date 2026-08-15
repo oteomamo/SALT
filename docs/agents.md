@@ -695,7 +695,8 @@ arithmetic, no way to name anything but those numbers, and nothing in
 the file is ever run as code. A signal a session cannot report reads as
 nothing and a comparison against nothing is false, so a rule about
 attachments does not fire for a conversation that cannot say whether it
-has any.
+has any. A number that is not a number reads the same way, whether the
+rule names the signal on its own or orders against it.
 
 Everything a file can get wrong is refused when it loads rather than
 partway through a conversation: a signal nobody reports, a switch a turn
