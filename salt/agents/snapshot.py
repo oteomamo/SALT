@@ -34,7 +34,7 @@ KEYS = ("n_sentences", "n_alive", "masked", "alive_ratio", "n_turns",
 
 # what a rule may name. The same set, deliberately: a signal a session
 # reports and a signal a decision may read apart would be two answers to
-# one question, and the assert below is what keeps them one
+# one question, and the check below is what keeps them one
 RULE_SIGNALS = KEYS
 
 
@@ -178,9 +178,11 @@ def snapshot(state, stats=None):
            "tail_occupancy": _tail_occupancy(state),
            "model_window": _window(state),
            "pending_ingest": ingest.pending if ingest is not None else None}
-    assert tuple(out) == KEYS, "the snapshot grew a key nothing pinned"
-    assert tuple(out) == RULE_SIGNALS, (
-        "what a session reports and what a rule may read have drifted")
+    if tuple(out) != KEYS:
+        raise AssertionError("the snapshot grew a key nothing pinned")
+    if tuple(out) != RULE_SIGNALS:
+        raise AssertionError(
+            "what a session reports and what a rule may read have drifted")
     return out
 
 

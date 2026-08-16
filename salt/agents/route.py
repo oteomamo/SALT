@@ -11,7 +11,7 @@ A route signal set is the snapshot plus sixteen names of its own, in one
 flat namespace, so a rule reads `n_turns` and `ask_words` the same way
 and nobody writes either down twice. It deliberately does not grow
 `snapshot.KEYS`: that set is a shipped contract the MCP server answers
-with, and it is asserted equal to what a SWITCH rule may read, so adding
+with, and it is held equal to what a SWITCH rule may read, so adding
 route names there would quietly widen a different seam.
 
 SIX OF THESE SIGNALS ARE DOWNSTREAM OF ROUTING'S OWN ACTION, and they
@@ -149,7 +149,8 @@ def route_signals(state, ask, stats=None):
     out.update(ask_signals(ask))
     out.update(roster_signals(state))
     out.update(round_signals(state))
-    assert tuple(out) == SIGNALS, "the route signals grew a key nothing pinned"
+    if tuple(out) != SIGNALS:
+        raise AssertionError("the route signals grew a key nothing pinned")
     return out
 
 

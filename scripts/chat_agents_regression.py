@@ -3129,6 +3129,30 @@ def check_snapshot(tmp, tok, mdl):
                    for v in snap.values()), (
             f"a signal is not a number: {snap}")
 
+        # the closed set is a refusal and never an assert, because
+        # python -O compiles an assert out entirely and the set would
+        # then grow unpinned in exactly the run nobody is watching
+        from salt.agents import route as RT
+        for mod, name in ((S, "snapshot"), (RT, "route_signals")):
+            tree = ast.parse(textwrap.dedent(
+                inspect.getsource(getattr(mod, name))))
+            assert not [n for n in ast.walk(tree)
+                        if isinstance(n, ast.Assert)], (
+                f"{name} pins its closed set with an assert, which "
+                f"python -O removes")
+        real = S.KEYS
+        try:
+            S.KEYS = real + ("nope",)
+            grew = None
+            try:
+                S.snapshot(state)
+            except AssertionError as exc:
+                grew = str(exc)
+            assert grew and "nothing pinned" in grew, (
+                f"the snapshot let its closed set grow: {grew!r}")
+        finally:
+            S.KEYS = real
+
         # a rule compares and cannot calculate, so every proportion one
         # could want to test is a signal of its own
         assert S.RULE_SIGNALS == S.KEYS, (
@@ -3207,7 +3231,8 @@ def check_snapshot(tmp, tok, mdl):
           f"including the window and tail a served session has and an MCP "
           f"one does not, attachments counted apart from the conversation, "
           f"and every one of {len(S.SWITCHES)} switches a kwarg the session "
-          f"really carries")
+          f"really carries, with both closed sets held by a refusal that "
+          f"python -O cannot compile away rather than by an assert")
 
 
 def scripted_sender(replies):
