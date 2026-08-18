@@ -35,6 +35,22 @@ run() {
   fi
 }
 
+docs_suite() {
+  # the python suites run under the salt env, and mkdocs is not one of its
+  # dependencies, so a bare `mkdocs` resolves to nothing whenever that env
+  # is the active one. Try the module too before giving up, and say what to
+  # do rather than printing "command not found"
+  if command -v mkdocs >/dev/null 2>&1; then
+    mkdocs build --strict
+  elif python -m mkdocs --version >/dev/null 2>&1; then
+    python -m mkdocs build --strict
+  else
+    echo "mkdocs not found. Install it (pip install mkdocs-material) or run"
+    echo "this area from an environment that has it."
+    return 1
+  fi
+}
+
 pdf_suite() {
   # pypdf is nondeterministic: believe a failure only when it repeats
   local n
@@ -61,7 +77,7 @@ area_agents() { run "agent layer"     "${PY[@]}" scripts/chat_agents_regression.
 area_mcp()    { run "mcp server"      "${PY[@]}" scripts/chat_mcp_regression.py; }
 area_pdf()    { run "pdf ingestion"   pdf_suite; }
 area_smoke()  { run "eval smoke"      smoke_suite; }
-area_docs()   { run "mkdocs strict"   mkdocs build --strict; }
+area_docs()   { run "mkdocs strict"   docs_suite; }
 area_engine() { area_chat; area_smoke; }
 area_vllm()   { run "vllm backend"    "${PY[@]}" scripts/chat_vllm_regression.py; }
 area_serve()  { run "serving"         "${PY[@]}" scripts/chat_serve_regression.py; }
