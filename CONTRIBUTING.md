@@ -70,6 +70,7 @@ deterministic. The table it wraps, for reference:
 | The vLLM backend (`--backend vllm`) | `python scripts/chat_vllm_regression.py` |
 | Persistent serving (`saltServe`, `--backend vllm-serve`) | `python scripts/chat_serve_regression.py` |
 | The selection engine (`salt/engine/`) | `python scripts/chat_theme_regression.py` plus a smoke run: `MAX_SAMPLES=5 RUN_EVAL=0 bash scripts/run_datasets.sh` |
+| Anything under `docs/` or `mkdocs.yml` | `mkdocs build --strict` |
 
 All of them run on CPU. If a script needs a model, it downloads to your HF
 cache on first use.
