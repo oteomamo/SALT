@@ -21,6 +21,13 @@ survive. Any model, plain text out, less compute in.
 [How it works](architecture.md){ .md-button }
 </div>
 
+!!! success "Accepted at EMNLP 2026"
+
+    SALT is a Main Conference paper at the 2026 Conference on Empirical
+    Methods in Natural Language Processing, in Budapest. The
+    [Paper](paper.md) page has the abstract, the citation, and how the
+    paper relates to what ships today.
+
 <div class="grid cards" markdown>
 
 - 🧂 **salt**
@@ -97,6 +104,15 @@ survive. Any model, plain text out, less compute in.
 
     [Results](results.md)
 
+- 📝 **Paper**
+
+    ---
+
+    The EMNLP 2026 Main Conference paper behind all of it, with the
+    abstract, the citation, and what changed in the repository since.
+
+    [Paper](paper.md)
+
 </div>
 
 ## 🧭 New here
@@ -116,20 +132,11 @@ changed in plain language.
 
 ## 📝 Paper
 
-SALT is described in
-[arXiv:2607.17486](https://arxiv.org/abs/2607.17486). The paper covers
-the legacy selector, tagged
-[v1.0.0](https://github.com/oteomamo/SALT/releases/tag/v1.0.0).
-Current releases default to the coverage selector described on the
-[Architecture](architecture.md) page.
-
-```bibtex
-@misc{mamo2026saltsalienceawarelexicaltrie,
-      title={SALT: Salience-Aware Lexical Trie for Long-Context Compression},
-      author={Oteo Mamo and Hyunjin Yi and Joydhriti Choudhury and Shangqian Gao and Weikuan Yu},
-      year={2026},
-      eprint={2607.17486},
-      archivePrefix={arXiv},
-      url={https://arxiv.org/abs/2607.17486}
-}
-```
+SALT is described in a Main Conference paper at EMNLP 2026, held in
+Budapest, and available on
+[OpenReview](https://openreview.net/forum?id=UTJqOhkSqi) and as
+[arXiv:2607.17486](https://arxiv.org/abs/2607.17486). The
+[Paper](paper.md) page carries the abstract and the citation, and
+explains how the selector the paper describes, tagged
+[v1.0.0](https://github.com/oteomamo/SALT/releases/tag/v1.0.0), relates
+to the coverage selector current releases default to.

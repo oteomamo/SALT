@@ -1,7 +1,9 @@
 # 🔬 Results
 
 SALT (coverage/CELF selector) on LongBench with Llama-3.1-8B-Instruct at a 20%
-token budget. More datasets coming soon.
+token budget. More datasets coming soon. The trie these numbers rest
+on is the subject of the [EMNLP 2026 paper](paper.md), which reports
+the earlier legacy selector.
 
 | Category | Dataset | Metric | SALT |
 |---|---|---|---:|
