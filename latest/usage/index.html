@@ -329,7 +329,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../changelog/" class="md-tabs__link">
+        <a href="../paper/" class="md-tabs__link">
           
   
   
@@ -1090,6 +1090,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../paper/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Paper
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../changelog/" class="md-nav__link">
         
   
@@ -1265,7 +1293,7 @@ goes through the same PDF pipeline the chatbot uses (tables and pseudocode
 grouped under their captions, sentences re-joined across figure interruptions,
 headings and equations preserved), then through the same selector. <code>--query</code>
 biases the selection:</p>
-<div class="highlight"><pre><span></span><code>salt<span class="w"> </span>--doc<span class="w"> </span>paper.pdf<span class="w"> </span>--query<span class="w"> </span><span class="s2">&quot;average accuracy on LongBench?&quot;</span><span class="w"> </span>--output<span class="w"> </span>out/paper.jsonl
+<div class="highlight"><pre><span></span><code>salt<span class="w"> </span>--doc<span class="w"> </span>paper.pdf<span class="w"> </span>--query<span class="w"> </span><span class="s2">"average accuracy on LongBench?"</span><span class="w"> </span>--output<span class="w"> </span>out/paper.jsonl
 </code></pre></div>
 <p>When a sample carries a query, its keywords and proper nouns are matched against
 the document as surprisal-weighted lexical terms (rare, discriminative terms get

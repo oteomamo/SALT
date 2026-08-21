@@ -329,7 +329,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../changelog/" class="md-tabs__link">
+        <a href="../paper/" class="md-tabs__link">
           
   
   
@@ -1134,6 +1134,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../paper/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Paper
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../changelog/" class="md-nav__link">
         
   
@@ -1352,11 +1380,11 @@ under a token budget, returned in original document order, query-biased or not.<
    document → split + junk filter
            → per-sentence keywords   (BGE-small [CLS] attention + knee cutoff)
            → theme salience          (SF = #sentences keeping a word, top quantile)
-           → keyword trie            (each sentence&#39;s themes, SF-ordered, form a
+           → keyword trie            (each sentence's themes, SF-ordered, form a
                                       root-to-leaf path, leaves hold sentence ids)
 
  SELECTION ── per budget, with or without a query
-   maximize theme coverage with CELF lazy-greedy: a pick&#39;s value shrinks as its
+   maximize theme coverage with CELF lazy-greedy: a pick's value shrinks as its
    theme branches fill, so budget spreads across themes instead of collapsing
    onto the dominant one. A query re-weights the trie (lexical + BGE-semantic)
    without rebuilding it. → compressed prompt, original order, ≤ budget
@@ -1407,7 +1435,7 @@ so it is the fastest way to find where a change belongs:</p>
 │ │                                                                    │   │
 │ │ each turn: ≤ budget spread across branches (CELF discounting)      │   │
 │ │ the untrie - the verbatim tail - sits OUTSIDE the trie, as the     │   │
-│ │ prompt&#39;s stable recent-history window                              │   │
+│ │ prompt's stable recent-history window                              │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │
@@ -1430,7 +1458,7 @@ so it is the fastest way to find where a change belongs:</p>
 │ │ roster: worker + orchestrator endpoints, each its own server       │   │
 │ │ /offload one task · @NAME one turn · /agent plan, hand out, write  │   │
 │ │ every piece gets the trie selected for IT, committing nothing      │   │
-│ │ switch agent: rules over the session&#39;s own numbers set the switches│   │
+│ │ switch agent: rules over the session's own numbers set the switches│   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐   │

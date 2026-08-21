@@ -329,7 +329,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../changelog/" class="md-tabs__link">
+        <a href="../paper/" class="md-tabs__link">
           
   
   
@@ -1211,6 +1211,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../paper/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Paper
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../changelog/" class="md-nav__link">
         
   
@@ -1660,16 +1688,16 @@ the roster's helpers, the way it would in the REPL, and each row gains a
 <p>An item can also hand its work to a worker instead of the chat model, which
 puts a delegation in the middle of a scripted conversation:</p>
 <div class="highlight"><pre><span></span><code><span class="p">[</span>
-<span class="w">  </span><span class="s2">&quot;What did we decide about the inverter?&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="p">{</span><span class="nt">&quot;offload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;task&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Size the battery bank from that decision&quot;</span><span class="p">,</span>
-<span class="w">               </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ingest&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}}</span>
+<span class="w">  </span><span class="s2">"What did we decide about the inverter?"</span><span class="p">,</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">"offload"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"task"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Size the battery bank from that decision"</span><span class="p">,</span>
+<span class="w">               </span><span class="nt">"target"</span><span class="p">:</span><span class="w"> </span><span class="s2">"qwen05"</span><span class="p">,</span><span class="w"> </span><span class="nt">"ingest"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}}</span>
 <span class="p">]</span>
 </code></pre></div>
 <p>A line can also attach a document before anything else runs, or hand a
 turn to the orchestrator to plan out:</p>
 <div class="highlight"><pre><span></span><code><span class="p">[</span>
-<span class="w">  </span><span class="p">{</span><span class="nt">&quot;doc&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;salt/files/SALT.pdf&quot;</span><span class="p">},</span>
-<span class="w">  </span><span class="p">{</span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;What does that paper claim, and does our sizing agree?&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">"doc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"salt/files/SALT.pdf"</span><span class="p">},</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">"agent"</span><span class="p">:</span><span class="w"> </span><span class="s2">"What does that paper claim, and does our sizing agree?"</span><span class="p">}</span>
 <span class="p">]</span>
 </code></pre></div>
 <p><code>doc</code> ingests a file exactly as <code>/doc</code> does, and <code>agent</code> runs the turn
