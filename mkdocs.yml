@@ -67,5 +67,6 @@ nav:
       - Datasets: datasets.md
       - Results: results.md
   - Project:
+      - Paper: paper.md
       - Changelog: changelog.md
       - Roadmap: roadmap.md
