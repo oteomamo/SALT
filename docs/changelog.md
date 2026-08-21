@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.38
+## 2.11.0 - 2.11.47
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -139,6 +139,12 @@ cover the tools, the roster and the limits.
   piece here and the other there. When two helpers do not fit it prints
   the roster it would have written, with the arithmetic for each entry
   that missed, and writes nothing. Fitting starts nothing on its own.
+- **2.11.44 - 2.11.46** EMNLP 2026. SALT: Salience-Aware Lexical Trie
+  for Long-Context Compression is accepted to the 2026 Conference on
+  Empirical Methods in Natural Language Processing as a Main Conference
+  paper, held in Budapest. The new [Paper](paper.md) page carries the
+  abstract, the entry to cite, and how the selector the paper describes
+  relates to the coverage selector releases default to today.
 
 ## 2.10.0 - 2.10.123
 
