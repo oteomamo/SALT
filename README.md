@@ -8,12 +8,21 @@
 
 ## Salience-Aware Lexical Trie for Long-Context Compression
 
+[![][emnlp-shield]][emnlp-link]
 [![][docs-shield]][docs-link]
 [![][version-shield]][release-link]
 [![][license-shield]][license-link]
 [![][arxiv-shield]][arxiv-link]
 
 </div>
+
+> [!IMPORTANT]
+> **SALT is accepted at EMNLP 2026.** The paper appears at the 2026
+> Conference on Empirical Methods in Natural Language Processing as a
+> **Main Conference** paper, in Budapest. Read it on
+> [OpenReview](https://openreview.net/forum?id=UTJqOhkSqi), or see the
+> [Paper page](https://oteomamo.github.io/SALT/latest/paper/) for the
+> abstract and for how the paper relates to what `main` ships today.
 
 > [!NOTE]
 > **What is next**
@@ -348,19 +357,21 @@ PRs welcome - see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 📝 Reference
 
-If you find this project useful for your research, please consider citing our
-paper:
+SALT is a Main Conference paper at EMNLP 2026. If you find this project
+useful for your research, please consider citing it:
 
 ```bibtex
-@misc{mamo2026saltsalienceawarelexicaltrie,
-      title={SALT: Salience-Aware Lexical Trie for Long-Context Compression},
+@inproceedings{mamo2026salt,
+      title={{SALT}: Salience-Aware Lexical Trie for Long-Context Compression},
       author={Oteo Mamo and Hyunjin Yi and Joydhriti Choudhury and Shangqian Gao and Weikuan Yu},
+      booktitle={The 2026 Conference on Empirical Methods in Natural Language Processing},
       year={2026},
-      eprint={2607.17486},
-      archivePrefix={arXiv},
-      url={https://arxiv.org/abs/2607.17486}
+      url={https://openreview.net/forum?id=UTJqOhkSqi}
 }
 ```
+
+The abstract, and how the paper relates to what `main` ships today, are
+on the [Paper page](https://oteomamo.github.io/SALT/latest/paper/).
 
 ## 📄 License
 
@@ -368,6 +379,8 @@ SALT is released under the [MIT License](LICENSE).
 
 [docs-shield]: https://img.shields.io/badge/docs-oteomamo.github.io%2FSALT-blue
 [docs-link]: https://oteomamo.github.io/SALT/
+[emnlp-shield]: https://img.shields.io/badge/EMNLP-2026-b85c45
+[emnlp-link]: https://openreview.net/forum?id=UTJqOhkSqi
 [arxiv-shield]: https://img.shields.io/badge/arXiv-2607.17486-b31b1b.svg
 [arxiv-link]: https://arxiv.org/abs/2607.17486
 [version-shield]: https://img.shields.io/github/v/tag/oteomamo/SALT?label=version&sort=semver
