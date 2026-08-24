@@ -16,14 +16,6 @@
 
 </div>
 
-> [!IMPORTANT]
-> **SALT is accepted at EMNLP 2026.** The paper appears at the 2026
-> Conference on Empirical Methods in Natural Language Processing as a
-> **Main Conference** paper, in Budapest. Read it on
-> [OpenReview](https://openreview.net/forum?id=UTJqOhkSqi), or see the
-> [Paper page](https://oteomamo.github.io/SALT/latest/paper/) for the
-> abstract and for how the paper relates to what `main` ships today.
-
 > [!NOTE]
 > **What is next**
 >
