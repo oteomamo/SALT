@@ -21,13 +21,6 @@ survive. Any model, plain text out, less compute in.
 [How it works](architecture.md){ .md-button }
 </div>
 
-!!! success "Accepted at EMNLP 2026"
-
-    SALT is a Main Conference paper at the 2026 Conference on Empirical
-    Methods in Natural Language Processing, in Budapest. The
-    [Paper](paper.md) page has the abstract, the citation, and how the
-    paper relates to what ships today.
-
 <div class="grid cards" markdown>
 
 - 🧂 **salt**
