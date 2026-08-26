@@ -9,8 +9,8 @@
 ## Salience-Aware Lexical Trie for Long-Context Compression
 
 [![][emnlp-shield]][emnlp-link]
-[![][docs-shield]][docs-link]
 [![][version-shield]][release-link]
+[![][docs-shield]][docs-link]
 [![][license-shield]][license-link]
 [![][arxiv-shield]][arxiv-link]
 
