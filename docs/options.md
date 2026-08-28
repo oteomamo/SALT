@@ -1,10 +1,10 @@
 # 🎛 Options
 
-Every flag of the three commands, one line each. The concepts live on
+Every flag of the four commands, one line each. The concepts live on
 the [Chatbot mode](chatbot.md), [Serving](serving.md),
-[Agents](agents.md) and [Architecture](architecture.md) pages, and the
-full detail lives in the code. Defaults shown are what a plain run
-uses.
+[Agents](agents.md), [MCP](mcp.md) and [Architecture](architecture.md)
+pages, and the full detail lives in the code. Defaults shown are what a
+plain run uses.
 
 ## saltChat quality switches
 
@@ -154,3 +154,21 @@ The legacy selector's pass knobs and the mode adapters' sub flags are
 intentionally not documented here. They exist for experiments, and
 their meaning lives with their code in `salt/compress.py` and
 `salt/engine/dataset_modes.py`.
+
+## salt-mcp
+
+Serves the same conversation memory to an MCP client, over the tools on
+the [MCP](mcp.md) page.
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--sessions-dir DIR` | the saltChat folder | where conversations live |
+| `--max-open-sessions N` | `8` | how many conversations stay open at once |
+| `--max-ingest-chars N` | `400000` | longest text one call may carry |
+| `--doc-root DIR` | any file the server can read | read documents by path only from under this folder |
+| `--read-only` | off | answer reads and refuse every write, leaving every conversation exactly as it was found |
+| `--roster FILE` | none | roster of helper models this server may delegate to |
+| `--device D` | `cuda` when there is one | encoder device |
+| `--bge-device D` | same as `--device` | encoder device, winning over `--device` |
+| `--gpu LIST` | none | card index or comma list, with the encoder on the last card |
+| `--version` | off | print the salt version this server carries |
