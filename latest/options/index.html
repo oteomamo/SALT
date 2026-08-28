@@ -808,6 +808,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#salt-mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt-mcp
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1233,6 +1244,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#salt-mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        salt-mcp
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1254,11 +1276,11 @@
 
 
 <h1 id="options">🎛 Options</h1>
-<p>Every flag of the three commands, one line each. The concepts live on
+<p>Every flag of the four commands, one line each. The concepts live on
 the <a href="../chatbot/">Chatbot mode</a>, <a href="../serving/">Serving</a>,
-<a href="../agents/">Agents</a> and <a href="../architecture/">Architecture</a> pages, and the
-full detail lives in the code. Defaults shown are what a plain run
-uses.</p>
+<a href="../agents/">Agents</a>, <a href="../mcp/">MCP</a> and <a href="../architecture/">Architecture</a>
+pages, and the full detail lives in the code. Defaults shown are what a
+plain run uses.</p>
 <h2 id="saltchat-quality-switches">saltChat quality switches</h2>
 <p>Off by default. Each one changes what the conversation memory keeps or
 resurfaces, and <code>/stats</code> reports what it did, so it can be judged on a
@@ -1801,6 +1823,70 @@ the server and its cache outlive individual chats. Everything after
 intentionally not documented here. They exist for experiments, and
 their meaning lives with their code in <code>salt/compress.py</code> and
 <code>salt/engine/dataset_modes.py</code>.</p>
+<h2 id="salt-mcp">salt-mcp</h2>
+<p>Serves the same conversation memory to an MCP client, over the tools on
+the <a href="../mcp/">MCP</a> page.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--sessions-dir DIR</code></td>
+<td>the saltChat folder</td>
+<td>where conversations live</td>
+</tr>
+<tr>
+<td><code>--max-open-sessions N</code></td>
+<td><code>8</code></td>
+<td>how many conversations stay open at once</td>
+</tr>
+<tr>
+<td><code>--max-ingest-chars N</code></td>
+<td><code>400000</code></td>
+<td>longest text one call may carry</td>
+</tr>
+<tr>
+<td><code>--doc-root DIR</code></td>
+<td>any file the server can read</td>
+<td>read documents by path only from under this folder</td>
+</tr>
+<tr>
+<td><code>--read-only</code></td>
+<td>off</td>
+<td>answer reads and refuse every write, leaving every conversation exactly as it was found</td>
+</tr>
+<tr>
+<td><code>--roster FILE</code></td>
+<td>none</td>
+<td>roster of helper models this server may delegate to</td>
+</tr>
+<tr>
+<td><code>--device D</code></td>
+<td><code>cuda</code> when there is one</td>
+<td>encoder device</td>
+</tr>
+<tr>
+<td><code>--bge-device D</code></td>
+<td>same as <code>--device</code></td>
+<td>encoder device, winning over <code>--device</code></td>
+</tr>
+<tr>
+<td><code>--gpu LIST</code></td>
+<td>none</td>
+<td>card index or comma list, with the encoder on the last card</td>
+</tr>
+<tr>
+<td><code>--version</code></td>
+<td>off</td>
+<td>print the salt version this server carries</td>
+</tr>
+</tbody>
+</table>
 
 
 
