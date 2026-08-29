@@ -1,6 +1,7 @@
 # 🎛 Options
 
-Every flag of the four commands, one line each. The concepts live on
+Every flag of `saltChat`, `saltServe` and `salt-mcp`, one line each,
+plus the `salt` flags a normal compression needs. The concepts live on
 the [Chatbot mode](chatbot.md), [Serving](serving.md),
 [Agents](agents.md), [MCP](mcp.md) and [Architecture](architecture.md)
 pages, and the full detail lives in the code. Defaults shown are what a
@@ -149,10 +150,12 @@ One shot compression of a dataset or a single document.
 | `--synthetic` | off | paragraph unit adapter for enumerated tasks |
 | `--code` | off | line record adapter for code datasets |
 | `--max-samples N` | all | cap the number of records |
+| `--verbose` | off | also print the top theme keywords for each record |
 
-The legacy selector's pass knobs and the mode adapters' sub flags are
-intentionally not documented here. They exist for experiments, and
-their meaning lives with their code in `salt/compress.py` and
+The tuning knobs are intentionally not documented here: the shared trie
+thresholds, the legacy selector's pass knobs, and the mode adapters' sub
+flags. They exist for experiments. `salt --help` lists every one of
+them, and their meaning lives with their code in `salt/compress.py` and
 `salt/engine/dataset_modes.py`.
 
 ## salt-mcp
