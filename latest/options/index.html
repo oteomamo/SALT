@@ -1276,7 +1276,8 @@
 
 
 <h1 id="options">🎛 Options</h1>
-<p>Every flag of the four commands, one line each. The concepts live on
+<p>Every flag of <code>saltChat</code>, <code>saltServe</code> and <code>salt-mcp</code>, one line each,
+plus the <code>salt</code> flags a normal compression needs. The concepts live on
 the <a href="../chatbot/">Chatbot mode</a>, <a href="../serving/">Serving</a>,
 <a href="../agents/">Agents</a>, <a href="../mcp/">MCP</a> and <a href="../architecture/">Architecture</a>
 pages, and the full detail lives in the code. Defaults shown are what a
@@ -1817,11 +1818,17 @@ the server and its cache outlive individual chats. Everything after
 <td>all</td>
 <td>cap the number of records</td>
 </tr>
+<tr>
+<td><code>--verbose</code></td>
+<td>off</td>
+<td>also print the top theme keywords for each record</td>
+</tr>
 </tbody>
 </table>
-<p>The legacy selector's pass knobs and the mode adapters' sub flags are
-intentionally not documented here. They exist for experiments, and
-their meaning lives with their code in <code>salt/compress.py</code> and
+<p>The tuning knobs are intentionally not documented here: the shared trie
+thresholds, the legacy selector's pass knobs, and the mode adapters' sub
+flags. They exist for experiments. <code>salt --help</code> lists every one of
+them, and their meaning lives with their code in <code>salt/compress.py</code> and
 <code>salt/engine/dataset_modes.py</code>.</p>
 <h2 id="salt-mcp">salt-mcp</h2>
 <p>Serves the same conversation memory to an MCP client, over the tools on
