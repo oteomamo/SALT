@@ -21,8 +21,6 @@
 >
 > - **Scripted conversation runs** - richer tooling around `--turns` for
 >   driving and scoring long canned conversations.
-> - **Dataset evaluation** - run `salt` and `saltChat` across the public
->   memory benchmarks and record how much each option matters.
 > - **Self-deciding memory** - the memory switches are already read and
 >   set per turn through rules, and the next step is an agent that
 >   decides them from what the session reports about itself.
