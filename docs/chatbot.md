@@ -300,6 +300,13 @@ page lists them all with when to reach for each. In concept:
   memory directly. The letters only keyword gate drops them by
   default, even though memory indexes them, so a question that hinges
   on a version number can miss the turn that named it.
+- **Episodes.** `--episode-gap 6` splits conversation memory where
+  exchanges sit more than six hours apart and gives each episode its
+  own branch of the memory tree, so selection spreads across time the
+  way it already spreads across attached files. A session that spans
+  days otherwise blurs its epochs into one theme profile. Replayed
+  conversations get real gaps from the `timestamp` field of a
+  `--turns` file.
 - **Ceiling.** `--memory-cap auto` (the default) fits the memory block
   to the space the model's window actually has left, instead of a
   percentage that grows without bound.

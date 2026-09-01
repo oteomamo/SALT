@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.55
+## 2.11.0 - 2.11.58
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -151,6 +151,14 @@ cover the tools, the roster and the limits.
   only keyword gate dropped them before, so a question that hinges on a
   version number could miss the turn that named it even though memory
   indexes such tokens. `/stats` counts the terms each turn adds.
+- **2.11.56 - 2.11.58** `--episode-gap`. New off by default switch that
+  splits conversation memory into time episodes where exchanges sit
+  more than the given hours apart, and gives each episode its own
+  branch of the memory tree, so selection spreads across time the way
+  it already spreads across attached files. A `--turns` item can now
+  carry a `timestamp` (epoch seconds or ISO 8601), so a replayed
+  conversation keeps its real gaps instead of collapsing into the
+  minutes of the replay. `/stats` counts the episodes.
 
 ## 2.10.0 - 2.10.123
 

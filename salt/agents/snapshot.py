@@ -70,6 +70,8 @@ SWITCHES = (
     Switch("query_identifiers", "--query-identifiers", False,
            "query_identifiers",
            "let the question's dates, versions and numbers match memory"),
+    Switch("episode_gap", "--episode-gap", None, "episodes",
+           "split memory into time episodes, each its own branch"),
     Switch("stable_coverage_keys", "--stable-coverage-keys", False,
            "coverage_seed_matched",
            "freeze the keyword order so discounts survive growth"),
