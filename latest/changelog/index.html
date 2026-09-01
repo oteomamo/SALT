@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21147" class="md-nav__link">
+  <a href="#2110-21155" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.47
+        2.11.0 - 2.11.55
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21147" class="md-nav__link">
+  <a href="#2110-21155" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.47
+        2.11.0 - 2.11.55
       
     </span>
   </a>
@@ -1454,7 +1454,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21147">2.11.0 - 2.11.47</h2>
+<h2 id="2110-21155">2.11.0 - 2.11.55</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1595,6 +1595,12 @@ cover the tools, the roster and the limits.</p>
   paper, held in Budapest. The new <a href="../paper/">Paper</a> page carries the
   abstract, the entry to cite, and how the selector the paper describes
   relates to the coverage selector releases default to today.</li>
+<li><strong>2.11.54 - 2.11.55</strong> <code>--query-identifiers</code>. New off by default
+  switch that lets the question's identifier shaped tokens, like dates,
+  versions and numbers, match conversation memory directly. The letters
+  only keyword gate dropped them before, so a question that hinges on a
+  version number could miss the turn that named it even though memory
+  indexes such tokens. <code>/stats</code> counts the terms each turn adds.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name

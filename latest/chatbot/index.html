@@ -1814,6 +1814,11 @@ page lists them all with when to reach for each. In concept:</p>
 <li><strong>Theme scope.</strong> <code>--per-source-themes</code> profiles the conversation and
   each attached file separately, so one large file cannot crowd the
   conversation out of memory.</li>
+<li><strong>Question identifiers.</strong> <code>--query-identifiers</code> lets the question's
+  identifier shaped tokens, like dates, versions and numbers, match
+  memory directly. The letters only keyword gate drops them by
+  default, even though memory indexes them, so a question that hinges
+  on a version number can miss the turn that named it.</li>
 <li><strong>Ceiling.</strong> <code>--memory-cap auto</code> (the default) fits the memory block
   to the space the model's window actually has left, instead of a
   percentage that grows without bound.</li>
