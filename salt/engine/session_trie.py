@@ -58,7 +58,7 @@ from salt.engine.trie_core import (
     run_dense_attention, get_bge_sentence_embeddings, embed_query,
     profile_themes, is_content_word, clean_text_words, expand_with_stems,
     extract_query_keywords, extract_proper_nouns_in_query,
-    build_trie_paths,
+    clean_query_word, build_trie_paths,
 )
 from salt.engine.celf import coverage_select
 
@@ -137,6 +137,19 @@ SHIFT_FRESH_WINDOW = 3
 
 def file_token(source):
     return FILE_TOKEN_PREFIX + source
+
+
+def extract_query_identifiers(query_text):
+    """Identifier-shaped query tokens the alpha-gated extractor drops:
+    dates, versions, numbers, code-like names. Normalized with
+    clean_query_word so they compare equal to the sentence side's
+    clean_text_words tokens."""
+    out = set()
+    for w in query_text.split():
+        c = clean_query_word(w)
+        if len(c) >= 2 and not c.isalpha() and any(ch.isalnum() for ch in c):
+            out.add(c)
+    return out
 
 
 def _chunk_by_tokens(sent, tokenizer, max_tokens=400, _depth=0):
@@ -835,7 +848,7 @@ class SessionTrie:
                  shift_query_boost=1.5, per_source_themes=False,
                  max_words=None, stable_keys=False, coverage_gc=False,
                  coverage_max_keys=None, defer_commit=False,
-                 exclude_sent_idx=None):
+                 exclude_sent_idx=None, query_identifiers=False):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -914,6 +927,15 @@ class SessionTrie:
         `stable_keys` would reconcile the whole coverage dict away).
         Stats report `excluded_sent`, the candidacy rows actually
         removed. Default None reproduces today's selection exactly.
+
+        `query_identifiers` (opt-in): also hand the lexical query
+        channel the query's identifier-shaped tokens — dates, versions,
+        numbers, code-like names — which the alpha-gated keyword
+        extractor drops. The sentence index already keeps such tokens,
+        so the widening only adds query terms; sentences, themes and
+        coverage are untouched. Stats report `query_identifiers`, the
+        terms added this turn. Default False leaves the query keywords
+        exactly as before.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_alive == 0:
@@ -1037,8 +1059,13 @@ class SessionTrie:
 
         query = (query or "").strip()
         q_kws = q_pns = q_emb = None
+        n_query_identifiers = 0
         if query:
             q_kws = extract_query_keywords(query)
+            if query_identifiers:
+                q_ids = extract_query_identifiers(query)
+                n_query_identifiers = len(q_ids)
+                q_kws |= q_ids
             q_pns = extract_proper_nouns_in_query(query)
             q_emb = embed_query(query, tokenizer, model, device)
 
@@ -1134,6 +1161,7 @@ class SessionTrie:
         stats["word_budget"] = word_budget
         stats["word_budget_capped"] = word_budget_capped
         stats["excluded_sent"] = n_excluded
+        stats["query_identifiers"] = n_query_identifiers
         seed_matched = sum(1 for k in seed_passed if k in universe)
         stats["coverage_seed_keys"] = len(seed_passed)
         stats["coverage_seed_matched"] = seed_matched
