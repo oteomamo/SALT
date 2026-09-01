@@ -139,6 +139,32 @@ def file_token(source):
     return FILE_TOKEN_PREFIX + source
 
 
+EP_TOKEN_PREFIX = "§ep:"
+
+
+def ep_token(episode_id):
+    return f"{EP_TOKEN_PREFIX}{episode_id:04d}"
+
+
+def assign_episodes(timestamps, sources, gap_hours):
+    """Episode id per conversation row: a wall-clock ingest gap over
+    gap_hours opens a new episode. Attachment rows get None (they keep
+    their §file: branch). Forward-only scan, so appended rows never
+    re-key old boundaries."""
+    gap = gap_hours * 3600.0
+    ids, cur, prev_ts = [], 0, None
+    for ts, src in zip(timestamps, sources):
+        if src:
+            ids.append(None)
+            continue
+        if ts is not None and prev_ts is not None and ts - prev_ts > gap:
+            cur += 1
+        if ts is not None:
+            prev_ts = ts
+        ids.append(cur)
+    return ids
+
+
 def extract_query_identifiers(query_text):
     """Identifier-shaped query tokens the alpha-gated extractor drops:
     dates, versions, numbers, code-like names. Normalized with
@@ -848,7 +874,8 @@ class SessionTrie:
                  shift_query_boost=1.5, per_source_themes=False,
                  max_words=None, stable_keys=False, coverage_gc=False,
                  coverage_max_keys=None, defer_commit=False,
-                 exclude_sent_idx=None, query_identifiers=False):
+                 exclude_sent_idx=None, query_identifiers=False,
+                 episode_gap=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -936,6 +963,18 @@ class SessionTrie:
         coverage are untouched. Stats report `query_identifiers`, the
         terms added this turn. Default False leaves the query keywords
         exactly as before.
+
+        `episode_gap` (opt-in, hours): derive an episode id per
+        conversation row — a wall-clock ingest gap over `episode_gap`
+        hours opens a new episode — and root each episode under its own
+        `§ep:` branch exactly as attachments are rooted under `§file:`,
+        so branch discounting spreads the budget across time and
+        coverage keys gain epoch context. Attachment rows keep their
+        file branches. With fewer than two episodes (sessions without
+        timestamps included) nothing is injected and the turn is
+        bit-identical to off. Episode keys are never decay-exempt.
+        Stats report `episodes`, the episodes detected. Default None
+        changes nothing.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_alive == 0:
@@ -1005,6 +1044,29 @@ class SessionTrie:
                     kw = dict(sd["keyword_weights"])
                     kw[file_token(src)] = max(kw.values(), default=1.0)
                     sd["keyword_weights"] = kw
+
+        # Per-episode branches: same mechanism as §file:, on the
+        # conversation rows (attachments keep their file branch); skipped
+        # entirely when fewer than two episodes exist.
+        n_episodes = 0
+        if episode_gap:
+            ep_ids = assign_episodes(self.timestamps, self.sources,
+                                     episode_gap)
+            eps = {e for e in ep_ids if e is not None}
+            n_episodes = len(eps)
+            if n_episodes >= 2:
+                kw_df = dict(kw_df)
+                top_df = max(kw_df.values(), default=1) + 1
+                theme_keywords = set(theme_keywords)
+                for e in sorted(eps):
+                    kw_df[ep_token(e)] = top_df
+                    theme_keywords.add(ep_token(e))
+                for sd in sent_data:
+                    e = ep_ids[sd["sent_idx"]]
+                    if e is not None:
+                        kw = dict(sd["keyword_weights"])
+                        kw[ep_token(e)] = max(kw.values(), default=1.0)
+                        sd["keyword_weights"] = kw
 
         kw_rank = None
         new_kw_order = None
@@ -1162,6 +1224,7 @@ class SessionTrie:
         stats["word_budget_capped"] = word_budget_capped
         stats["excluded_sent"] = n_excluded
         stats["query_identifiers"] = n_query_identifiers
+        stats["episodes"] = n_episodes
         seed_matched = sum(1 for k in seed_passed if k in universe)
         stats["coverage_seed_keys"] = len(seed_passed)
         stats["coverage_seed_matched"] = seed_matched
