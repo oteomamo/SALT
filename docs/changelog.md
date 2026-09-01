@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.47
+## 2.11.0 - 2.11.55
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -145,6 +145,12 @@ cover the tools, the roster and the limits.
   paper, held in Budapest. The new [Paper](paper.md) page carries the
   abstract, the entry to cite, and how the selector the paper describes
   relates to the coverage selector releases default to today.
+- **2.11.54 - 2.11.55** `--query-identifiers`. New off by default
+  switch that lets the question's identifier shaped tokens, like dates,
+  versions and numbers, match conversation memory directly. The letters
+  only keyword gate dropped them before, so a question that hinges on a
+  version number could miss the turn that named it even though memory
+  indexes such tokens. `/stats` counts the terms each turn adds.
 
 ## 2.10.0 - 2.10.123
 

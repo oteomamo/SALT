@@ -288,6 +288,11 @@ page lists them all with when to reach for each. In concept:
 - **Theme scope.** `--per-source-themes` profiles the conversation and
   each attached file separately, so one large file cannot crowd the
   conversation out of memory.
+- **Question identifiers.** `--query-identifiers` lets the question's
+  identifier shaped tokens, like dates, versions and numbers, match
+  memory directly. The letters only keyword gate drops them by
+  default, even though memory indexes them, so a question that hinges
+  on a version number can miss the turn that named it.
 - **Ceiling.** `--memory-cap auto` (the default) fits the memory block
   to the space the model's window actually has left, instead of a
   percentage that grows without bound.

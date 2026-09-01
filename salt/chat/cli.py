@@ -334,6 +334,7 @@ class ChatState:
         self.shift_margin = args.shift_margin
         self.shift_query_boost = args.shift_query_boost
         self.per_source_themes = args.per_source_themes
+        self.query_identifiers = args.query_identifiers
         self.stable_coverage_keys = args.stable_coverage_keys
         self.coverage_gc = args.coverage_gc
         self.coverage_max_keys = args.coverage_max_keys
@@ -1955,6 +1956,7 @@ def build_stats(state):
                      "shift_query_boost": state.shift_query_boost,
                      "shift_margin": state.shift_margin,
                      "per_source_themes": state.per_source_themes,
+                     "query_identifiers": state.query_identifiers,
                      "dedup_cos": state.dedup_cos,
                      "max_sentences": state.max_sentences,
                      "coverage_bounded": bool(
@@ -2057,6 +2059,11 @@ def print_stats(state, payload=None):
                     f"sources, {s.get('theme_keywords_conv')} "
                     f"conversation theme keywords")
         print(f"theme scope: per-source (--per-source-themes){note}")
+    if sw["query_identifiers"]:
+        n = s.get("query_identifiers")
+        print("query identifiers: on"
+              + (f" - {n} identifier terms matched into the query "
+                 "last turn" if n is not None else ""))
     # count read from the trie, not last_stats: suppression happens at
     # ingest, and a resumed session carries its count even when the
     # gate is off this launch
@@ -2751,6 +2758,7 @@ def compress_kwargs(state, line, excl, switches):
             "shift_margin": switches["shift_margin"],
             "shift_query_boost": switches["shift_query_boost"],
             "per_source_themes": switches["per_source_themes"],
+            "query_identifiers": switches["query_identifiers"],
             "max_words": memory_word_cap(state, line),
             "stable_keys": switches["stable_coverage_keys"],
             "coverage_gc": switches["coverage_gc"],
@@ -3301,6 +3309,12 @@ def build_parser():
                         "the conversation's own keywords below the theme "
                         "cutoff (default: off; /stats shows how many "
                         "conversation themes the split recovers)")
+    p.add_argument("--query-identifiers", action="store_true",
+                   help="let the question's identifier-shaped tokens - "
+                        "dates, versions, numbers, code-like names - "
+                        "match memory directly instead of being dropped "
+                        "by the letters-only keyword gate (default: off; "
+                        "/stats counts the terms added)")
     p.add_argument("--dedup-cos", type=float, default=None, metavar="COS",
                    help="skip a new user/assistant sentence whose embedding "
                         "cosine against an earlier conversation sentence of "

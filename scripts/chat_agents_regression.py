@@ -4549,9 +4549,9 @@ def check_scripted_round(tmp, tok, mdl):
 COMPRESS_KWARGS = {"query", "budget_pct", "tokenizer", "model", "device",
                    "coverage_half_life", "coverage_decay_docs",
                    "shift_damping", "shift_margin", "shift_query_boost",
-                   "per_source_themes", "max_words", "stable_keys",
-                   "coverage_gc", "coverage_max_keys", "defer_commit",
-                   "exclude_sent_idx"}
+                   "per_source_themes", "query_identifiers", "max_words",
+                   "stable_keys", "coverage_gc", "coverage_max_keys",
+                   "defer_commit", "exclude_sent_idx"}
 
 
 def turn_switches_of(state):

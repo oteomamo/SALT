@@ -21,6 +21,7 @@ real session before it is trusted.
 | `--coverage-decay-docs` | applies that fading to attached files too | selection keeps circling a document's head instead of advancing |
 | `--shift-damping 0.25` | on a detected topic pivot, lifts stale discounts for that turn only | pivots back to an old topic are fought by its accumulated discount |
 | `--per-source-themes` | profiles the conversation and each attached file separately | a large attachment crowds the conversation out of memory |
+| `--query-identifiers` | lets the question's dates, versions and numbers match memory directly | questions that hinge on an identifier keep missing the turn that named it |
 | `--stable-coverage-keys` | freezes the session's keyword order so remembered discounts keep matching their branches | long sessions re-show material because themes reshuffled |
 | `--coverage-gc` | collects remembered keys that no longer match any branch of the memory tree | long sessions carry dead suppression in every save |
 | `--coverage-max-keys 500` | hard limit on remembered theme keys | you want a strict bound no matter what else is on |
