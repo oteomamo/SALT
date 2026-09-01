@@ -2184,7 +2184,7 @@ def warn_load_repair(trie):
 
 
 def add_to_trie(state, text, role, source=None, origin=None, sentences=None,
-                keep=None, save=True, context=None):
+                keep=None, save=True, context=None, filed_at=None):
     dedup_cos = state.dedup_cos
     if keep is None and role == "user" and state.short_turns != "off":
         keep = _user_keep
@@ -2201,14 +2201,17 @@ def add_to_trie(state, text, role, source=None, origin=None, sentences=None,
                                source=source, origin=origin,
                                sentences=sentences, keep=keep,
                                dedup_cos=dedup_cos,
-                               max_sentences=state.max_sentences, save=save)
+                               max_sentences=state.max_sentences, save=save,
+                               filed_at=filed_at)
 
 
-def submit_ingest(state, text, role, save=True, context=None, origin=None):
+def submit_ingest(state, text, role, save=True, context=None, origin=None,
+                  filed_at=None):
     """Queue one side of an exchange for background ingest (inline under
     --sync-ingest, where a failure raises here)."""
     state.ingest.submit(lambda: add_to_trie(state, text, role, save=save,
-                                            context=context, origin=origin),
+                                            context=context, origin=origin,
+                                            filed_at=filed_at),
                         label=f"{role}-message ingest", payload=text)
 
 
@@ -2768,7 +2771,7 @@ def compress_kwargs(state, line, excl, switches):
 
 
 def chat_turn(state, line, reply_fn=None, reply_model_id=None,
-              reply_tokenizer=None, reply_label=None):
+              reply_tokenizer=None, reply_label=None, filed_at=None):
     """One turn of the conversation, from the question to what is kept.
 
     ``reply_fn(state, messages, memory_block)`` yields the answer's text
@@ -2776,7 +2779,10 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     stamp the turn with. All four None is the ordinary turn, unchanged
     down to the bytes of the prompt: the seam exists so another model
     can answer inside this session without the session becoming a
-    different thing for that turn.
+    different thing for that turn. ``filed_at`` (epoch seconds) is
+    stamped on both sides of the exchange in memory in place of the
+    ingest moment, for replays of conversations that really happened
+    at another time.
     """
     if state.runner is None:
         print("No chat model loaded - /model <name> to load one.")
@@ -2829,7 +2835,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     if not state.sync_ingest:
         submit_ingest(state, line, "user", save=False,
                       context=state.tail[-1]["content"] if state.tail
-                      else None)
+                      else None, filed_at=filed_at)
     messages = build_messages(memory_block, state.tail, line,
                               state.full_attachments, inventory, instructions)
     # cleared per turn so an interrupt before tokenization can't record the
@@ -2909,10 +2915,10 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     if state.sync_ingest:
         submit_ingest(state, line, "user",
                       context=state.tail[-1]["content"] if state.tail
-                      else None)
+                      else None, filed_at=filed_at)
     if reply:
-        submit_ingest(state, reply, "assistant",
-                      save=state.sync_ingest)  # seam: --no-assistant-memory
+        submit_ingest(state, reply, "assistant", save=state.sync_ingest,
+                      filed_at=filed_at)  # seam: --no-assistant-memory
         # tail only grows in pairs so strict chat templates always see
         # alternating roles (a replyless user turn still reaches the trie)
         state.tail.append({"role": "user", "content": line})
@@ -2932,7 +2938,8 @@ _OFFLOAD_KEYS = ("task", "target", "ingest")
 # what one line of a scripted run is. `kind` says which of the four,
 # because a run is read long after it was written and "it has an offload
 # key" is not something a reader should have to work out
-ScriptedTurn = namedtuple("ScriptedTurn", "id text offload kind")
+ScriptedTurn = namedtuple("ScriptedTurn", "id text offload kind ts",
+                          defaults=(None,))
 TURN_KINDS = ("chat", "offload", "agent", "doc")
 
 
@@ -3003,6 +3010,25 @@ def _turn_offload(item, i):
     return spec
 
 
+def _turn_ts(item, i):
+    """The wall-clock time an item claims for its exchange, or None. A
+    number is epoch seconds, a string must be ISO 8601. Refused when it
+    is neither, since a scripted run must not quietly file a turn at
+    the wrong time."""
+    if not isinstance(item, dict) or "timestamp" not in item:
+        return None
+    ts = item["timestamp"]
+    if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+        return float(ts)
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts).timestamp()
+        except ValueError:
+            pass
+    raise ValueError(f"turn {i}: timestamp is neither epoch seconds nor "
+                     f"an ISO 8601 string")
+
+
 def _turn_named(item, key, i):
     """The text an item's named key carries, or None when it has no such
     key. Refused when the key is there and holds nothing usable, since a
@@ -3041,7 +3067,11 @@ def load_turns(path, field=None):
             text, kind = doc, "doc"
         else:
             text, kind = _turn_text(item, field, i), "chat"
-        turns.append(ScriptedTurn(turn_id, text, spec, kind))
+        ts = _turn_ts(item, i)
+        if ts is not None and kind != "chat":
+            raise ValueError(f"turn {i}: timestamp belongs on a plain "
+                             f"chat turn, not a {kind} line")
+        turns.append(ScriptedTurn(turn_id, text, spec, kind, ts))
     return turns
 
 
@@ -3074,9 +3104,12 @@ def run_turns(state, turns, out_path=None):
                     # stop it was and still record the delegation below
                     stop = result.status == "aborted"
                 elif state.agent_mode:
+                    if item.ts is not None:
+                        raise ValueError("timestamp requires a plain chat "
+                                         "turn, and --agent plans this one")
                     answer = agent_line(state, item.text)
                 else:
-                    answer = chat_turn(state, item.text)
+                    answer = chat_turn(state, item.text, filed_at=item.ts)
             except KeyboardInterrupt:
                 stop = True
             except Exception as exc:

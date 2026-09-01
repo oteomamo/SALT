@@ -390,7 +390,8 @@ class SessionTrie:
 
     def add_turn(self, text, role="user", *, tokenizer, model, device="cpu",
                  source=None, origin=None, sentences=None, keep=None,
-                 dedup_cos=None, max_sentences=None, save=True):
+                 dedup_cos=None, max_sentences=None, save=True,
+                 filed_at=None):
         """Split/filter/encode NEW text and append it to the growing corpus.
 
         Runs the dense-attention keyword pass and the BGE [CLS] embedding pass on
@@ -455,6 +456,11 @@ class SessionTrie:
         `save=False` skips the end-of-call `save()` and marks the trie
         `dirty` instead. The caller owns persisting the batch: `dirty`
         clears on the next `save()`.
+
+        `filed_at` (opt-in, epoch seconds): the wall-clock time stored
+        on this call's rows. Default None stamps the moment of ingest,
+        as always; a replay of an old conversation can pass the time
+        the exchange really happened so the stored gaps stay true.
         """
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
@@ -550,7 +556,7 @@ class SessionTrie:
                     "n_total": self.n_sentences, "turn": turn}
 
         turn = self._next_turn_index
-        filed_at = time.time()
+        filed_at = time.time() if filed_at is None else float(filed_at)
         for i, sent in enumerate(fresh):
             ar = attn[i]
             kw = {}

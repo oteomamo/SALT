@@ -129,6 +129,13 @@ turn prints its id and the model's reply. Add `--turns-out results.jsonl`
 to also append `{id, turn, question, answer}` per turn, so the run can be
 reviewed or scored afterward.
 
+An object item can also carry a `timestamp`, either epoch seconds or an
+ISO 8601 string like `2026-03-14T09:30`. The exchange is then filed in
+memory at that time instead of the moment of the replay, so a
+conversation that really happened across days keeps its true gaps even
+when the file replays in minutes. A timestamp belongs on plain chat
+turns only.
+
 Launched with `--agent`, a scripted run plans every plain line out over
 the roster's helpers, the way it would in the REPL, and each row gains a
 `planned` field saying whether that turn went through a round. See
