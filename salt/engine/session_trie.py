@@ -67,6 +67,9 @@ VALID_ROLES = ("user", "assistant", "doc", "worker")
 # attached to it. They share the near-dup gate, the eviction mask and the
 # conversation branch of the trie; 'doc' shares none of the three.
 CONVERSATION_ROLES = ("user", "assistant", "worker")
+# Model-authored roles, the ones assistant_weight scales in the theme
+# profile; user and doc rows always count in full.
+DOWN_WEIGHT_ROLES = ("assistant", "worker")
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 
 # Synthetic root keyword for per-file trie branches. Sentences ingested with a
@@ -695,7 +698,21 @@ class SessionTrie:
                  "embedding_l2": self.embeddings[i]}
                 for i in range(self.n_sentences) if self.alive[i]]
 
-    def _profile(self, sent_data, per_source=False):
+    def _weighted_df(self, bucket, role_weight):
+        """Role-weighted document frequency: an assistant or worker row
+        contributes role_weight to each of its keywords, a user or doc
+        row a full count. Float df; the percentile math and the trie
+        arithmetic downstream take it unchanged."""
+        df = {}
+        for sd in bucket:
+            w = (role_weight
+                 if self.roles[sd["sent_idx"]] in DOWN_WEIGHT_ROLES
+                 else 1.0)
+            for k in sd["keyword_weights"]:
+                df[k] = df.get(k, 0.0) + w
+        return df
+
+    def _profile(self, sent_data, per_source=False, role_weight=None):
         """One (kw_df, theme_keywords) pair for CELF. Global mode is the
         frozen path: a single pooled profile_themes call. Per-source mode
         profiles each attachment and the conversation separately with the
@@ -704,9 +721,14 @@ class SessionTrie:
         the percentile cutoff that evicts the conversation's own themes.
         Deliberate compromise: kw_rank downstream still orders paths from
         the one merged dict, so a keyword shared across sources takes its
-        max-merged df in both."""
+        max-merged df in both. With `role_weight` set, df comes from
+        _weighted_df through the same percentile mirror instead of
+        profile_themes, in both modes."""
         if not per_source:
             self._profile_diag = {"sources": 1, "keywords_conv": None}
+            if role_weight is not None:
+                return self._themes_from_df(
+                    self._weighted_df(sent_data, role_weight))
             # The maintained count describes the LIVING corpus and nothing
             # else, so a caller handing over some other list of records
             # gets the full recount it asked for.
@@ -725,8 +747,12 @@ class SessionTrie:
         merged_df, merged_themes = {}, set()
         keywords_conv = 0
         for bucket in grouped:
-            df, themes = profile_themes(
-                bucket, theme_percentile=self.config["theme_percentile"])
+            if role_weight is not None:
+                df, themes = self._themes_from_df(
+                    self._weighted_df(bucket, role_weight))
+            else:
+                df, themes = profile_themes(
+                    bucket, theme_percentile=self.config["theme_percentile"])
             top = max(df.values(), default=1)
             for k, v in df.items():
                 s = max(1, int(round(DF_SCALE * v / top)))
@@ -881,7 +907,7 @@ class SessionTrie:
                  max_words=None, stable_keys=False, coverage_gc=False,
                  coverage_max_keys=None, defer_commit=False,
                  exclude_sent_idx=None, query_identifiers=False,
-                 episode_gap=None):
+                 episode_gap=None, assistant_weight=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -981,6 +1007,15 @@ class SessionTrie:
         bit-identical to off. Episode keys are never decay-exempt.
         Stats report `episodes`, the episodes detected. Default None
         changes nothing.
+
+        `assistant_weight` (opt-in, strictly between 0 and 1): weight
+        the theme profile by author. An assistant or worker row
+        contributes this fraction of a count to each of its keywords'
+        document frequency (user and document rows a full count), so
+        themes and node weights stop being majority-authored by model
+        prose. Selection-side only — nothing persisted changes and the
+        stored keyword weights are untouched. Stats report
+        `down_weighted_rows`. Default None profiles exactly as before.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_alive == 0:
@@ -1012,7 +1047,16 @@ class SessionTrie:
             seed = kept
 
         sent_data = self._sent_data()
-        kw_df, theme_keywords = self._profile(sent_data, per_source_themes)
+        role_w = (assistant_weight
+                  if assistant_weight and 0 < assistant_weight < 1
+                  else None)
+        n_down_weighted = 0
+        if role_w is not None:
+            n_down_weighted = sum(
+                1 for sd in sent_data
+                if self.roles[sd["sent_idx"]] in DOWN_WEIGHT_ROLES)
+        kw_df, theme_keywords = self._profile(sent_data, per_source_themes,
+                                              role_weight=role_w)
 
         # Sticky theme membership (stable_keys only): a keyword that
         # already earned a place in the tree keeps it while its remembered
@@ -1231,6 +1275,7 @@ class SessionTrie:
         stats["excluded_sent"] = n_excluded
         stats["query_identifiers"] = n_query_identifiers
         stats["episodes"] = n_episodes
+        stats["down_weighted_rows"] = n_down_weighted
         seed_matched = sum(1 for k in seed_passed if k in universe)
         stats["coverage_seed_keys"] = len(seed_passed)
         stats["coverage_seed_matched"] = seed_matched
