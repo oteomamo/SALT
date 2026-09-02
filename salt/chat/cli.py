@@ -337,6 +337,7 @@ class ChatState:
         self.query_identifiers = args.query_identifiers
         self.episode_gap = args.episode_gap
         self.assistant_weight = args.assistant_weight
+        self.row_coverage = args.row_coverage
         self.stable_coverage_keys = args.stable_coverage_keys
         self.coverage_gc = args.coverage_gc
         self.coverage_max_keys = args.coverage_max_keys
@@ -1961,6 +1962,7 @@ def build_stats(state):
                      "query_identifiers": state.query_identifiers,
                      "episode_gap": state.episode_gap,
                      "assistant_weight": state.assistant_weight,
+                     "row_coverage": state.row_coverage,
                      "dedup_cos": state.dedup_cos,
                      "max_sentences": state.max_sentences,
                      "coverage_bounded": bool(
@@ -2078,6 +2080,11 @@ def print_stats(state, payload=None):
         print(f"assistant weight: x{sw['assistant_weight']:g} in the "
               f"theme profile"
               + (f" - {n} model-authored rows down-weighted last turn"
+                 if n is not None else ""))
+    if sw["row_coverage"]:
+        n = s.get("coverage_rows")
+        print("row-keyed coverage: on"
+              + (f" - {n} rows carrying discount"
                  if n is not None else ""))
     # count read from the trie, not last_stats: suppression happens at
     # ingest, and a resumed session carries its count even when the
@@ -2779,6 +2786,7 @@ def compress_kwargs(state, line, excl, switches):
             "query_identifiers": switches["query_identifiers"],
             "episode_gap": switches["episode_gap"],
             "assistant_weight": switches["assistant_weight"],
+            "row_coverage": switches["row_coverage"],
             "max_words": memory_word_cap(state, line),
             "stable_keys": switches["stable_coverage_keys"],
             "coverage_gc": switches["coverage_gc"],
@@ -3381,6 +3389,13 @@ def build_parser():
                         "about instead of the model's longer restatements "
                         "(default: off; /stats counts the rows "
                         "down-weighted)")
+    p.add_argument("--row-coverage", action="store_true",
+                   help="remember what was already shown per sentence "
+                        "instead of per memory-tree branch, so the "
+                        "already-shown discount follows a sentence when "
+                        "the tree reorganizes as the session grows "
+                        "(default: off; /stats counts the rows carrying "
+                        "discount)")
     p.add_argument("--dedup-cos", type=float, default=None, metavar="COS",
                    help="skip a new user/assistant sentence whose embedding "
                         "cosine against an earlier conversation sentence of "

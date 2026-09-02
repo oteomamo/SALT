@@ -313,6 +313,12 @@ page lists them all with when to reach for each. In concept:
   can author most of the themes. Down-weighted, the themes track what
   the user talked about while every sentence stays in memory and
   stays selectable.
+- **Row coverage.** `--row-coverage` remembers what was already shown
+  per sentence instead of per branch of the memory tree. The tree
+  reorganizes as a session grows, and a discount tied to a branch
+  that no longer exists silently disappears, so long sessions repeat
+  material. Tied to the sentence itself, the discount follows it
+  wherever the tree puts it next.
 - **Ceiling.** `--memory-cap auto` (the default) fits the memory block
   to the space the model's window actually has left, instead of a
   percentage that grows without bound.

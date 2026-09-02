@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.60
+## 2.11.0 - 2.11.62
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -166,6 +166,13 @@ cover the tools, the roster and the limits.
   weighted, themes track what the user talked about while every
   sentence stays in memory and stays selectable. `/stats` counts the
   rows down-weighted each turn.
+- **2.11.61 - 2.11.62** `--row-coverage`. New off by default switch
+  that remembers what was already shown per sentence instead of per
+  branch of the memory tree. The tree reorganizes as a session grows,
+  and a discount tied to a vanished branch silently disappears, so
+  long sessions can repeat material. Tied to the sentence, the
+  discount follows it wherever the tree puts it next. `/stats` counts
+  the rows carrying discount.
 
 ## 2.10.0 - 2.10.123
 

@@ -75,6 +75,8 @@ SWITCHES = (
     Switch("assistant_weight", "--assistant-weight", None,
            "down_weighted_rows",
            "count model-authored rows as a fraction in the theme profile"),
+    Switch("row_coverage", "--row-coverage", False, "coverage_rows",
+           "remember what was shown per sentence, not per tree branch"),
     Switch("stable_coverage_keys", "--stable-coverage-keys", False,
            "coverage_seed_matched",
            "freeze the keyword order so discounts survive growth"),
