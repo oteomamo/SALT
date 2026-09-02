@@ -245,6 +245,8 @@ class SessionTrie:
         self._seen_hashes = set()       # cross-turn sentence dedupe
         self.drift_ema = None           # EMA of query-vs-recent-conversation cosine
         self.coverage_turn = {}         # dict[key -> compress call of last increment]
+        self.row_shown = {}             # dict[int, float]  row-keyed coverage (row_coverage)
+        self.row_turn = {}              # dict[row -> compress call of last selection]
         self.kw_order = []              # frozen keyword order (stable_keys, append-only)
         self.theme_admitted = set()     # sticky theme membership (stable_keys)
         self._n_compress = 0            # completed compress() calls (freshness clock)
@@ -877,13 +879,17 @@ class SessionTrie:
 
     def _apply_commit(self, new_coverage, new_coverage_turn, new_drift_ema,
                       drift_cos, new_theme_admitted=None, new_kw_order=None,
-                      save=True):
+                      save=True, new_row_shown=None, new_row_turn=None):
         """Make a planned commit real: coverage, freshness stamps, the
-        compress counter, the drift EMA, and under stable_keys the frozen
-        keyword order and sticky theme set, then persist (save=False marks
-        the state dirty for the caller's own save path)."""
+        compress counter, the drift EMA, under stable_keys the frozen
+        keyword order and sticky theme set, and under row_coverage the
+        row counts and row stamps, then persist (save=False marks the
+        state dirty for the caller's own save path)."""
         self.coverage = new_coverage
         self.coverage_turn = new_coverage_turn
+        if new_row_shown is not None:
+            self.row_shown = new_row_shown
+            self.row_turn = new_row_turn
         self._n_compress += 1
         if drift_cos is not None:
             self.drift_ema = new_drift_ema
@@ -907,7 +913,8 @@ class SessionTrie:
                  max_words=None, stable_keys=False, coverage_gc=False,
                  coverage_max_keys=None, defer_commit=False,
                  exclude_sent_idx=None, query_identifiers=False,
-                 episode_gap=None, assistant_weight=None):
+                 episode_gap=None, assistant_weight=None,
+                 row_coverage=False):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -1016,6 +1023,22 @@ class SessionTrie:
         prose. Selection-side only — nothing persisted changes and the
         stored keyword weights are untouched. Stats report
         `down_weighted_rows`. Default None profiles exactly as before.
+
+        `row_coverage` (opt-in): key the cross-turn coverage by ROW
+        instead of by node prefix. Each selected row's count is
+        persisted against its immutable row index and re-projected onto
+        the current trie every turn (a node's seed is the sum of the
+        counts of the rows whose current path runs through it — exactly
+        the accounting CELF itself performs), so the "already shown"
+        discount follows a row through df churn instead of dying with a
+        re-keyed prefix. Orphans are impossible by construction, decay
+        applies to row counts (attachment rows exempt unless
+        `coverage_decay_docs`), damping scales stale ROWS for the turn
+        only, and commits are increments-only. The node-keyed dict is
+        left untouched while this is on, so switching back resumes it;
+        `stable_keys` reconcile, `coverage_gc` and `coverage_max_keys`
+        have nothing to do in row mode. Stats report `coverage_rows`.
+        Default False keeps the node-keyed path exactly.
         """
         budget_pct = self.config["budget_pct_default"] if budget_pct is None else budget_pct
         if self.n_alive == 0:
@@ -1033,6 +1056,26 @@ class SessionTrie:
         # otherwise persist an extra decay step for a turn that never
         # selected anything.
         seed = self.coverage
+        row_mode = bool(row_coverage)
+        row_base = None
+        if row_mode:
+            # The node dict goes dormant: an empty seed makes the decay
+            # block below a no-op and keeps the commit machinery from
+            # touching it. Row counts decay HERE, symmetrically, and the
+            # decayed dict stays local until the commit after selection.
+            seed = {}
+            row_base = self.row_shown
+            if coverage_half_life and coverage_half_life > 0 and row_base:
+                factor = 0.5 ** (1.0 / coverage_half_life)
+                kept_rows = {}
+                for r, v in row_base.items():
+                    if not coverage_decay_docs and self.sources[r]:
+                        kept_rows[r] = v
+                        continue
+                    v *= factor
+                    if v >= COVERAGE_DECAY_FLOOR:
+                        kept_rows[r] = v
+                row_base = kept_rows
         if coverage_half_life and coverage_half_life > 0 and seed:
             factor = 0.5 ** (1.0 / coverage_half_life)
             kept = {}
@@ -1118,6 +1161,7 @@ class SessionTrie:
                         kw[ep_token(e)] = max(kw.values(), default=1.0)
                         sd["keyword_weights"] = kw
 
+        full_sent_data = sent_data      # pre-exclusion view, for row_coverage
         kw_rank = None
         new_kw_order = None
         if stable_keys:
@@ -1208,7 +1252,39 @@ class SessionTrie:
         query_mass_ratio = self.config["query_mass_ratio"]
         damped = bool(shifted and shift_damping)
         n_damped_keys = 0
-        if damped:
+        if row_mode:
+            # Project the decayed row counts onto THIS turn's trie: a
+            # node's seed is the sum over rows whose current path runs
+            # through it, so the discount follows each row through churn.
+            # Full living corpus on purpose — a tail-excluded row's
+            # accumulated discount must keep discounting. Damping scales
+            # STALE ROWS for this turn only; the commit below is
+            # increments-only by construction, so nothing projected or
+            # damped is ever persisted.
+            fresh_after = self._n_compress - SHIFT_FRESH_WINDOW
+            seed_passed = {}
+            if row_base:
+                rpaths, _, _, rnode_kw = build_trie_paths(
+                    [set(sd["keyword_weights"]) & set(theme_keywords)
+                     for sd in full_sent_data],
+                    kw_df, theme_keywords, kw_rank=kw_rank)
+                for sd, pid in zip(full_sent_data, rpaths):
+                    v = row_base.get(sd["sent_idx"])
+                    if not v:
+                        continue
+                    if damped:
+                        stamp = self.row_turn.get(sd["sent_idx"])
+                        if stamp is None or stamp < fresh_after:
+                            v *= shift_damping
+                            n_damped_keys += 1
+                    acc = []
+                    for node in pid:
+                        acc.append(rnode_kw[node])
+                        k = frozenset(acc)
+                        seed_passed[k] = seed_passed.get(k, 0.0) + v
+            if damped:
+                query_mass_ratio *= shift_query_boost
+        elif damped:
             fresh_after = self._n_compress - SHIFT_FRESH_WINDOW
             seed_passed = {}
             for k, v in seed.items():
@@ -1236,11 +1312,37 @@ class SessionTrie:
         universe = cov.get("node_keys") or set()
         if excluded_node_keys:
             universe = universe | excluded_node_keys
-        (new_coverage, new_coverage_turn, new_drift_ema,
-         commit_diag) = self._plan_commit(
-             cov, seed, seed_passed, damped, drift_cos, drift_baseline,
-             stable_keys, coverage_gc, coverage_max_keys,
-             node_universe=universe)
+        new_row_shown = new_row_turn = None
+        if row_mode:
+            # Increments-only by construction: the decayed row counts plus
+            # one per row actually shown, exactly the accounting CELF runs
+            # per node. The projected (and possibly damped) seed never
+            # persists, and the node dict is carried through untouched.
+            new_row_shown = dict(row_base) if row_base else {}
+            for sr in selected:
+                new_row_shown[sr.sent_idx] = (
+                    new_row_shown.get(sr.sent_idx, 0.0) + 1.0)
+            new_row_turn = {r: t for r, t in self.row_turn.items()
+                            if r in new_row_shown}
+            for sr in selected:
+                new_row_turn[sr.sent_idx] = self._n_compress
+            new_coverage = self.coverage
+            new_coverage_turn = self.coverage_turn
+            new_drift_ema = None
+            if drift_cos is not None:
+                new_drift_ema = (drift_cos if drift_baseline is None
+                                 else DRIFT_EMA_ALPHA * drift_cos
+                                 + (1.0 - DRIFT_EMA_ALPHA) * drift_baseline)
+            commit_diag = {"orphans_dropped": 0, "persisted_orphans": 0,
+                           "orphan_doc_keys": 0,
+                           "persisted_orphan_mass": 0.0,
+                           "gc_dropped": 0, "cap_dropped": 0}
+        else:
+            (new_coverage, new_coverage_turn, new_drift_ema,
+             commit_diag) = self._plan_commit(
+                 cov, seed, seed_passed, damped, drift_cos, drift_baseline,
+                 stable_keys, coverage_gc, coverage_max_keys,
+                 node_universe=universe)
         commit_cb = None
         if defer_commit:
             committed = []
@@ -1253,11 +1355,15 @@ class SessionTrie:
                 self._apply_commit(new_coverage, new_coverage_turn,
                                    new_drift_ema, drift_cos,
                                    new_theme_admitted, new_kw_order,
-                                   save=save)
+                                   save=save,
+                                   new_row_shown=new_row_shown,
+                                   new_row_turn=new_row_turn)
         else:
             self._apply_commit(new_coverage, new_coverage_turn,
                                new_drift_ema, drift_cos,
-                               new_theme_admitted, new_kw_order)
+                               new_theme_admitted, new_kw_order,
+                               new_row_shown=new_row_shown,
+                               new_row_turn=new_row_turn)
 
         stats["coverage_keys"] = len(new_coverage)
         stats["coverage_half_life"] = coverage_half_life
@@ -1291,6 +1397,7 @@ class SessionTrie:
             commit_diag["persisted_orphan_mass"], 4)
         stats["coverage_gc_dropped"] = commit_diag["gc_dropped"]
         stats["coverage_capped_dropped"] = commit_diag["cap_dropped"]
+        stats["coverage_rows"] = (len(new_row_shown) if row_mode else None)
 
         sel_idx = [sr.sent_idx for sr in selected]
         context = delimiter.join(sr.text for sr in selected)
@@ -1333,6 +1440,8 @@ class SessionTrie:
             "coverage": self.coverage, "seen_hashes": self._seen_hashes,
             "drift_ema": self.drift_ema,
             "coverage_turn": self.coverage_turn,
+            "row_shown": self.row_shown,
+            "row_turn": self.row_turn,
             "n_compress": self._n_compress,
             "n_near_dups": self.n_near_dups,
             "kw_order": self.kw_order,
@@ -1375,6 +1484,9 @@ class SessionTrie:
         # the right reading for coverage of unknown age)
         self.drift_ema = state.get("drift_ema")
         self.coverage_turn = state.get("coverage_turn", {})
+        # sessions saved before row-keyed coverage carry no row counts
+        self.row_shown = state.get("row_shown", {})
+        self.row_turn = state.get("row_turn", {})
         self._n_compress = state.get("n_compress", 0)
         # sessions saved before the near-dup gate have no counter
         self.n_near_dups = state.get("n_near_dups", 0)
@@ -1431,6 +1543,10 @@ class SessionTrie:
             self.n_words = self.n_words[:n]
             self.keyword_weights = self.keyword_weights[:n]
             self.alive = self.alive[:n]
+            self.row_shown = {r: v for r, v in self.row_shown.items()
+                              if r < n}
+            self.row_turn = {r: t for r, t in self.row_turn.items()
+                             if r < n}
             for t in dropped:
                 self._seen_hashes.discard(self._norm_hash(t))
         self._next_sentence_index = n
