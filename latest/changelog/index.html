@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21158" class="md-nav__link">
+  <a href="#2110-21160" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.58
+        2.11.0 - 2.11.60
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21158" class="md-nav__link">
+  <a href="#2110-21160" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.58
+        2.11.0 - 2.11.60
       
     </span>
   </a>
@@ -1454,7 +1454,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21158">2.11.0 - 2.11.58</h2>
+<h2 id="2110-21160">2.11.0 - 2.11.60</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1609,6 +1609,13 @@ cover the tools, the roster and the limits.</p>
   carry a <code>timestamp</code> (epoch seconds or ISO 8601), so a replayed
   conversation keeps its real gaps instead of collapsing into the
   minutes of the replay. <code>/stats</code> counts the episodes.</li>
+<li><strong>2.11.59 - 2.11.60</strong> <code>--assistant-weight</code>. New off by default switch
+  that counts assistant and worker rows as a fraction of a row in the
+  theme profile. The model usually writes several times more text than
+  the user, so its restatements can author most of the themes. Down
+  weighted, themes track what the user talked about while every
+  sentence stays in memory and stays selectable. <code>/stats</code> counts the
+  rows down-weighted each turn.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
