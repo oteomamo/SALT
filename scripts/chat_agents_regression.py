@@ -4550,7 +4550,7 @@ COMPRESS_KWARGS = {"query", "budget_pct", "tokenizer", "model", "device",
                    "coverage_half_life", "coverage_decay_docs",
                    "shift_damping", "shift_margin", "shift_query_boost",
                    "per_source_themes", "query_identifiers", "episode_gap",
-                   "max_words",
+                   "assistant_weight", "max_words",
                    "stable_keys", "coverage_gc", "coverage_max_keys",
                    "defer_commit", "exclude_sent_idx"}
 

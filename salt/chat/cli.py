@@ -336,6 +336,7 @@ class ChatState:
         self.per_source_themes = args.per_source_themes
         self.query_identifiers = args.query_identifiers
         self.episode_gap = args.episode_gap
+        self.assistant_weight = args.assistant_weight
         self.stable_coverage_keys = args.stable_coverage_keys
         self.coverage_gc = args.coverage_gc
         self.coverage_max_keys = args.coverage_max_keys
@@ -1959,6 +1960,7 @@ def build_stats(state):
                      "per_source_themes": state.per_source_themes,
                      "query_identifiers": state.query_identifiers,
                      "episode_gap": state.episode_gap,
+                     "assistant_weight": state.assistant_weight,
                      "dedup_cos": state.dedup_cos,
                      "max_sentences": state.max_sentences,
                      "coverage_bounded": bool(
@@ -2070,6 +2072,12 @@ def print_stats(state, payload=None):
         n = s.get("episodes")
         print(f"episode gap: {sw['episode_gap']:g}h"
               + (f" - {n} episodes in memory last turn"
+                 if n is not None else ""))
+    if sw["assistant_weight"]:
+        n = s.get("down_weighted_rows")
+        print(f"assistant weight: x{sw['assistant_weight']:g} in the "
+              f"theme profile"
+              + (f" - {n} model-authored rows down-weighted last turn"
                  if n is not None else ""))
     # count read from the trie, not last_stats: suppression happens at
     # ingest, and a resumed session carries its count even when the
@@ -2770,6 +2778,7 @@ def compress_kwargs(state, line, excl, switches):
             "per_source_themes": switches["per_source_themes"],
             "query_identifiers": switches["query_identifiers"],
             "episode_gap": switches["episode_gap"],
+            "assistant_weight": switches["assistant_weight"],
             "max_words": memory_word_cap(state, line),
             "stable_keys": switches["stable_coverage_keys"],
             "coverage_gc": switches["coverage_gc"],
@@ -3364,6 +3373,14 @@ def build_parser():
                         "branch of the memory tree so selection spreads "
                         "across time (default: off; /stats counts the "
                         "episodes)")
+    p.add_argument("--assistant-weight", type=float, default=None,
+                   metavar="A",
+                   help="count assistant and worker rows as this fraction "
+                        "of a row (strictly between 0 and 1) in the theme "
+                        "profile, so themes track what the user talked "
+                        "about instead of the model's longer restatements "
+                        "(default: off; /stats counts the rows "
+                        "down-weighted)")
     p.add_argument("--dedup-cos", type=float, default=None, metavar="COS",
                    help="skip a new user/assistant sentence whose embedding "
                         "cosine against an earlier conversation sentence of "
@@ -3652,6 +3669,14 @@ def main(argv=None):
     if args.episode_gap is not None and not (
             math.isfinite(args.episode_gap) and args.episode_gap > 0):
         print("--episode-gap must be a positive, finite number of hours.",
+              file=sys.stderr)
+        return 1
+    # strictly inside (0, 1): 1.0 means "no down-weighting" (use no flag
+    # instead) and 0.0 would erase model rows from the profile outright
+    if args.assistant_weight is not None and not (
+            math.isfinite(args.assistant_weight)
+            and 0 < args.assistant_weight < 1):
+        print("--assistant-weight must be strictly between 0 and 1.",
               file=sys.stderr)
         return 1
     # strictly inside (0, 1): 1.0 means "no damping" (use no flag instead)

@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.58
+## 2.11.0 - 2.11.60
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -159,6 +159,13 @@ cover the tools, the roster and the limits.
   carry a `timestamp` (epoch seconds or ISO 8601), so a replayed
   conversation keeps its real gaps instead of collapsing into the
   minutes of the replay. `/stats` counts the episodes.
+- **2.11.59 - 2.11.60** `--assistant-weight`. New off by default switch
+  that counts assistant and worker rows as a fraction of a row in the
+  theme profile. The model usually writes several times more text than
+  the user, so its restatements can author most of the themes. Down
+  weighted, themes track what the user talked about while every
+  sentence stays in memory and stays selectable. `/stats` counts the
+  rows down-weighted each turn.
 
 ## 2.10.0 - 2.10.123
 

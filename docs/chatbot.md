@@ -307,6 +307,12 @@ page lists them all with when to reach for each. In concept:
   days otherwise blurs its epochs into one theme profile. Replayed
   conversations get real gaps from the `timestamp` field of a
   `--turns` file.
+- **Author weight.** `--assistant-weight 0.5` counts assistant and
+  worker rows as half a row in the theme profile. The model usually
+  writes several times more text than the user, so its restatements
+  can author most of the themes. Down-weighted, the themes track what
+  the user talked about while every sentence stays in memory and
+  stays selectable.
 - **Ceiling.** `--memory-cap auto` (the default) fits the memory block
   to the space the model's window actually has left, instead of a
   percentage that grows without bound.

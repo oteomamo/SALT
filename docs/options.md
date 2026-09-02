@@ -23,6 +23,7 @@ real session before it is trusted.
 | `--per-source-themes` | profiles the conversation and each attached file separately | a large attachment crowds the conversation out of memory |
 | `--query-identifiers` | lets the question's dates, versions and numbers match memory directly | questions that hinge on an identifier keep missing the turn that named it |
 | `--episode-gap 6` | groups memory into time episodes, splitting where exchanges sit more than this many hours apart, and gives each its own branch | a session spanning days blurs its epochs together and answers from the wrong one |
+| `--assistant-weight 0.5` | counts model authored rows as a fraction of a row in the theme profile | the model's longer restatements crowd the user's own topics out of the themes |
 | `--stable-coverage-keys` | freezes the session's keyword order so remembered discounts keep matching their branches | long sessions re-show material because themes reshuffled |
 | `--coverage-gc` | collects remembered keys that no longer match any branch of the memory tree | long sessions carry dead suppression in every save |
 | `--coverage-max-keys 500` | hard limit on remembered theme keys | you want a strict bound no matter what else is on |
