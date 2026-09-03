@@ -147,6 +147,22 @@ def note_for(placement, think):
     return note
 
 
+def note_overlaps(pairs):
+    """Targets whose notes share content words, as (first, second,
+    shared) in the order given. The fit refuses these outright; a file
+    a person wrote gets them back as warnings, because the person may
+    know better and still deserves the note. Empty notes are skipped:
+    a target described by nothing shares nothing."""
+    named = [(name, content_words(notes)) for name, notes in pairs if notes]
+    out = []
+    for i, (first, one) in enumerate(named):
+        for second, two in named[i + 1:]:
+            shared = one & two
+            if shared:
+                out.append((first, second, tuple(sorted(shared))))
+    return out
+
+
 def check_notes(placements):
     """Every worker described in words no other worker's notes use.
 

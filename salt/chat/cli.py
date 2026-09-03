@@ -3715,6 +3715,26 @@ def build_parser():
     return p
 
 
+def overlap_warnings(roster, personas):
+    """Plan targets the planner cannot tell apart, as warning lines.
+
+    Roster workers and target personas together, because the planner is
+    shown them together. A warning and never a refusal: --roster auto
+    refuses this shape before writing a file, but a file a person wrote
+    may know something the rule does not - the note just says what the
+    planner will do about it, which is nothing.
+    """
+    pairs = []
+    if roster is not None:
+        pairs.extend((e.name, e.notes) for e in roster.workers)
+    pairs.extend((p.name, p.notes) for p in (personas or {}).values()
+                 if p.is_target)
+    return [f"note: {first!r} and {second!r} are both described with "
+            f"{', '.join(shared)} - the planner has no reason to send "
+            f"one piece here and the other there"
+            for first, second, shared in provision.note_overlaps(pairs)]
+
+
 PERSONAS_FALLBACK = (
     "--personas is on, so this session keeps its agent layer without "
     "the roster: the loaded roles ride the chat model, pieces run one "
@@ -3920,6 +3940,8 @@ def main(argv=None):
         except PersonaError as exc:
             print(f"--personas: {exc}", file=sys.stderr)
             return 1
+    for line in overlap_warnings(roster, personas):
+        print(line)
 
     # and the same reason again: a rules file that will not load must
     # say so before a conversation starts selecting under it

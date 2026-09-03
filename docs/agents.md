@@ -81,6 +81,12 @@ the launch instead of failing later. This file ships as
 `salt/agents/roster_sample.json`, ready to copy, with one entry of each
 mode in it.
 
+The launch also reads every target's `notes` side by side, workers and
+personas together, and warns when two are described in shared words:
+the planner picks helpers by their notes, so two described alike never
+split a task between them. The warning blocks nothing, it just tells
+you what the planner will do about the overlap, which is nothing.
+
 ## Personas: roles without a second GPU
 
 A roster names weights. A persona names a way of working: the same

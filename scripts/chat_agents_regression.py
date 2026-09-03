@@ -9252,6 +9252,44 @@ def check_retarget(tmp):
           "and length hold")
 
 
+def check_note_overlap(tmp):
+    """Targets the planner cannot tell apart get a warning at launch,
+    never a refusal: a person may know better than the rule."""
+    from salt.agents import personas as P
+    from salt.agents import provision as PV
+
+    pairs = [("writer", "writes prose and summaries"),
+             ("finder", "short factual lookups"),
+             ("drafter", "writes drafts and prose")]
+    got = PV.note_overlaps(pairs)
+    assert got == [("writer", "drafter", ("prose", "writes"))], got
+    assert PV.note_overlaps(pairs[:2]) == []
+    assert PV.note_overlaps([("a", ""), ("b", "")]) == []
+
+    w = R.RosterEntry(name="w", alias="stub", role="worker",
+                      server_url="http://127.0.0.1:1",
+                      notes="writes prose and summaries")
+    twin = P.Persona(name="tw", worker="chat", role="target",
+                     notes="writes prose too", body="b", path="tw.md")
+    other = P.Persona(name="ot", worker="chat", role="target",
+                      notes="short factual lookups", body="b", path="o.md")
+    silent = P.Persona(name="ck", worker="chat", role="verify",
+                       notes="writes prose", body="b", path="c.md")
+    roster = R.Roster(path="r", entries=(w,))
+    lines = cli.overlap_warnings(roster, {p.name: p for p in
+                                          (twin, other, silent)})
+    assert len(lines) == 1, lines
+    assert "'w'" in lines[0] and "'tw'" in lines[0], lines[0]
+    assert "prose" in lines[0] and "writes" in lines[0], lines[0]
+    assert cli.overlap_warnings(roster, {other.name: other}) == []
+    assert cli.overlap_warnings(None, {p.name: p for p in (twin, other)}) \
+        == []
+    print("85. overlapping notes: worker and persona targets described "
+          "in shared words are named in a launch warning with the words "
+          "that collide, verify personas and empty notes stay out of "
+          "it, and nothing is refused")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9348,6 +9386,7 @@ def main():
         check_auto_fallback(tmp)
         check_verify(tmp)
         check_retarget(tmp)
+        check_note_overlap(tmp)
         print("PASS")
     finally:
         if not args.keep:
