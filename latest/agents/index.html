@@ -2055,6 +2055,11 @@ bad port, an unknown alias or a model whose weights are missing stops
 the launch instead of failing later. This file ships as
 <code>salt/agents/roster_sample.json</code>, ready to copy, with one entry of each
 mode in it.</p>
+<p>The launch also reads every target's <code>notes</code> side by side, workers and
+personas together, and warns when two are described in shared words:
+the planner picks helpers by their notes, so two described alike never
+split a task between them. The warning blocks nothing, it just tells
+you what the planner will do about the overlap, which is nothing.</p>
 <h2 id="personas-roles-without-a-second-gpu">Personas: roles without a second GPU</h2>
 <p>A roster names weights. A persona names a way of working: the same
 model asked to explain, to write code, or to check a drafted reply.
@@ -2360,11 +2365,14 @@ keeps what the model said as the answer. That is the whole failure
 mode: a session loses the delegation, never the reply.</p>
 <p>Two things help before any of that. A helper's server is asked once
 whether it will hold a model to a schema at all, because a version
-number does not answer that question and only the wire does. A model
-whose server will is told to fill the schema. One whose server will not
-is shown the object to copy instead, which is worth more to it than a
-paragraph about JSON. And <code>/roster probe --deep NAME</code> will tell you which of the
-two a given helper is before you rely on it.</p>
+number does not answer that question and only the wire does. The ask
+comes in both spellings the serving stacks have used, the deprecated
+<code>guided_json</code> and the <code>structured_outputs</code> that replaced it, and
+whichever one the server took is the one every later schema rides. A
+model whose server will is told to fill the schema. One whose server
+will not is shown the object to copy instead, which is worth more to
+it than a paragraph about JSON. And <code>/roster probe --deep NAME</code> will
+tell you which of the two a given helper is before you rely on it.</p>
 <p>Reasoning stays out of memory throughout. Text between <code>&lt;think&gt;</code> tags
 is the model's working, and it is cut before an answer is remembered
 and before any of this is read, so a plan is judged by what the model
