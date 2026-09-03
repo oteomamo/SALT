@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21170" class="md-nav__link">
+  <a href="#2110-21172" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.70
+        2.11.0 - 2.11.72
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21170" class="md-nav__link">
+  <a href="#2110-21172" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.70
+        2.11.0 - 2.11.72
       
     </span>
   </a>
@@ -1454,7 +1454,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21170">2.11.0 - 2.11.70</h2>
+<h2 id="2110-21172">2.11.0 - 2.11.72</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1649,6 +1649,10 @@ cover the tools, the roster and the limits.</p>
   can pin to an excerpt. The verdict is printed and kept in the trace,
   the reply is never touched, and a checker that fails records
   <code>skipped</code> and costs the turn nothing.</li>
+<li><strong>2.11.72</strong> A piece whose worker went quiet or died is re-run once
+  on a different set of weights, paid out of the same turn allowance,
+  with the first attempt's fate written on the answer. A piece that
+  failed twice is reported as missing instead of waited on.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
