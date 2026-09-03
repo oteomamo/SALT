@@ -60,6 +60,7 @@ Agents:
 | Flag | Default | What it does |
 |---|---|---|
 | `--roster FILE` | none | JSON file naming the worker models this session may reach, listed by `/roster`. `auto` fits one from the registry and the memory free right now, and writes it to the session folder |
+| `--personas PATH` | none | load persona role files: a directory of `*.md` files, one file, or the word `samples` for the shipped set. Repeatable. Personas ride a roster worker or the chat model itself, so agents work on one GPU or none |
 | `--workers-autostart` | off | start the roster's spawn entries once the chat model is loaded, instead of waiting for `/worker start` |
 | `--offload-timeout SECONDS` | the standard call timeout | how long to wait on a quiet worker during a delegation, for workers whose roster entry names no timeout of its own |
 | `--offload-budget-pct` | the session budget | memory budget for a delegation's context, as a fraction like `--budget-pct` |

@@ -81,6 +81,53 @@ the launch instead of failing later. This file ships as
 `salt/agents/roster_sample.json`, ready to copy, with one entry of each
 mode in it.
 
+## Personas: roles without a second GPU
+
+A roster names weights. A persona names a way of working: the same
+model asked to explain, to write code, or to check a drafted reply.
+One persona is one markdown file, a few facts between two `---` lines
+and then the system prompt it works under.
+
+```markdown
+---
+name: explainer
+worker: chat
+role: target
+notes: "teaching and explanation: step by step reasoning, analogies,
+the why behind a fact, worked examples"
+---
+You are the EXPLAINER helper. Walk the reasoning in steps a newcomer
+can follow.
+```
+
+`worker` says whose weights the persona rides. Name a roster worker and
+the persona becomes another door to that server, with its own system
+prompt in front. Name `chat` and the persona rides the session's own
+chat model. That second form is the one that matters on a small
+machine: it needs no roster, no second server and no second GPU, so a
+laptop can still plan a turn out across an explainer and a coder. The
+pieces run one after another on the one model, and each piece still
+gets its own memory selection for its own part of the work.
+
+```bash
+saltChat --model qwen3-4b-instruct-2507 --personas samples --agent
+```
+
+`--personas` takes a directory of `*.md` files, a single file, or the
+word `samples` for the three roles that ship with salt: an `explainer`
+and a `coder` the planner can hand pieces to, and a `checker` held back
+for verification. `/roster` lists what loaded. The planner reads each
+persona's `notes` to decide which piece goes where, so two personas
+described in the same words will never split a task between them: give
+each role its own vocabulary.
+
+`role` is `target` for a persona the planner may pick, or `verify` for
+one that only checks. A verify persona is never handed a piece of the
+work, and a plan that names it is refused with the reason. Personas
+never displace the standing worker rules: the persona's prompt comes
+first and the worker instructions stay last, so quoted context remains
+material rather than instructions, whoever is reading it.
+
 ## Letting the session write the roster
 
 ```bash

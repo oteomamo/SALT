@@ -45,7 +45,8 @@ from salt.agents.delegate import (DelegationRequest, build_context,
 from salt.agents.roster import (GUIDED_CAPABLE, UNPROBED, RosterError,
                                 check_placement, entry_cards,
                                 gpu_free_fractions, load_roster)
-from salt.agents.personas import CHAT_WORKER
+from salt.agents.personas import (CHAT_WORKER, PersonaError, bind,
+                                  load_personas, sample_dir)
 from salt.agents.worker import (BUSY, ChatHandle, DEAD, PersonaHandle,
                                 WorkerError, WorkerHandle, capability_line,
                                 check_records, schema_smoke)
@@ -135,8 +136,9 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /model             list registered models (* = active)
 /model <name>      switch chat model (unloads current, loads new; session kept)
 /add <hf_id> [alias]  download + register a model by HuggingFace id
-/roster [probe]    list the worker models --roster names (probe contacts
-                   each one and reports what it is serving)
+/roster [probe]    list the worker models --roster names and the roles
+                   --personas loaded (probe contacts each worker and
+                   reports what it is serving)
 /roster probe --deep NAME  ask one worker whether it will answer in a
                    given shape, and remember the answer
 /worker            show each worker's connection, calls and mean latency
@@ -252,7 +254,8 @@ def resume_workers(state):
 class ChatState:
     """Everything a live session pins: models on GPU, trie in RAM."""
 
-    def __init__(self, args, bge_tok, bge_model, runner, trie, roster=None):
+    def __init__(self, args, bge_tok, bge_model, runner, trie, roster=None,
+                 personas=None):
         self.device = args.device
         self.bge_device = args.bge_device or args.device
         self.backend = args.backend
@@ -274,6 +277,9 @@ class ChatState:
         self.trie = trie
         # None = the agent layer is absent for this session, everywhere
         self.roster = roster
+        # name -> Persona, already bound against the roster. Loading any
+        # is also what makes `chat` resolve to the session's own model
+        self.personas = dict(personas or {})
         # name -> WorkerHandle, built on first use and the session's only
         # record of what each worker is doing. A handle costs nothing until
         # it opens a client, so an unused roster entry stays unopened
@@ -843,16 +849,7 @@ def print_models(active=None):
               f"[{m['dtype']}, {state}]")
 
 
-def print_roster(roster, probes=None):
-    if roster is None:
-        print("  (no roster loaded - start saltChat with --roster FILE, "
-              "e.g. salt/agents/roster_sample.json)")
-        return
-    probes = probes or {}
-    head = ("NAME", "ROLE", "ALIAS", "MODE", "ENDPOINT", "STATE")
-    rows = [(e.name, e.role, e.alias, "attach" if e.attach else "spawn",
-             e.server_url if e.attach else f"port {e.spawn['port']}",
-             probes.get(e.name, UNPROBED).state) for e in roster.entries]
+def print_table(head, rows, notes=()):
     width = [max(len(r[i]) for r in (head,) + tuple(rows))
              for i in range(len(head))]
 
@@ -860,12 +857,32 @@ def print_roster(roster, probes=None):
         return "  ".join(f"{c:<{w}}" for c, w in zip(row, width)).rstrip()
 
     print(f"  {render(head)}")
-    for entry, row in zip(roster.entries, rows):
+    for row, note in zip(rows, notes or [""] * len(rows)):
         print(f"  {render(row)}")
-        note = probes.get(entry.name, UNPROBED).note
         if note:
             print(f"      {note}")
-    print(f"  from {roster.path}")
+
+
+def print_roster(roster, probes=None, personas=None):
+    if roster is None and not personas:
+        print("  (no roster loaded - start saltChat with --roster FILE, "
+              "e.g. salt/agents/roster_sample.json, or --personas DIR)")
+        return
+    if roster is not None:
+        probes = probes or {}
+        print_table(
+            ("NAME", "ROLE", "ALIAS", "MODE", "ENDPOINT", "STATE"),
+            [(e.name, e.role, e.alias, "attach" if e.attach else "spawn",
+              e.server_url if e.attach else f"port {e.spawn['port']}",
+              probes.get(e.name, UNPROBED).state) for e in roster.entries],
+            [probes.get(e.name, UNPROBED).note for e in roster.entries])
+        print(f"  from {roster.path}")
+    if personas:
+        rows = [(p.name, p.role,
+                 "the chat model" if p.rides_chat else p.worker)
+                for p in personas.values()]
+        print_table(("PERSONA", "ROLE", "RIDES"), rows,
+                    [p.notes for p in personas.values()])
 
 
 CAPS_FILE = "worker_caps.json"
@@ -2571,7 +2588,7 @@ def handle_command(line, state):
         elif rest and rest[0].lower() != "probe":
             print("Usage: /roster [probe [--deep NAME]]")
         elif rest and state.roster is None:
-            print_roster(None)
+            print_roster(None, personas=state.personas)
         else:
             handles = state.worker_handles()
             if rest:
@@ -2580,7 +2597,8 @@ def handle_command(line, state):
                 for handle in handles:
                     handle.probe()
             print_roster(state.roster,
-                         {h.name: h.probe_result for h in handles})
+                         {h.name: h.probe_result for h in handles},
+                         state.personas)
     elif cmd == "/worker":
         worker_command(state, rest)
     elif cmd in ("/offload", "/offload!"):
@@ -3179,9 +3197,15 @@ def run_turns(state, turns, out_path=None):
 
 
 def worker_completions(state, text):
-    """The @NAME options a roster offers for the word being typed."""
+    """The @NAME options this session offers for the word being typed:
+    roster workers, then target personas, then the chat model itself
+    once personas have made it a worker."""
     names = [e.name for e in state.roster.workers] if state and getattr(
         state, "roster", None) else []
+    personas = getattr(state, "personas", None) or {} if state else {}
+    names += [p.name for p in personas.values() if p.is_target]
+    if personas:
+        names.append(CHAT_WORKER)
     return [f"@{n}" for n in names if f"@{n}".startswith(text)]
 
 
@@ -3476,6 +3500,14 @@ def build_parser():
                         "would have written and stops. Fitting still starts "
                         "nothing: --workers-autostart is what starts a spawn "
                         "entry.")
+    p.add_argument("--personas", metavar="PATH", action="append",
+                   help="load persona files: a directory of *.md role "
+                        "files, one file, or the word samples for the set "
+                        "that ships with salt. Repeatable. A persona is a "
+                        "role riding a roster worker or the session's own "
+                        "chat model, so a machine with one GPU, or none, "
+                        "can plan turns across roles with no roster at "
+                        "all (default: none)")
     p.add_argument("--workers-autostart", action="store_true",
                    help="start every spawn entry in --roster once the chat "
                         "model is loaded, instead of waiting for /worker "
@@ -3805,6 +3837,19 @@ def main(argv=None):
             print(f"--roster: {exc}", file=sys.stderr)
             return 1
 
+    # personas fail here too: a role file that will not load, or one
+    # riding a worker this session does not have, must say so before
+    # the chat model is loaded
+    personas = {}
+    if args.personas:
+        paths = [sample_dir() if p == "samples" else p
+                 for p in args.personas]
+        try:
+            personas = bind(load_personas(paths), roster)
+        except PersonaError as exc:
+            print(f"--personas: {exc}", file=sys.stderr)
+            return 1
+
     # and the same reason again: a rules file that will not load must
     # say so before a conversation starts selecting under it
     if args.switch_agent and args.switch_rules and args.switch_policy != "model":
@@ -3867,7 +3912,8 @@ def main(argv=None):
 
     runner = make_runner(cfg, device=args.device, backend=args.backend,
                          **backend_opts(args))
-    state = ChatState(args, bge_tok, bge_model, runner, trie, roster)
+    state = ChatState(args, bge_tok, bge_model, runner, trie, roster,
+                      personas)
     if state.full_attachments:
         print(f"Restored {len(state.full_attachments)} full-context "
               f"attachment(s): {', '.join(state.full_attachments)}")

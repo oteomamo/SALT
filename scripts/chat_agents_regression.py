@@ -8906,6 +8906,49 @@ def check_persona_binding(tmp):
           "turn")
 
 
+def check_personas_flag(tmp):
+    """--personas: the launch surface, the /roster view, and the @NAME
+    completions once roles are loaded."""
+    from salt.agents import personas as P
+
+    assert cli.build_parser().parse_args([]).personas is None, (
+        "personas load with nobody asking")
+    args = cli.build_parser().parse_args(["--personas", "a",
+                                          "--personas", "b"])
+    assert args.personas == ["a", "b"], args.personas
+
+    bound = P.bind(P.load_personas([P.sample_dir()]), None)
+    assert list(bound) == ["checker", "coder", "explainer"], list(bound)
+    st = _FakeState(tmp, None)
+    st.personas = bound
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.print_roster(None, personas=bound)
+    out = buf.getvalue()
+    assert "PERSONA" in out and "explainer" in out, out
+    assert "the chat model" in out and "verify" in out, out
+    assert "no roster loaded" not in out, (
+        "a session with personas was told it has no agent layer")
+    assert "teaching and explanation" in out, out
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.print_roster(None)
+    assert "--personas DIR" in buf.getvalue(), buf.getvalue()
+
+    got = cli.worker_completions(st, "@")
+    assert got == ["@coder", "@explainer", "@chat"], got
+    assert cli.worker_completions(st, "@ch") == ["@chat"], (
+        cli.worker_completions(st, "@ch"))
+    assert cli.worker_completions(_FakeState(tmp, None), "@") == []
+    print("81. the personas flag: repeatable at launch and off by "
+          "default, /roster shows the loaded roles with what each one "
+          "rides, a persona-only session is not told it has no agent "
+          "layer, and @NAME completion offers the target personas and "
+          "the chat model but never the checker")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -8998,6 +9041,7 @@ def main():
         check_persona_files(tmp)
         check_chat_handle()
         check_persona_binding(tmp)
+        check_personas_flag(tmp)
         print("PASS")
     finally:
         if not args.keep:
