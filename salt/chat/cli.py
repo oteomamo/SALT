@@ -1462,6 +1462,9 @@ class AgentRound:
         # for the second one cost in refused replies
         self.rounds = 1
         self.extra_failures = 0
+        # what the checker said about the write-up, empty on a round
+        # nobody checked
+        self.checked = {}
 
     def say(self, text):
         if not self.quiet:
@@ -1485,6 +1488,35 @@ class AgentRound:
         its own numbers down and they are read from it at the end."""
         if endpoint is not None and endpoint.main:
             self.calls.append(getattr(state.runner, "last_engine_stats", None))
+
+    def check(self, state, draft, material):
+        """One verification call after the write-up, when this session
+        loaded a checker persona and there is enough draft to check.
+
+        The verdict is said and kept, never acted on: the reply has
+        already streamed, so what the checker buys is the reader
+        knowing whether to trust it, not a different reply. A draft
+        under the minimum is its own summary and is not checked, and a
+        round that answered directly never had material to check
+        against.
+        """
+        draft = protocol.reply_text(draft)
+        if (self.fell_through
+                or len(draft.split()) < orchestrator.VERIFY_MIN_WORDS):
+            return
+        got = orchestrator.verify(state, draft, self.results, material)
+        if got is None:
+            return
+        self.checked = orchestrator.verdict_record(got)
+        if got.ran:
+            n = len(got.issues)
+            said = got.verdict + (f", {n} issue{'' if n == 1 else 's'}"
+                                  if n else "")
+        else:
+            said = f"skipped ({got.note})"
+        self.say(f"  checker {got.checker}: {said} ({got.seconds:.1f}s)")
+        for issue in got.issues:
+            self.say(f"      {issue['kind']}: {issue['claim']}")
 
     def take_another(self, state, endpoint, started):
         """One more round, if the turn is allowed one and the
@@ -1567,16 +1599,18 @@ class AgentRound:
             # own model leaves them on the runner it streamed through
             self.writer = writer
             self.wrote_here = writer.main
+            material = synthesis_memory(state, memory_block, self.task,
+                                        self.results)
             stream = orchestrator.synthesis_stream(
-                state, self.task, self.results,
-                synthesis_memory(state, memory_block, self.task, self.results),
-                endpoint=writer)
+                state, self.task, self.results, material, endpoint=writer)
             try:
                 for piece in stream:
                     pieces.append(piece)
                     yield piece
             finally:
                 close_quietly(stream)
+            # the reply is out; an interrupt above skips this whole call
+            self.check(state, "".join(pieces), material)
         finally:
             # built even when the round was cut short: an interrupted
             # turn is still a turn this session took, and the record of
@@ -1595,7 +1629,8 @@ class AgentRound:
                     [getattr(state.runner, "last_engine_stats", None)]
                     if self.wrote_here else ()),
                 answered_directly=self.fell_through, rounds=self.rounds,
-                protocol_failures=outcome.failures + self.extra_failures)
+                protocol_failures=outcome.failures + self.extra_failures,
+                verify=self.checked)
             state.last_round = state.pending_round = self.record
             state.last_round_turn = state.trie.n_turns
 

@@ -128,6 +128,29 @@ never displace the standing worker rules: the persona's prompt comes
 first and the worker instructions stay last, so quoted context remains
 material rather than instructions, whoever is reading it.
 
+### The checker
+
+Loading a `verify` persona is the whole switch: once one is there,
+every planned turn that ends in a written reply gets one more call.
+The checker is shown the same material the writer saw, the memory
+excerpts and the helpers' quoted answers, with the draft quoted under
+them, and it answers with a verdict: `supported`, `partial` or
+`unsupported`, plus the issues it can pin to an excerpt.
+
+```
+  checker checker: partial, 1 issue (0.4s)
+      contradicted: the launch was in March
+```
+
+The verdict is said and recorded in the round's trace, and that is
+all. The reply has already streamed by the time the checker speaks, so
+nothing rewrites it: what the call buys is the reader knowing whether
+the material actually carries the answer, which is the guard against a
+reply that cites the conversation's memory more confidently than the
+memory deserves. A short reply is not checked, a round that answered
+directly is not checked, and a checker that fails or answers out of
+shape records `skipped` with the reason and costs the turn nothing.
+
 ## Letting the session write the roster
 
 ```bash

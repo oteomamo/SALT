@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.69
+## 2.11.0 - 2.11.70
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -193,6 +193,12 @@ cover the tools, the roster and the limits.
 - **2.11.69** Fix: a target persona now counts as a helper when
   `--agent` asks whether anyone is ready, so a session with personas
   and no roster plans its turns instead of always answering alone.
+- **2.11.70** The checker. A `verify` persona now grades every planned
+  turn's written reply against the material it was written from and
+  reports `supported`, `partial` or `unsupported` with the issues it
+  can pin to an excerpt. The verdict is printed and kept in the trace,
+  the reply is never touched, and a checker that fails records
+  `skipped` and costs the turn nothing.
 
 ## 2.10.0 - 2.10.123
 

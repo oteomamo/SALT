@@ -118,6 +118,7 @@ def record(round_, route=None, planning=None):
             "pieces": [piece(r) for r in round_.results],
             "planning": dict(planning or {}),
             "synthesis": dict(round_.synthesis or {}),
+            "verify": dict(getattr(round_, "verify", None) or {}),
             "protocol_failures": int(round_.protocol_failures),
             "fell_back": bool(round_.fell_back),
             "answered_directly": bool(round_.answered_directly),

@@ -828,6 +828,13 @@ class ChatHandle:
     def opened(self):
         return self.runner
 
+    def probe_capabilities(self, timeout=10, url=None):
+        """Whether the chat model can be held to a schema: the main
+        seam's own measurement, asked the way every caller of a handle
+        asks it."""
+        from salt.agents.orchestrator import main_capability
+        return main_capability(self._state)
+
     def _open(self):
         runner = self.runner
         if runner is None:
@@ -962,6 +969,9 @@ class PersonaHandle:
 
     def opened(self):
         return self.base.opened()
+
+    def probe_capabilities(self, timeout=10, url=None):
+        return self.base.probe_capabilities(timeout=timeout, url=url)
 
     def dressed(self, messages):
         """The same call with the persona speaking first in the system

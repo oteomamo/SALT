@@ -9046,6 +9046,103 @@ def check_auto_fallback(tmp):
           "before")
 
 
+def check_verify(tmp):
+    """The checker: opted in by loading a verify persona, held to the
+    verdict shape, and tolerant of everything a model can do to JSON."""
+    from salt.agents import orchestrator as O
+    from salt.agents import personas as P
+    from salt.agents import trace as T
+    from salt.agents.delegate import DelegationResult
+
+    class FakeRunner:
+        alias = "tiny"
+        cfg = {"alias": "tiny"}
+
+        def __init__(self, reply):
+            self.reply = reply
+            self.seen = []
+
+        def stream_chat(self, messages, **over):
+            self.seen.append((messages, over))
+
+            def gen():
+                yield self.reply
+            return gen()
+
+    def persona(name, role, body):
+        return P.Persona(name=name, worker="chat", role=role, notes="code",
+                         body=body, path=f"{name}.md")
+
+    # no verify persona means no checker and no call at all
+    bare = _FakeState(tmp, None)
+    bare.personas = P.bind((persona("coder", "target", "You code."),), None)
+    bare.runner = FakeRunner("{}")
+    assert O.verify(bare, "d", (), "") is None
+
+    st = _FakeState(tmp, None)
+    st.personas = P.bind((persona("coder", "target", "You code."),
+                          persona("checker", "verify", "You check.")), None)
+    results = (DelegationResult(id=1, target="coder", task="t", status="ok",
+                                text="the launch was in April"),)
+    st.runner = FakeRunner(
+        '{"verdict": "partial", "issues": ['
+        '{"claim": "the launch was in March", "kind": "contradicted", '
+        '"excerpt": "April"}, "junk", {"kind": "mismatch"}, '
+        '{"claim": "x", "kind": "invented"}]}')
+    got = O.verify(st, "the launch was in March and it went well",
+                   results, "MEMORY BLOCK")
+    assert got.ran and got.verdict == "partial", got
+    assert got.checker == "checker", got
+    # the junk entry and the claimless one are dropped, the invented
+    # kind is held to the shape
+    assert len(got.issues) == 2, got.issues
+    assert got.issues[0]["kind"] == "contradicted", got.issues
+    assert got.issues[1]["kind"] == "unsupported", got.issues
+    messages, over = st.runner.seen[0]
+    assert over["temperature"] == 0.0, over
+    assert over["max_new_tokens"] == O.VERIFY_TOKENS, over
+    assert "guided_json" not in over, (
+        "an in-process chat model was handed a schema it cannot hold")
+    body = messages[-1]["content"]
+    assert "MEMORY BLOCK" in body and "the launch was in April" in body
+    assert "> the launch was in March and it went well" in body, body
+    head = messages[0]["content"]
+    assert "'checker'" in head and "You check." in head, head[:200]
+    assert head.endswith(O.VERIFY_INSTRUCTIONS), (
+        "the verdict shape rules did not stay last in the system message")
+
+    # out of shape, dead, and reasoning-wrapped answers
+    st.runner = FakeRunner("I think it is fine")
+    got = O.verify(st, "d", results, "")
+    assert not got.ran and got.verdict == "skipped", got
+    assert "shape" in got.note, got.note
+
+    class Broken(FakeRunner):
+        def stream_chat(self, messages, **over):
+            raise RuntimeError("cold weights")
+    st.runner = Broken("")
+    got = O.verify(st, "d", results, "")
+    assert got.verdict == "skipped" and "cold weights" in got.note, got
+
+    st.runner = FakeRunner('<think>hm</think>{"verdict": "supported"}')
+    got = O.verify(st, "d", results, "")
+    assert got.verdict == "supported" and got.issues == (), got
+
+    # the record the round and the trace keep
+    rec = O.verdict_record(got)
+    assert rec["verdict"] == "supported" and rec["issues"] == [], rec
+    assert O.verdict_record(None) == {}
+    row = O.round_record("a", None, results, "text words", verify=rec)
+    assert row.verify["verdict"] == "supported", row.verify
+    assert T.record(row)["verify"]["verdict"] == "supported"
+    assert T.record(O.round_record("a", None, results, "t"))["verify"] == {}
+    print("83. the checker: absent without a verify persona, graded at "
+          "temperature zero with the writer's material and the draft "
+          "quoted, issues held to the promised shape, every failure a "
+          "skipped verdict with the reason, and the verdict riding the "
+          "round record into the trace")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9140,6 +9237,7 @@ def main():
         check_persona_binding(tmp)
         check_personas_flag(tmp)
         check_auto_fallback(tmp)
+        check_verify(tmp)
         print("PASS")
     finally:
         if not args.keep:

@@ -810,6 +810,9 @@ class Round:
     results: tuple = field(default_factory=tuple)
     text: str = ""
     synthesis: dict = field(default_factory=dict)
+    # what the checker said about the reply, empty on a round nobody
+    # checked. A record rather than a gate: the reply already streamed
+    verify: dict = field(default_factory=dict)
     protocol_failures: int = 0
     fell_back: bool = False
     # the round gave up on its helpers and answered the turn itself
@@ -1002,12 +1005,13 @@ def remaining(limits, results, started):
 
 def round_record(ask, directive, results, text, outcome=None, started=None,
                  synthesis=None, answered_directly=False, rounds=1,
-                 protocol_failures=None):
+                 protocol_failures=None, verify=None):
     """One round as the thing a session keeps. Built in one place because
     a round written up all at once and one written up as it is generated
     are the same round, and must be recorded as the same round."""
     return Round(ask=ask, directive=directive, results=tuple(results),
                  text=text, synthesis=dict(synthesis or {}),
+                 verify=dict(verify or {}),
                  protocol_failures=(getattr(outcome, "failures", 0)
                                     if protocol_failures is None
                                     else int(protocol_failures)),
@@ -1057,3 +1061,154 @@ def synthesize(state, ask, directive, results, memory_block="",
     else:
         text = protocol.reply_text(getattr(directive, "answer", "") or "")
     return text, round_record(ask, directive, results, text, outcome, t_start)
+
+
+# --- the checker -----------------------------------------------------
+# One call after the write-up, when the session loaded a verify persona:
+# the draft is graded against the material it was written from. The
+# verdict is reported and recorded, and the reply is never touched - by
+# the time the checker speaks, the person has the words already, and a
+# checker that could rewrite them would be a second writer wearing a
+# judge's name.
+
+VERDICTS = ("supported", "partial", "unsupported")
+ISSUE_KINDS = ("contradicted", "unsupported", "mismatch")
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": list(VERDICTS)},
+        "issues": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "claim": {"type": "string"},
+                "kind": {"type": "string", "enum": list(ISSUE_KINDS)},
+                "excerpt": {"type": ["string", "null"]}},
+            "required": ["claim", "kind"]}}},
+    "required": ["verdict"]}
+# a draft shorter than this is its own summary and is not checked
+VERIFY_MIN_WORDS = 40
+# room for a verdict and a handful of pinned issues, never an essay
+VERIFY_TOKENS = 256
+# the reply already streamed, so a slow checker is worth giving up on
+VERIFY_TIMEOUT_S = 20
+# issues past this are noise wearing a list's shape
+MAX_ISSUES = 8
+# each claim or excerpt clipped to something a person will read
+ISSUE_CLIP = 300
+
+VERIFY_INSTRUCTIONS = (
+    "You are checking a drafted reply against the material it was "
+    "written from: the memory excerpts and the helpers' answers above "
+    "it. Judge support, never style, and never rewrite the draft.\n\n"
+    "Reply with one JSON object and nothing else, shaped like this:\n\n"
+    '{"verdict": "supported", "issues": []}\n\n'
+    '- "verdict" is "supported" when the material carries the draft, '
+    '"partial" when it carries some of it, "unsupported" when it does '
+    "not.\n"
+    '- each issue is {"claim": the draft\'s words, "kind": '
+    '"contradicted" or "unsupported" or "mismatch", "excerpt": the '
+    "shortest excerpt that decides it, or null}.\n"
+    '- an empty "issues" list is the right answer for a draft the '
+    "material carries.")
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """What the checker said, or why it could not say anything."""
+
+    verdict: str
+    issues: tuple = ()
+    checker: str = ""
+    seconds: float = 0.0
+    note: str = ""
+
+    @property
+    def ran(self):
+        return self.verdict in VERDICTS
+
+
+def verifier(state):
+    """The first verify persona's handle, or None. Loading one is the
+    whole opt-in: no persona, no checker, no call."""
+    personas = getattr(state, "personas", None) or {}
+    for persona in personas.values():
+        if persona.role == "verify":
+            return state.worker(persona.name)
+    return None
+
+
+def verify_messages(draft, results, memory_block=""):
+    """The one question a verification is: the same material the writer
+    saw, the draft quoted under it, and the shape to answer in."""
+    parts = [part for part in (memory_block, results_block(results)) if part]
+    parts.append("THE DRAFT REPLY, quoted:\n" + quoted(draft))
+    parts.append(f"{ASK_HEADER}Check the draft against the material "
+                 f"above it.")
+    return [{"role": "system", "content": VERIFY_INSTRUCTIONS},
+            {"role": "user", "content": "\n\n".join(parts)}]
+
+
+def clean_issues(raw):
+    """The checker's issues held to the shape a reader is promised."""
+    issues = []
+    for item in (raw or [])[:MAX_ISSUES]:
+        if not isinstance(item, dict):
+            continue
+        claim = str(item.get("claim") or "").strip()
+        if not claim:
+            continue
+        kind = item.get("kind")
+        excerpt = item.get("excerpt")
+        issues.append({
+            "claim": claim[:ISSUE_CLIP],
+            "kind": kind if kind in ISSUE_KINDS else "unsupported",
+            "excerpt": (excerpt.strip()[:ISSUE_CLIP]
+                        if isinstance(excerpt, str) else "")})
+    return tuple(issues)
+
+
+def verify(state, draft, results, memory_block=""):
+    """Grade the draft, once. None when this session has no checker; a
+    Verdict otherwise, "skipped" with the reason when the checker could
+    not answer. Never raises, and never touches the draft."""
+    handle = verifier(state)
+    if handle is None:
+        return None
+    t0 = time.time()
+
+    def skipped(why):
+        return Verdict("skipped", checker=handle.name,
+                       seconds=time.time() - t0, note=why)
+
+    try:
+        capability = handle.probe_capabilities()
+    except Exception:
+        capability = GUIDED_PLAIN
+    over = {"temperature": 0.0, "max_new_tokens": VERIFY_TOKENS}
+    if capability == GUIDED_CAPABLE:
+        over["guided_json"] = VERDICT_SCHEMA
+    try:
+        text = "".join(handle.call(verify_messages(draft, results,
+                                                   memory_block),
+                                   read_timeout_s=VERIFY_TIMEOUT_S, **over))
+    except Exception as exc:
+        return skipped(f"{type(exc).__name__}: {exc}")
+    body = protocol.find_object(protocol.strip_think(text))
+    try:
+        got = json.loads(body) if body else None
+    except ValueError:
+        got = None
+    if not isinstance(got, dict) or got.get("verdict") not in VERDICTS:
+        return skipped("the checker did not answer in the verdict shape")
+    return Verdict(got["verdict"], clean_issues(got.get("issues")),
+                   checker=handle.name, seconds=time.time() - t0)
+
+
+def verdict_record(verdict):
+    """A Verdict as the dict the round and the trace keep."""
+    if verdict is None:
+        return {}
+    return {"verdict": verdict.verdict, "checker": verdict.checker,
+            "seconds": round(verdict.seconds, 3),
+            "issues": [dict(issue) for issue in verdict.issues],
+            "note": verdict.note}
