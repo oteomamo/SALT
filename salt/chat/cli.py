@@ -45,9 +45,10 @@ from salt.agents.delegate import (DelegationRequest, build_context,
 from salt.agents.roster import (GUIDED_CAPABLE, UNPROBED, RosterError,
                                 check_placement, entry_cards,
                                 gpu_free_fractions, load_roster)
-from salt.agents.worker import (BUSY, DEAD, WorkerError, WorkerHandle,
-                                capability_line, check_records,
-                                schema_smoke)
+from salt.agents.personas import CHAT_WORKER
+from salt.agents.worker import (BUSY, ChatHandle, DEAD, PersonaHandle,
+                                WorkerError, WorkerHandle, capability_line,
+                                check_records, schema_smoke)
 from salt.chat.ingest import IngestWorker
 from salt.chat.kvtrace import KVTrace
 from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
@@ -370,13 +371,26 @@ class ChatState:
         resume_workers(self)
 
     def worker(self, name):
-        """The handle for one roster entry, built on first use."""
-        if self.roster is None:
+        """The handle a name resolves to, built on first use: a persona
+        (riding its worker's handle, or the chat model's), the chat
+        model itself where personas have made it a worker, or a roster
+        entry. Personas are the opt-in for the chat model: with none
+        loaded, every name means what it always meant."""
+        if name in self.workers:
+            return self.workers[name]
+        personas = getattr(self, "personas", None) or {}
+        if personas and name == CHAT_WORKER:
+            handle = ChatHandle(self)
+        elif name in personas:
+            handle = PersonaHandle(personas[name],
+                                   self.worker(personas[name].worker))
+        elif self.roster is None:
             raise RosterError("No roster loaded - start saltChat with "
                               "--roster FILE.")
-        if name not in self.workers:
-            self.workers[name] = WorkerHandle(self.roster.get(name))
-        return self.workers[name]
+        else:
+            handle = WorkerHandle(self.roster.get(name))
+        self.workers[name] = handle
+        return handle
 
     def worker_handles(self):
         """Every roster entry's handle, in file order."""

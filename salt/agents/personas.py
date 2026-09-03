@@ -174,6 +174,47 @@ def load_personas(paths):
     return tuple(personas)
 
 
+def bind(personas, roster=None):
+    """Personas checked against the roster whose weights they ride.
+
+    Returns {name: Persona} in load order, or raises PersonaError. This
+    is where a session's facts come in: a persona may ride a roster
+    WORKER or the chat model, never the orchestrator (those weights are
+    already deciding the round), never another persona (a role wearing
+    a role answers as neither), and never a name the roster also
+    answers to (one name, one meaning, or no plan can be read back).
+    """
+    entries = {e.name: e for e in roster.entries} if roster else {}
+    out = {}
+    for p in personas:
+        if p.name in entries:
+            raise PersonaError(
+                f"{p.path}: {p.name!r} is already the name of a roster "
+                f"entry, so a plan naming it could mean either")
+        out[p.name] = p
+    for p in personas:
+        if p.worker == CHAT_WORKER:
+            continue
+        if p.worker in out:
+            raise PersonaError(
+                f"{p.path}: rides {p.worker!r}, which is a persona, and a "
+                f"role wearing a role answers as neither. Name the worker "
+                f"itself, or {CHAT_WORKER!r}.")
+        entry = entries.get(p.worker)
+        if entry is None:
+            known = ", ".join(entries) or "no roster is loaded"
+            raise PersonaError(
+                f"{p.path}: rides {p.worker!r}, which this session does "
+                f"not have (workers: {known}). Name a roster worker, or "
+                f"{CHAT_WORKER!r} for the session's own chat model.")
+        if entry.role != "worker":
+            raise PersonaError(
+                f"{p.path}: rides {p.worker!r}, this roster's "
+                f"{entry.role}, whose weights are already deciding the "
+                f"round. Name a worker, or {CHAT_WORKER!r}.")
+    return out
+
+
 def sample_dir():
     """The personas that ship with salt, as a directory to copy from."""
     return Path(__file__).resolve().parent / "personas"

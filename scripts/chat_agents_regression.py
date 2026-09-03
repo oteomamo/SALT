@@ -8755,6 +8755,157 @@ def check_chat_handle():
           "switch")
 
 
+def check_persona_binding(tmp):
+    """Personas bound to a session: what binds and what refuses, how
+    names resolve, the dressed call, the planner's view, and the
+    fan-out decision made by weights instead of names."""
+    from salt.agents import orchestrator as O
+    from salt.agents import personas as P
+    from salt.agents.worker import ChatHandle, PersonaHandle, WorkerHandle
+
+    def persona(name, worker, role="target", notes=None):
+        return P.Persona(name=name, worker=worker, role=role,
+                         notes=("does " + name) if notes is None else notes,
+                         body=f"You are {name}.", path=f"{name}.md")
+
+    w = spawn_entry(tmp, "w")
+    roster = R.Roster(path="r", entries=(w,))
+    ex = persona("ex", "w")
+    chatty = persona("chatty", "chat")
+    quiet = persona("quiet", "chat", role="verify", notes="")
+    bound = P.bind((ex, chatty, quiet), roster)
+    assert list(bound) == ["ex", "chatty", "quiet"], bound
+
+    def refused(personas, roster, fragment):
+        try:
+            P.bind(personas, roster)
+        except P.PersonaError as exc:
+            assert fragment in str(exc), (fragment, str(exc))
+        else:
+            raise AssertionError(f"bound anyway: {fragment}")
+
+    refused((persona("w", "chat"),), roster, "already the name")
+    refused((ex, persona("second", "ex")), roster, "wearing a role")
+    refused((persona("ex", "nope"),), roster, "does not have")
+    orch = R.RosterEntry(name="boss", alias="b", role="orchestrator",
+                         server_url="http://127.0.0.1:1")
+    refused((persona("ex", "boss"),),
+            R.Roster(path="r", entries=(w, orch)), "already deciding")
+    refused((persona("ex", "w"),), None, "no roster is loaded")
+
+    # resolution: the chat model and the personas become handles on
+    # first use, and a persona's base IS the handle its worker's own
+    # name resolves to - one queue however many names ride it
+    st = _FakeState(tmp, [w])
+    st.personas = bound
+    st.runner = None
+    assert isinstance(st.worker("chat"), ChatHandle)
+    assert st.worker("chat") is st.worker("chat")
+    h_ex = st.worker("ex")
+    assert isinstance(h_ex, PersonaHandle), h_ex
+    assert h_ex.base is st.worker("w"), "the persona built a second handle"
+    assert isinstance(h_ex.base, WorkerHandle)
+    assert st.worker("chatty").base is st.worker("chat")
+    try:
+        st.worker("nope")
+        raise AssertionError("an unknown name resolved")
+    except R.RosterError:
+        pass
+    bare = _FakeState(tmp, [w])
+    try:
+        bare.worker("chat")
+        raise AssertionError("chat resolved with no personas loaded")
+    except R.RosterError as exc:
+        assert "'chat'" in str(exc), exc
+
+    # the dressed call: the persona speaks first, its prompt second,
+    # the original system text last and whole, the rest untouched
+    msgs = [{"role": "system", "content": "ORIGINAL RULES"},
+            {"role": "user", "content": "hi"}]
+    dressed = h_ex.dressed(msgs)
+    assert len(dressed) == 2 and dressed[1] == msgs[1], dressed
+    text = dressed[0]["content"]
+    assert (text.index("'ex'") < text.index("You are ex.")
+            < text.index("ORIGINAL RULES")), text
+    assert text.endswith("ORIGINAL RULES"), text
+    bare_msgs = h_ex.dressed([{"role": "user", "content": "x"}])
+    assert bare_msgs[0]["role"] == "system" and len(bare_msgs) == 2
+
+    # the entry the round reads: the persona's name, notes and role on
+    # the base's numbers, and a verify persona refused as a target
+    assert (h_ex.entry.name, h_ex.entry.notes) == ("ex", "does ex")
+    assert h_ex.entry.role == "worker" and h_ex.entry.alias == w.alias
+    assert O.worker_entry(st, "ex").name == "ex"
+    try:
+        O.worker_entry(st, "quiet")
+        raise AssertionError("a verify persona was handed a task")
+    except R.RosterError as exc:
+        assert "verify" in str(exc), exc
+
+    # a call through a persona reaches the weights dressed, and both
+    # the persona and its base count it
+    class FakeRunner:
+        alias = "tiny"
+        cfg = {"alias": "tiny"}
+
+        def __init__(self):
+            self.seen = []
+
+        def stream_chat(self, messages, **over):
+            self.seen.append(messages)
+            def gen():
+                yield "ok"
+            return gen()
+
+    st.runner = FakeRunner()
+    said = "".join(st.worker("chatty").call(
+        [{"role": "user", "content": "q"}]))
+    assert said == "ok"
+    seen = st.runner.seen[0]
+    assert seen[0]["role"] == "system", seen
+    assert "You are chatty." in seen[0]["content"], seen[0]
+    assert st.worker("chatty").calls == 1 and st.worker("chat").calls == 1
+
+    # the planner's view: roster workers first, then target personas,
+    # never a verify persona, `allowed` narrowing both, and a session
+    # with no roster at all still showing its persona targets
+    assert [n for n, _ in O.targets_for(st)] == ["w", "ex", "chatty"]
+    assert [n for n, _ in O.targets_for(st, allowed=("chatty",))] == \
+        ["chatty"]
+    only = _FakeState(tmp, None)
+    only.personas = P.bind((chatty, quiet), None)
+    assert [n for n, _ in O.targets_for(only)] == ["chatty"]
+
+    # fan-out judged by weights: two personas on one worker do not
+    # spread, one piece riding the chat model pulls the whole plan
+    # back into its simple order, and a bare roster spreads as it did
+    class Sub:
+        def __init__(self, target):
+            self.target = target
+
+    w2 = spawn_entry(tmp, "w2")
+    stp = _FakeState(tmp, [w, w2])
+    stp.personas = P.bind(
+        (persona("a", "w"), persona("b", "w2"), persona("c", "w"), chatty),
+        R.Roster(path="r", entries=(w, w2)))
+    assert O.spread(stp, [Sub("a"), Sub("b")]) is True
+    assert O.spread(stp, [Sub("a"), Sub("c")]) is False
+    assert O.spread(stp, [Sub("a"), Sub("chatty")]) is False
+    assert O.spread(stp, [Sub("w"), Sub("chatty")]) is False
+    assert O.spread(stp, [Sub("w"), Sub("w2")]) is True
+    assert O.spread(stp, [Sub("a")]) is False
+    plain = _FakeState(tmp, [w])
+    assert O.spread(plain, [Sub("w"), Sub("chat")]) is True, (
+        "a roster worker that happens to be called chat was treated as "
+        "the chat model with no personas loaded")
+    print("80. persona binding: names resolve to handles sharing their "
+          "worker's queue, the persona speaks first and the worker "
+          "instructions stay last, verify personas are never targets, "
+          "the planner sees roster workers then persona targets, and "
+          "fan-out is decided by weights so chat-riding plans run in "
+          "turn")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -8846,6 +8997,7 @@ def main():
         check_greedy_at_zero()
         check_persona_files(tmp)
         check_chat_handle()
+        check_persona_binding(tmp)
         print("PASS")
     finally:
         if not args.keep:

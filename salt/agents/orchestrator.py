@@ -392,20 +392,25 @@ def orchestrator_endpoint(state, gen=None, kind=thinking.PLAN):
 def targets_for(state, allowed=None):
     """The helpers a plan may name, spelled the way it has to spell them.
 
-    Every worker the roster carries, running or not. A plan is a decision
+    Every worker the roster carries, running or not, then every target
+    persona the session loaded, in load order. A plan is a decision
     about the work, and a worker that turns out to be down fails its own
     subtask with a reason the round can report, which is worth more than
-    quietly narrowing what the session was willing to consider.
+    quietly narrowing what the session was willing to consider. Verify
+    personas are not here: they are never targets.
 
     `allowed` narrows it to the helpers a route decision named for this
     one turn. None, the default, is the whole roster and today's exact
     behavior.
     """
     roster = getattr(state, "roster", None)
-    if roster is None:
-        return ()
-    return tuple((e.name, e.notes or e.alias) for e in roster.workers
-                 if allowed is None or e.name in allowed)
+    workers = () if roster is None else tuple(
+        (e.name, e.notes or e.alias) for e in roster.workers
+        if allowed is None or e.name in allowed)
+    personas = getattr(state, "personas", None) or {}
+    return workers + tuple(
+        (p.name, p.notes) for p in personas.values()
+        if p.is_target and (allowed is None or p.name in allowed))
 
 
 def planning_messages(capability, ask, memory_block="", targets=()):
@@ -524,6 +529,29 @@ def fans_out(subtasks):
     return len({sub.target for sub in subtasks}) > 1
 
 
+def underlying(state, target):
+    """The weights a target actually runs on: a persona answers for
+    whatever it rides, everything else for itself."""
+    personas = getattr(state, "personas", None) or {}
+    persona = personas.get(target)
+    return target if persona is None else persona.worker
+
+
+def spread(state, subtasks):
+    """Whether this plan is worth running at once, judged by weights
+    rather than by names. Two personas on one worker are two names for
+    one queue, so threading them buys nothing, and any piece riding the
+    session's own chat model runs on the session's thread, which puts
+    the whole plan back in its simple order."""
+    from salt.agents.personas import CHAT_WORKER
+    where = {underlying(state, sub.target) for sub in subtasks}
+    # only loaded personas make `chat` mean the chat model; without
+    # them a roster entry that happens to carry the name is a worker
+    if (getattr(state, "personas", None) or {}) and CHAT_WORKER in where:
+        return False
+    return len(where) > 1
+
+
 def execute(state, directive, limits=None, on_result=None, parallel=None,
             switches=None):
     """Run a directive's subtasks and report on every one of them.
@@ -545,7 +573,7 @@ def execute(state, directive, limits=None, on_result=None, parallel=None,
             f"these limits ask for {limits.depth}")
     subtasks = tuple(directive.subtasks)
     if parallel is None:
-        parallel = fans_out(subtasks)
+        parallel = spread(state, subtasks)
     if parallel:
         return execute_together(state, subtasks, limits, on_result, switches)
     return execute_in_turn(state, subtasks, limits, on_result, switches)

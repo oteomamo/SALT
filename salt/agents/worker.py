@@ -31,6 +31,7 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from salt.agents.roster import (GUIDED_UNKNOWN, RosterEntry, UNPROBED,
@@ -890,3 +891,95 @@ class ChatHandle:
             self.calls += 1
             self.busy_s += time.monotonic() - t0
             self.state = READY
+
+
+# how a persona introduces itself, above its own prompt and the call's
+PERSONA_HEAD = ("You are acting as the helper {name!r} in this "
+                "conversation: one piece of the work, answered from the "
+                "memory excerpts you are given plus your own expertise.")
+
+
+class PersonaHandle:
+    """One role riding another handle's weights.
+
+    Everything real - the connection, the counters that say whether the
+    weights answer, the single-flight rule, the thread discipline - is
+    the base handle's and stays the base handle's: two personas on one
+    worker are two names for one queue, and a persona on the chat model
+    is refused fan-out exactly as the chat model is. What the persona
+    owns is its call record and the system message: its own head and
+    prompt first, and whatever the call was going to say - the worker
+    instructions - kept last and whole, so nothing a persona adds can
+    displace the rule that quoted context is material, not instructions.
+    """
+
+    def __init__(self, persona, base):
+        self.persona = persona
+        self.base = base
+        self.calls = 0
+        self.busy_s = 0.0
+
+    @property
+    def name(self):
+        return self.persona.name
+
+    @property
+    def role(self):
+        return "worker" if self.persona.is_target else self.persona.role
+
+    @property
+    def entry(self):
+        """The base entry under this persona's name, notes and role. A
+        verify persona keeps its own role here, which is what makes the
+        planner's refusal of it automatic: it is not a worker a task
+        can be handed to."""
+        return replace(self.base.entry, name=self.persona.name,
+                       role=self.role, notes=self.persona.notes)
+
+    @property
+    def state(self):
+        return self.base.state
+
+    @property
+    def runner(self):
+        return self.base.runner
+
+    @property
+    def last_error(self):
+        return self.base.last_error
+
+    @property
+    def failures(self):
+        return self.base.failures
+
+    @property
+    def endpoint(self):
+        return f"riding {self.base.name!r}"
+
+    @property
+    def mean_latency(self):
+        return self.busy_s / self.calls if self.calls else 0.0
+
+    def opened(self):
+        return self.base.opened()
+
+    def dressed(self, messages):
+        """The same call with the persona speaking first in the system
+        message and the original system text last."""
+        parts = [PERSONA_HEAD.format(name=self.persona.name),
+                 self.persona.body]
+        rest = list(messages)
+        if rest and rest[0].get("role") == "system":
+            original = rest.pop(0).get("content", "")
+            if original:
+                parts.append(original)
+        return [{"role": "system",
+                 "content": "\n\n".join(parts)}] + rest
+
+    def call(self, messages, **kwargs):
+        t0 = time.monotonic()
+        try:
+            yield from self.base.call(self.dressed(messages), **kwargs)
+        finally:
+            self.calls += 1
+            self.busy_s += time.monotonic() - t0
