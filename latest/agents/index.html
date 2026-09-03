@@ -739,6 +739,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Personas: roles without a second GPU">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-checker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The checker
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1573,6 +1590,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Personas: roles without a second GPU">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-checker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The checker
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2059,6 +2093,24 @@ work, and a plan that names it is refused with the reason. Personas
 never displace the standing worker rules: the persona's prompt comes
 first and the worker instructions stay last, so quoted context remains
 material rather than instructions, whoever is reading it.</p>
+<h3 id="the-checker">The checker</h3>
+<p>Loading a <code>verify</code> persona is the whole switch: once one is there,
+every planned turn that ends in a written reply gets one more call.
+The checker is shown the same material the writer saw, the memory
+excerpts and the helpers' quoted answers, with the draft quoted under
+them, and it answers with a verdict: <code>supported</code>, <code>partial</code> or
+<code>unsupported</code>, plus the issues it can pin to an excerpt.</p>
+<div class="highlight"><pre><span></span><code>  checker checker: partial, 1 issue (0.4s)
+      contradicted: the launch was in March
+</code></pre></div>
+<p>The verdict is said and recorded in the round's trace, and that is
+all. The reply has already streamed by the time the checker speaks, so
+nothing rewrites it: what the call buys is the reader knowing whether
+the material actually carries the answer, which is the guard against a
+reply that cites the conversation's memory more confidently than the
+memory deserves. A short reply is not checked, a round that answered
+directly is not checked, and a checker that fails or answers out of
+shape records <code>skipped</code> with the reason and costs the turn nothing.</p>
 <h2 id="letting-the-session-write-the-roster">Letting the session write the roster</h2>
 <div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen3-8b<span class="w"> </span>--backend<span class="w"> </span>vllm-serve<span class="w"> </span>--roster<span class="w"> </span>auto
 </code></pre></div>
