@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21162" class="md-nav__link">
+  <a href="#2110-21163" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.62
+        2.11.0 - 2.11.63
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21162" class="md-nav__link">
+  <a href="#2110-21163" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.62
+        2.11.0 - 2.11.63
       
     </span>
   </a>
@@ -1454,7 +1454,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21162">2.11.0 - 2.11.62</h2>
+<h2 id="2110-21163">2.11.0 - 2.11.63</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1623,6 +1623,10 @@ cover the tools, the roster and the limits.</p>
   long sessions can repeat material. Tied to the sentence, the
   discount follows it wherever the tree puts it next. <code>/stats</code> counts
   the rows carrying discount.</li>
+<li><strong>2.11.63</strong> Fix: temperature 0 now means greedy decoding on the
+  local backend even when the model's registry entry turns sampling
+  on. Planning a turn asks for temperature 0, so <code>--agent</code> no longer
+  errors on its first plan against such a model.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
