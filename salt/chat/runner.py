@@ -97,6 +97,21 @@ def input_budget_for(max_input_len, gen_cfg, max_new_tokens=None):
     return max_input_len - min(max_new_tokens, max_input_len // 2)
 
 
+def sampling_for(gen_cfg):
+    """Temperature and whether to sample, from a merged gen config.
+
+    Temperature 0 means greedy decoding whatever the config's do_sample
+    says. A registry entry that samples by default would otherwise turn
+    a caller's 0 into a sampler asked to draw at zero temperature,
+    which the generate call refuses - and 0 is exactly what a planning
+    call asks for."""
+    temperature = float(gen_cfg.get("temperature", 0.7))
+    do_sample = bool(gen_cfg.get("do_sample", temperature > 0))
+    if temperature <= 0:
+        do_sample = False
+    return temperature, do_sample
+
+
 def _cuda_total_memory(idx):
     return torch.cuda.get_device_properties(idx).total_memory
 
@@ -188,8 +203,7 @@ class ChatRunner:
         gen_cfg = dict(self.cfg.get("gen") or {})
         gen_cfg.update(overrides)
         template_kwargs = gen_cfg.pop(TEMPLATE_KEY, None)
-        temperature = float(gen_cfg.get("temperature", 0.7))
-        do_sample = bool(gen_cfg.get("do_sample", temperature > 0))
+        temperature, do_sample = sampling_for(gen_cfg)
         max_new_tokens = int(gen_cfg.get("max_new_tokens", 512))
 
         prompt, used_chat = render_prompt(self.tokenizer, messages,

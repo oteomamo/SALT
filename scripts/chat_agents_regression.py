@@ -8502,6 +8502,33 @@ def check_roster_notes(tmp):
           "model turned out to have written into the description")
 
 
+def check_greedy_at_zero():
+    """Temperature 0 is greedy decoding, whatever the registry says.
+
+    The planning call asks for temperature 0, and a registry entry with
+    do_sample true used to win over it: the sampler was asked to draw at
+    zero temperature, which the generate call refuses, so /agent died on
+    its first plan against such a model."""
+    from salt.chat.runner import sampling_for
+
+    # the planner's exact case: sampling registered, determinism asked for
+    assert sampling_for({"do_sample": True, "temperature": 0.0}) == \
+        (0.0, False), "a registered do_sample overrode temperature 0"
+    assert sampling_for({"temperature": 0}) == (0.0, False)
+    assert sampling_for({"temperature": -1.0})[1] is False
+    # everything a session already did is unchanged
+    assert sampling_for({}) == (0.7, True)
+    assert sampling_for({"temperature": 0.3}) == (0.3, True)
+    assert sampling_for({"do_sample": False, "temperature": 1.0}) == \
+        (1.0, False), "an explicit greedy registry entry stopped winning"
+    assert sampling_for({"do_sample": True, "temperature": 0.9}) == \
+        (0.9, True)
+    print("77. greedy at zero: temperature 0 disables sampling even when "
+          "the registry turns it on, so a deterministic planning call "
+          "never asks a sampler to draw at zero, and every sampling "
+          "combination a session already used derives exactly as before")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -8590,6 +8617,7 @@ def main():
         check_route_recipe(tmp, tok, mdl)
         check_roster_fit(tmp)
         check_roster_notes(tmp)
+        check_greedy_at_zero()
         print("PASS")
     finally:
         if not args.keep:

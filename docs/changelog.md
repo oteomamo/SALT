@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.62
+## 2.11.0 - 2.11.63
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -173,6 +173,10 @@ cover the tools, the roster and the limits.
   long sessions can repeat material. Tied to the sentence, the
   discount follows it wherever the tree puts it next. `/stats` counts
   the rows carrying discount.
+- **2.11.63** Fix: temperature 0 now means greedy decoding on the
+  local backend even when the model's registry entry turns sampling
+  on. Planning a turn asks for temperature 0, so `--agent` no longer
+  errors on its first plan against such a model.
 
 ## 2.10.0 - 2.10.123
 
