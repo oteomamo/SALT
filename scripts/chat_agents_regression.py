@@ -8529,6 +8529,117 @@ def check_greedy_at_zero():
           "combination a session already used derives exactly as before")
 
 
+def check_persona_files(tmp):
+    """The persona format: what loads, everything that refuses, and the
+    samples that ship."""
+    from salt.agents.personas import (CHAT_WORKER, PersonaError,
+                                      load_persona, load_personas,
+                                      sample_dir)
+    from salt.agents.provision import content_words
+
+    d = tmp / "personas"
+    d.mkdir(exist_ok=True)
+
+    def write(name, text):
+        p = d / name
+        p.write_text(textwrap.dedent(text).lstrip(), encoding="utf-8")
+        return p
+
+    good = write("finder.md", """
+        ---
+        name: finder
+        worker: chat
+        notes: "short factual lookups pulled straight from memory"
+        ---
+
+        You are the FINDER helper. Answer in one line.
+        """)
+    persona = load_persona(good)
+    assert persona.name == "finder" and persona.rides_chat, persona
+    assert persona.role == "target" and persona.is_target, persona
+    assert persona.notes.startswith("short factual"), persona.notes
+    assert persona.body.startswith("You are the FINDER"), persona.body
+
+    def refuses(why, text, fragment):
+        p = write("bad.md", text)
+        try:
+            load_persona(p)
+        except PersonaError as exc:
+            assert fragment in str(exc), (why, str(exc))
+        else:
+            raise AssertionError(f"{why}: loaded anyway")
+
+    refuses("no opening mark", "name: x\n---\nbody", "opens with")
+    refuses("no closing mark", "---\nname: x\nbody here", "never comes")
+    refuses("no facts", "---\n---\nbody", "no facts")
+    refuses("not a fact line", "---\nname x\n---\nbody", "not a 'key: value'")
+    refuses("unknown key", "---\nname: x\nworker: chat\ncolor: red\n---\nb",
+            "unknown key 'color'")
+    refuses("duplicate key", "---\nname: x\nname: y\nworker: chat\n---\nb",
+            "named twice")
+    refuses("bad name", "---\nname: -x\nworker: chat\n---\nb", "needs a name")
+    refuses("reserved name",
+            f"---\nname: {CHAT_WORKER}\nworker: w\n---\nb", "reserved")
+    refuses("no worker", "---\nname: x\nnotes: n\n---\nb", "names no worker")
+    refuses("bad role", "---\nname: x\nworker: chat\nrole: boss\n---\nb",
+            "role must be one of")
+    refuses("target without notes", "---\nname: x\nworker: chat\n---\nb",
+            "nothing to choose it by")
+    refuses("empty body",
+            "---\nname: x\nworker: chat\nnotes: n\n---\n  \n", "empty")
+    # a verify persona needs no notes: it is never shown to the planner
+    quiet = load_persona(write("q.md",
+                               "---\nname: q\nworker: chat\nrole: verify"
+                               "\n---\ncheck things"))
+    assert quiet.role == "verify" and not quiet.is_target, quiet
+
+    got = load_personas([d / "finder.md", d / "q.md"])
+    assert [p.name for p in got] == ["finder", "q"], got
+    try:
+        load_personas([d / "finder.md", d / "finder.md"])
+    except PersonaError as exc:
+        assert "already the name" in str(exc), exc
+    else:
+        raise AssertionError("a duplicate name loaded twice")
+    try:
+        load_personas([d / "nowhere"])
+    except PersonaError as exc:
+        assert "no such file" in str(exc), exc
+    else:
+        raise AssertionError("a missing path loaded")
+    empty = tmp / "empty_personas"
+    empty.mkdir(exist_ok=True)
+    try:
+        load_personas([empty])
+    except PersonaError as exc:
+        assert "no *.md" in str(exc), exc
+    else:
+        raise AssertionError("an empty directory loaded")
+
+    # the shipped samples: they load, they ride the chat model so a
+    # machine with one card can use them unedited, the two targets are
+    # worded from vocabularies that do not meet, and they are package
+    # data so an installed wheel carries them
+    samples = load_personas([sample_dir()])
+    by_name = {p.name: p for p in samples}
+    assert set(by_name) == {"explainer", "coder", "checker"}, by_name
+    assert all(p.rides_chat for p in samples), samples
+    assert by_name["checker"].role == "verify", by_name["checker"]
+    targets = [p for p in samples if p.is_target]
+    for i, first in enumerate(targets):
+        for second in targets[i + 1:]:
+            shared = content_words(first.notes) & content_words(second.notes)
+            assert not shared, (first.name, second.name, shared)
+    pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+    assert "personas/*.md" in pyproject, (
+        "the sample personas are not package data, so an installed wheel "
+        "would ship without them")
+    print("78. persona files: the format loads and every malformed shape "
+          "refuses with the file and the fix, directory and duplicate "
+          "handling hold, and the three shipped samples ride the chat "
+          "model with target notes that share no words")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -8618,6 +8729,7 @@ def main():
         check_roster_fit(tmp)
         check_roster_notes(tmp)
         check_greedy_at_zero()
+        check_persona_files(tmp)
         print("PASS")
     finally:
         if not args.keep:
