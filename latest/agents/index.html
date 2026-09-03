@@ -2104,6 +2104,14 @@ each entry that does not fit marked as such with the arithmetic behind
 it, and every candidate model it tried with the reason it was turned
 down. Nothing is written and nothing is started. Free a card, or write
 the file yourself and pass it as <code>--roster FILE</code>.</p>
+<p>There is one softer landing. With <code>--personas</code> on, a refused fit does
+not end the launch: the arithmetic is still printed so you can see
+what did not fit and why, and then the session carries on with no
+roster at all, the loaded roles riding the chat model and pieces
+running one at a time. A machine too small to hold a second model is
+exactly the machine that fallback exists for, so asking for <code>--roster
+auto --personas samples</code> gives you fitted workers where the memory
+allows them and a working agent layer where it does not.</p>
 <h2 id="asking-a-model-to-reason-or-not-to">Asking a model to reason, or not to</h2>
 <p>Some models write their working before their answer, and a few of those
 let a caller decide per call whether to. An entry can say which it wants
