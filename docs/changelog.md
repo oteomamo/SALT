@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.68
+## 2.11.0 - 2.11.69
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -190,6 +190,9 @@ cover the tools, the roster and the limits.
   the session carries on with the roles riding the chat model, so the
   same command line gives fitted workers on a big machine and a
   working agent layer on a small one.
+- **2.11.69** Fix: a target persona now counts as a helper when
+  `--agent` asks whether anyone is ready, so a session with personas
+  and no roster plans its turns instead of always answering alone.
 
 ## 2.10.0 - 2.10.123
 

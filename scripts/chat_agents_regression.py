@@ -8866,6 +8866,16 @@ def check_persona_binding(tmp):
     assert "You are chatty." in seen[0]["content"], seen[0]
     assert st.worker("chatty").calls == 1 and st.worker("chat").calls == 1
 
+    # a target persona is a helper --agent counts: riding a chat model
+    # that is loaded it is ready, and with no model and no started
+    # worker nothing is
+    assert cli.workers_ready(st) is True, (
+        "a persona-only session was told it has nobody to plan for")
+    st.runner = None
+    assert cli.workers_ready(st) is False, (
+        "a session with no model and no server was called ready")
+    st.runner = FakeRunner()
+
     # the planner's view: roster workers first, then target personas,
     # never a verify persona, `allowed` narrowing both, and a session
     # with no roster at all still showing its persona targets

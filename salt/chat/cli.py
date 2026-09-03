@@ -1662,13 +1662,19 @@ def workers_ready(state):
     Asked before a turn is planned in persistent mode, because planning
     a turn nobody can help with costs a whole extra call to say so. A
     handle that opens is enough: whether that worker then answers is the
-    round's business, and a round is worth starting for.
+    round's business, and a round is worth starting for. A target
+    persona counts the same way - one riding the chat model opens
+    whenever the session has a model at all, which is what makes
+    --agent plan on a session with no roster.
     """
     roster = getattr(state, "roster", None)
-    if roster is None:
-        return False
-    return any(state.worker(entry.name).opened() is not None
-               for entry in roster.workers)
+    if roster is not None and any(
+            state.worker(entry.name).opened() is not None
+            for entry in roster.workers):
+        return True
+    personas = getattr(state, "personas", None) or {}
+    return any(state.worker(p.name).opened() is not None
+               for p in personas.values() if p.is_target)
 
 
 def agent_notice(state, round_):
