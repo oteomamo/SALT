@@ -33,7 +33,7 @@ import threading
 import time
 from pathlib import Path
 
-from salt.agents.roster import (GUIDED_UNKNOWN, UNPROBED,
+from salt.agents.roster import (GUIDED_UNKNOWN, RosterEntry, UNPROBED,
                                 probe as probe_endpoint, probe_guided)
 
 DECLARED = "DECLARED"
@@ -757,3 +757,136 @@ class WorkerHandle:
         self.state = READY
         self.last_error = ""
         return self.runner
+
+
+class ChatHandle:
+    """The session's own chat model, held the way a worker is held.
+
+    What lets a machine with one card - or none - still hand out pieces
+    of a turn: the same weights that plan and write can be a piece's
+    target, and everything downstream of a handle (the delegation call,
+    the overrides, the usage record) reads this one exactly as it reads
+    a WorkerHandle. There the likeness ends, on purpose:
+
+    - There is no server. Nothing to start, probe, spawn or stop, and
+      no port; the runner is whatever the session's runner is right
+      now, so a /model switch is picked up on the next call.
+    - ``off_thread`` is refused outright rather than allowed on
+      request. In-process generation belongs to the session's thread,
+      and a served chat model's client keeps this turn's numbers on
+      itself, so a piece riding the chat model always runs in turn.
+    - It is never marked DEAD. A worker that stops answering is a
+      worker to route around; a chat model that stops answering is a
+      session with nothing left to route to, so failures are recorded
+      and the next call simply tries again.
+    """
+
+    def __init__(self, state, name=None):
+        from salt.agents.personas import CHAT_WORKER
+        self._state = state
+        self._name = name or CHAT_WORKER
+        self.state = DECLARED
+        self.probe_result = UNPROBED
+        self.calls = 0
+        self.busy_s = 0.0
+        self.last_error = ""
+        self.failures = 0
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def role(self):
+        return "worker"
+
+    @property
+    def runner(self):
+        return getattr(self._state, "runner", None)
+
+    @property
+    def entry(self):
+        """This model as a roster entry, read off the live runner so a
+        /model switch renames it too. Synthetic and never validated:
+        it exists so call_overrides and the planner's bookkeeping have
+        the shape they already read."""
+        runner = self.runner
+        return RosterEntry(
+            name=self._name, alias=getattr(runner, "alias", self._name),
+            role="worker", model=getattr(runner, "cfg", None),
+            notes="the session's own chat model")
+
+    @property
+    def endpoint(self):
+        return "the session's chat model"
+
+    @property
+    def mean_latency(self):
+        return self.busy_s / self.calls if self.calls else 0.0
+
+    def opened(self):
+        return self.runner
+
+    def _open(self):
+        runner = self.runner
+        if runner is None:
+            raise WorkerError(
+                f"{self._name!r} is the session's own chat model, and this "
+                f"session has none loaded")
+        return runner
+
+    def call(self, messages, off_thread=False, read_timeout_s=None,
+             usage_out=None, **overrides):
+        """Stream one reply from the chat model, yielding text pieces.
+
+        The same generator contract as WorkerHandle.call, minus the
+        HTTP: single-flight (a second call while one is streaming is
+        refused, not queued - both would be this thread, so waiting
+        would be a deadlock), severed by closing, engine numbers
+        written into ``usage_out`` before the counters settle."""
+        if off_thread:
+            raise WorkerError(
+                f"{self._name!r} is the session's own chat model and runs "
+                f"only on the session's thread, so its pieces go one at a "
+                f"time")
+        if not on_main_thread():
+            raise WorkerError(
+                f"{self._name!r} was called from "
+                f"{threading.current_thread().name!r}, and the session's "
+                f"own chat model runs on the session's thread")
+        if self.state == BUSY:
+            raise WorkerError(
+                f"{self._name!r} is already streaming a reply, and the "
+                f"session's own chat model takes one call at a time")
+        runner = self._open()
+        prior_timeout = getattr(runner, "read_timeout", None)
+        if read_timeout_s is not None and hasattr(runner, "read_timeout"):
+            runner.read_timeout = read_timeout_s
+        self.state = BUSY
+        t0 = time.monotonic()
+        stream = None
+        try:
+            stream = runner.stream_chat(messages, **overrides)
+            for piece in stream:
+                yield piece
+            self.failures = 0
+            self.last_error = ""
+        except Exception as exc:
+            self.failures += 1
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            if stream is not None:
+                stream.close()
+            if read_timeout_s is not None and hasattr(runner, "read_timeout"):
+                runner.read_timeout = prior_timeout
+            if usage_out is not None:
+                stats = getattr(runner, "last_engine_stats", None) or {}
+                prompt = stats.get("apc_prompt_tokens")
+                if prompt is None:
+                    prompt = getattr(runner, "last_prompt_tokens", None)
+                usage_out["prompt_tokens"] = prompt
+                usage_out["cached_tokens"] = stats.get("apc_cached_tokens")
+            self.calls += 1
+            self.busy_s += time.monotonic() - t0
+            self.state = READY

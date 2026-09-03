@@ -8640,6 +8640,121 @@ def check_persona_files(tmp):
           "model with target notes that share no words")
 
 
+def check_chat_handle():
+    """The session's own chat model held the way a worker is held:
+    same call contract, none of the server machinery, never DEAD."""
+    from salt.agents.delegate import DelegationRequest, call_overrides
+    from salt.agents.personas import CHAT_WORKER
+    from salt.agents.worker import (BUSY, ChatHandle, DEAD, READY,
+                                    WorkerError)
+
+    class FakeRunner:
+        alias = "tiny"
+        cfg = {"alias": "tiny", "hf_id": "org/tiny"}
+        max_input_len = 4096
+        last_prompt_tokens = 7
+
+        def __init__(self):
+            self.seen = []
+
+        def stream_chat(self, messages, **over):
+            self.seen.append((messages, over))
+            def gen():
+                yield "a"
+                yield "b"
+            return gen()
+
+    class State:
+        pass
+
+    state = State()
+    state.runner = FakeRunner()
+    h = ChatHandle(state)
+    assert h.name == CHAT_WORKER and h.role == "worker", (h.name, h.role)
+    assert h.entry.role == "worker" and h.entry.alias == "tiny", h.entry
+    assert h.entry.model == state.runner.cfg, h.entry.model
+    assert h.opened() is state.runner
+
+    # streams, counts, and writes the engine numbers out
+    spent = {}
+    got = "".join(h.call([{"role": "user", "content": "x"}],
+                         usage_out=spent, max_new_tokens=8))
+    assert got == "ab" and spent["prompt_tokens"] == 7, (got, spent)
+    assert h.calls == 1 and h.state == READY, (h.calls, h.state)
+    assert state.runner.seen[0][1]["max_new_tokens"] == 8
+
+    # the delegation's overrides derive from the live entry: no roster
+    # numbers, so the runner's own window is the backstop
+    over = call_overrides(h.entry, DelegationRequest(task="t"), h.opened())
+    assert over["max_new_tokens"] == 2048, over
+
+    # fan-out is refused, in both spellings a round could try
+    try:
+        list(h.call([], off_thread=True))
+        raise AssertionError("off_thread was accepted")
+    except WorkerError as exc:
+        assert "one at a time" in str(exc), exc
+    box = {}
+
+    def off_main():
+        try:
+            list(h.call([]))
+        except WorkerError as exc:
+            box["err"] = str(exc)
+    t = threading.Thread(target=off_main)
+    t.start()
+    t.join()
+    assert "session's thread" in box.get("err", ""), box
+
+    # one call at a time on the one thread that may call: a second
+    # mid-stream is refused rather than queued (queueing would deadlock)
+    first = h.call([{"role": "user", "content": "y"}])
+    assert next(first) == "a" and h.state == BUSY
+    try:
+        list(h.call([]))
+        raise AssertionError("a second call streamed while one was open")
+    except WorkerError as exc:
+        assert "one call at a time" in str(exc), exc
+    first.close()
+    assert h.state == READY and h.calls == 2, (h.state, h.calls)
+
+    # failures are recorded and the handle never goes DEAD: a chat
+    # model that stops answering is not a worker to route around
+    class Broken(FakeRunner):
+        def stream_chat(self, messages, **over):
+            raise RuntimeError("no weights")
+    state.runner = Broken()
+    for _ in range(3):
+        try:
+            list(h.call([]))
+            raise AssertionError("a broken runner streamed")
+        except RuntimeError:
+            pass
+    assert h.failures == 3 and h.state == READY != DEAD, (h.failures,
+                                                          h.state)
+    assert "no weights" in h.last_error, h.last_error
+
+    # a session with no model, and a /model switch picked up live
+    state.runner = None
+    try:
+        list(h.call([]))
+        raise AssertionError("no runner but the call went out")
+    except WorkerError as exc:
+        assert "none loaded" in str(exc), exc
+    fresh = FakeRunner()
+    fresh.alias = "swapped"
+    state.runner = fresh
+    assert h.entry.alias == "swapped" and h.opened() is fresh
+    assert "".join(h.call([{"role": "user", "content": "z"}])) == "ab"
+    assert h.failures == 0 and h.last_error == "", (h.failures, h.last_error)
+    print("79. the chat handle: the session's own model held like a "
+          "worker - it streams, counts and reports usage under the same "
+          "call contract, derives overrides from its live entry, refuses "
+          "fan-out and foreign threads, takes one call at a time, "
+          "survives failures without going dead, and follows a /model "
+          "switch")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -8730,6 +8845,7 @@ def main():
         check_roster_notes(tmp)
         check_greedy_at_zero()
         check_persona_files(tmp)
+        check_chat_handle()
         print("PASS")
     finally:
         if not args.keep:
