@@ -3674,6 +3674,53 @@ def build_parser():
     return p
 
 
+PERSONAS_FALLBACK = (
+    "--personas is on, so this session keeps its agent layer without "
+    "the roster: the loaded roles ride the chat model, pieces run one "
+    "at a time on it, and nothing else is started.")
+
+
+def auto_roster(args):
+    """Resolve --roster auto for this launch.
+
+    Returns (path, None) with the fitted roster written and reported,
+    (None, None) when the fit refused but --personas keeps the agent
+    layer on the session's own chat model, or (None, error) when the
+    launch must stop. The refusal arithmetic is printed either way: as
+    information when the session falls back, as the error when it
+    cannot. A machine too small to hold a second model is exactly the
+    machine the personas fallback exists for, so a refusal there is a
+    tier change, not a failure.
+    """
+    chat_cards = [int(c) for c in (parse_gpu_list(args.gpu) or ())]
+    if not chat_cards:
+        chat_cards = [i for i in (cuda_index(args.device),)
+                      if i is not None]
+    try:
+        fit = provision.fit_session(
+            list_models(),
+            provision.chat_alias_for(list_models(), args.model),
+            backend=args.backend,
+            chat_gpus=[] if args.backend == "vllm-serve" else chat_cards,
+            chat_mem_util=args.gpu_mem_util,
+            bge_gpu=cuda_index(args.bge_device or args.device))
+    except provision.ProvisionError as exc:
+        if args.personas:
+            print(f"--roster auto: {exc}")
+            print(PERSONAS_FALLBACK)
+            return None, None
+        return None, f"--roster auto: {exc}"
+    if not fit.ok:
+        if args.personas:
+            print(fit.report())
+            print(PERSONAS_FALLBACK)
+            return None, None
+        return None, fit.report()
+    path = provision.write_roster(fit, SESSIONS_DIR / args.conversation_id)
+    print(fit.with_path(path).report())
+    return str(path), None
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
 
@@ -3809,27 +3856,10 @@ def main(argv=None):
             print(f"--conversation-id: {args.conversation_id!r} is not a "
                   f"valid session name.", file=sys.stderr)
             return 1
-        chat_cards = [int(c) for c in (parse_gpu_list(args.gpu) or ())]
-        if not chat_cards:
-            chat_cards = [i for i in (cuda_index(args.device),)
-                          if i is not None]
-        try:
-            fit = provision.fit_session(
-                list_models(),
-                provision.chat_alias_for(list_models(), args.model),
-                backend=args.backend,
-                chat_gpus=[] if args.backend == "vllm-serve" else chat_cards,
-                chat_mem_util=args.gpu_mem_util,
-                bge_gpu=cuda_index(args.bge_device or args.device))
-        except provision.ProvisionError as exc:
-            print(f"--roster auto: {exc}", file=sys.stderr)
+        args.roster, error = auto_roster(args)
+        if error:
+            print(error, file=sys.stderr)
             return 1
-        if not fit.ok:
-            print(fit.report(), file=sys.stderr)
-            return 1
-        path = provision.write_roster(fit, SESSIONS_DIR / args.conversation_id)
-        print(fit.with_path(path).report())
-        args.roster = str(path)
     if args.roster:
         try:
             roster = load_roster(args.roster)

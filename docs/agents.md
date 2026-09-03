@@ -183,6 +183,15 @@ it, and every candidate model it tried with the reason it was turned
 down. Nothing is written and nothing is started. Free a card, or write
 the file yourself and pass it as `--roster FILE`.
 
+There is one softer landing. With `--personas` on, a refused fit does
+not end the launch: the arithmetic is still printed so you can see
+what did not fit and why, and then the session carries on with no
+roster at all, the loaded roles riding the chat model and pieces
+running one at a time. A machine too small to hold a second model is
+exactly the machine that fallback exists for, so asking for `--roster
+auto --personas samples` gives you fitted workers where the memory
+allows them and a working agent layer where it does not.
+
 ## Asking a model to reason, or not to
 
 Some models write their working before their answer, and a few of those

@@ -8949,6 +8949,93 @@ def check_personas_flag(tmp):
           "the chat model but never the checker")
 
 
+def check_auto_fallback(tmp):
+    """--roster auto with --personas on: a refused fit becomes a tier
+    change onto the chat model instead of a dead launch, and a fit
+    that fits is exactly as it was."""
+    from salt.agents import provision as PV
+
+    def parsed(*extra):
+        return cli.build_parser().parse_args(
+            ["--device", "cpu", "--conversation-id", "autofb"]
+            + list(extra))
+
+    class NoFit:
+        ok = False
+
+        def report(self):
+            return "the arithmetic, entry by entry"
+
+    class Fits:
+        ok = True
+
+        def with_path(self, path):
+            self._path = path
+            return self
+
+        def report(self):
+            return f"fitted, written to {self._path}"
+
+    def boom(*a, **k):
+        raise PV.ProvisionError("no card to fit on")
+
+    wrote = {}
+
+    def fake_write(fit, session_dir):
+        wrote["dir"] = str(session_dir)
+        return Path(session_dir) / "roster.auto.json"
+
+    real_fit, real_models, real_write = (PV.fit_session, cli.list_models,
+                                         PV.write_roster)
+    try:
+        cli.list_models = lambda: [{"alias": "m", "hf_id": "org/m",
+                                    "downloaded": True}]
+        PV.write_roster = fake_write
+
+        # nothing to fit on and nobody to fall back to: the launch stops
+        PV.fit_session = boom
+        path, err = cli.auto_roster(parsed())
+        assert path is None and "no card" in err, (path, err)
+
+        # the same machine with personas: information, then the tier
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            path, err = cli.auto_roster(parsed("--personas", "x"))
+        assert (path, err) == (None, None), (path, err)
+        out = buf.getvalue()
+        assert "no card" in out and "ride the chat model" in out, out
+
+        # a fit that refuses: the report stops the launch bare, and is
+        # printed as information when personas carry the layer instead
+        PV.fit_session = lambda *a, **k: NoFit()
+        path, err = cli.auto_roster(parsed())
+        assert path is None and "arithmetic" in err, (path, err)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            path, err = cli.auto_roster(parsed("--personas", "x"))
+        assert (path, err) == (None, None), (path, err)
+        out = buf.getvalue()
+        assert "arithmetic" in out and "one at a time" in out, out
+
+        # a fit that fits is untouched by personas: written and named
+        PV.fit_session = lambda *a, **k: Fits()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            path, err = cli.auto_roster(parsed("--personas", "x"))
+        assert err is None and path.endswith("roster.auto.json"), (path,
+                                                                   err)
+        assert "autofb" in wrote["dir"], wrote
+        assert "fitted, written to" in buf.getvalue(), buf.getvalue()
+    finally:
+        PV.fit_session, cli.list_models = real_fit, real_models
+        PV.write_roster = real_write
+    print("82. the personas fallback: a fit that cannot place two "
+          "workers stops a bare launch with its arithmetic, becomes a "
+          "printed tier change onto the chat model when personas are "
+          "loaded, and a fit that fits writes its roster exactly as "
+          "before")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9042,6 +9129,7 @@ def main():
         check_chat_handle()
         check_persona_binding(tmp)
         check_personas_flag(tmp)
+        check_auto_fallback(tmp)
         print("PASS")
     finally:
         if not args.keep:
