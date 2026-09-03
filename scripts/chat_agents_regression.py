@@ -9143,6 +9143,115 @@ def check_verify(tmp):
           "round record into the trace")
 
 
+def check_retarget(tmp):
+    """A piece whose worker went quiet or died gets one more try on
+    different weights, once, under what is left of the turn."""
+    from salt.agents import orchestrator as O
+    from salt.agents import personas as P
+    from salt.agents.delegate import DelegationResult
+
+    class Handle:
+        def __init__(self, entry, open_=True):
+            self.entry = entry
+            self.name = entry.name
+            self._open = open_
+
+        def opened(self):
+            return self if self._open else None
+
+    class Sub:
+        id = "1"
+        query = None
+        budget_pct = None
+        max_tokens = None
+
+        def __init__(self, task, target):
+            self.task, self.target = task, target
+
+    w, w2 = spawn_entry(tmp, "w"), spawn_entry(tmp, "w2")
+    st = _FakeState(tmp, [w, w2])
+    st.workers["w"] = Handle(w)
+    st.workers["w2"] = Handle(w2)
+
+    # the candidate: different weights, open right now
+    assert O.retarget_candidate(st, "w") == "w2"
+    assert O.retarget_candidate(st, "w2") == "w"
+    st.workers["w2"]._open = False
+    assert O.retarget_candidate(st, "w") is None
+    st.workers["w2"]._open = True
+
+    # two personas riding one worker are one set of weights: a piece
+    # that died there has nowhere different to go
+    solo = _FakeState(tmp, [w])
+    solo.workers["w"] = Handle(w)
+    solo.personas = P.bind(
+        (P.Persona(name="pa", worker="w", role="target", notes="a",
+                   body="b", path="pa.md"),
+         P.Persona(name="pb", worker="w", role="target", notes="c",
+                   body="d", path="pb.md")),
+        R.Roster(path="r", entries=(w,)))
+    assert O.retarget_candidate(solo, "pa") is None
+
+    limits = O.AgentLimits(max_delegations_per_turn=4)
+    dead = DelegationResult(id=1, target="w", task="t", status="timeout",
+                            error="sent nothing for 20s")
+    sent = []
+
+    def fake_delegate(state, req, **kw):
+        sent.append(req)
+        return DelegationResult(id=9, target=req.target, task=req.task,
+                                status="ok", text="answered")
+
+    real = O.delegate
+    O.delegate = fake_delegate
+    try:
+        got = O.retarget(st, Sub("t", "w"), dead, limits, [dead], 0,
+                         time.time())
+        assert got.ok and got.target == "w2", got
+        assert "re-run here after w" in got.error, got.error
+        assert "sent nothing" in got.error, got.error
+        assert sent[0].target == "w2" and sent[0].task == "t", sent[0]
+
+        # only quiet and dead pieces are retried
+        for status in ("error", "aborted", "refused", "stopped", "ok"):
+            still = DelegationResult(id=1, target="w", task="t",
+                                     status=status)
+            assert O.retarget(st, Sub("t", "w"), still, limits, [still],
+                              0, time.time()) is None, status
+
+        # a spent turn buys no retry
+        tight = O.AgentLimits(max_delegations_per_turn=1)
+        assert O.retarget(st, Sub("t", "w"), dead, tight, [dead], 0,
+                          time.time()) is None
+
+        # the in-turn path replaces the slot and the plan order holds
+        seq = {"n": 0}
+
+        def flaky(state, req, **kw):
+            seq["n"] += 1
+            if seq["n"] == 1:
+                return DelegationResult(id=1, target=req.target,
+                                        task=req.task, status="dead",
+                                        error="never answered")
+            return DelegationResult(id=seq["n"], target=req.target,
+                                    task=req.task, status="ok", text="x")
+
+        O.delegate = flaky
+        results = O.execute_in_turn(st, [Sub("t", "w"), Sub("u", "w2")],
+                                    limits)
+        assert len(results) == 2, results
+        assert results[0].ok and results[0].target == "w2", results[0]
+        assert "re-run here after w" in results[0].error, results[0]
+        assert results[1].ok, results[1]
+    finally:
+        O.delegate = real
+    print("84. re-targeting: a quiet or dead piece is re-run once on "
+          "different weights with the first attempt's fate written on "
+          "the answer, personas on the same worker never count as "
+          "different, a spent turn buys no retry, and the plan's order "
+          "and length hold")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9238,6 +9347,7 @@ def main():
         check_personas_flag(tmp)
         check_auto_fallback(tmp)
         check_verify(tmp)
+        check_retarget(tmp)
         print("PASS")
     finally:
         if not args.keep:

@@ -552,6 +552,66 @@ def spread(state, subtasks):
     return len(where) > 1
 
 
+# the two ways a piece fails that say nothing about the piece: the
+# worker went quiet mid-reply, or it is not answering at all. Everything
+# else - a refusal, an error, an interrupt, a cap - is a reason to stop,
+# not a reason to ask somebody else
+RETRY_STATUSES = ("timeout", "dead")
+
+
+def retarget_candidate(state, failed_target):
+    """A different set of weights to re-run a quiet piece on, or None:
+    the first target that answers for different underlying weights and
+    whose handle opens right now. A persona riding the same dead
+    worker is the same dead worker under another name, which is what
+    the underlying test is for."""
+    was = underlying(state, failed_target)
+    for name, _ in targets_for(state):
+        if name == failed_target or underlying(state, name) == was:
+            continue
+        try:
+            worker_entry(state, name)
+        except RosterError:
+            continue
+        if state.worker(name).opened() is not None:
+            return name
+    return None
+
+
+def retarget(state, subtask, failed, limits, results, spent, started,
+             switches=None):
+    """One more try for a piece whose worker went quiet or died, on
+    different weights, under what is left of the turn's allowance.
+
+    Once is the whole of it: the first attempt is already paid for and
+    counted, and a piece that failed on two sets of weights is a piece
+    the write-up should name as missing rather than keep waiting on.
+    The re-run's answer stands in the plan's slot with the first
+    attempt's fate written on it, so a reader of the round still sees
+    the journey. Returns the replacement result, or None when nothing
+    was retried.
+    """
+    if failed is None or failed.status not in RETRY_STATUSES:
+        return None
+    if stop_reason(limits, results, spent, started):
+        return None
+    name = retarget_candidate(state, failed.target)
+    if name is None:
+        return None
+    try:
+        entry = worker_entry(state, name)
+    except RosterError:
+        return None
+    request = replace(subtask_request(state, subtask, entry, switches),
+                      target=name)
+    second = delegate(state, request)
+    note = (f"re-run here after {failed.target} "
+            f"{OUTCOMES.get(failed.status, failed.status)}")
+    if failed.error:
+        note += f": {failed.error}"
+    return replace(second, error=second.error or note)
+
+
 def execute(state, directive, limits=None, on_result=None, parallel=None,
             switches=None):
     """Run a directive's subtasks and report on every one of them.
@@ -597,6 +657,11 @@ def execute_in_turn(state, subtasks, limits, on_result=None, switches=None):
                 result = delegate(state, subtask_request(state, subtask,
                                                          entry, switches))
                 spent += delegated_tokens(result)
+                second = retarget(state, subtask, result, limits, results,
+                                  spent, started, switches)
+                if second is not None:
+                    result = second
+                    spent += delegated_tokens(second)
         results.append(result)
         if on_result is not None:
             on_result(result)
@@ -692,6 +757,19 @@ def execute_together(state, subtasks, limits, on_result=None, switches=None):
                     stop.set("the round was interrupted", status="aborted")
             for future, index in futures.items():
                 results[index] = future.result()
+        # the join is over and the round is sequential again, so a piece
+        # whose worker went quiet or died gets its one re-run here, on
+        # the session's thread - which is also why even a persona riding
+        # the chat model may take it
+        spent = sum(delegated_tokens(r) for r in results
+                    if r is not None and r.ran)
+        for index, subtask in enumerate(subtasks):
+            second = retarget(state, subtask, results[index], limits,
+                              [r for r in results if r is not None],
+                              spent, started, switches)
+            if second is not None:
+                results[index] = second
+                spent += delegated_tokens(second)
     if on_result is not None:
         for result in results:
             on_result(result)

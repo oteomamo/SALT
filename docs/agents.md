@@ -336,6 +336,16 @@ Two failed calls in a row mark the worker `DEAD` and the session stops
 sending work there. `/worker probe <name>` reconnects it and clears the
 count.
 
+Inside a planned turn a piece that timed out or found its worker dead
+gets one more try, on a different set of weights: another worker, or a
+persona riding one, whichever opens right now. Two personas on one
+worker never count as different, since they are one queue under two
+names. The re-run's answer stands in the piece's place with the first
+attempt's fate written on it, it is paid for out of the same turn
+allowance, and a turn with nothing left retries nothing. A piece that
+failed on two sets of weights is reported as missing, which the
+write-up then says in as many words.
+
 ## Handing over a task
 
 ```

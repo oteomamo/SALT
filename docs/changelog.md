@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.70
+## 2.11.0 - 2.11.72
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -199,6 +199,10 @@ cover the tools, the roster and the limits.
   can pin to an excerpt. The verdict is printed and kept in the trace,
   the reply is never touched, and a checker that fails records
   `skipped` and costs the turn nothing.
+- **2.11.72** A piece whose worker went quiet or died is re-run once
+  on a different set of weights, paid out of the same turn allowance,
+  with the first attempt's fate written on the answer. A piece that
+  failed twice is reported as missing instead of waited on.
 
 ## 2.10.0 - 2.10.123
 
