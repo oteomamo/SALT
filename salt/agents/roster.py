@@ -333,8 +333,26 @@ def probe(entry, url=None, timeout=5):
 # schema at all. One token back is all the answer that is needed
 GUIDED_SCHEMA = {"type": "object"}
 GUIDED_CAPABLE = "guided"
+# the newer spelling of the same capability: vLLM deprecated guided_json
+# and newer servers accept only structured_outputs, so which word the
+# server took is part of what the probe learns
+GUIDED_STRUCTURED = "structured"
 GUIDED_PLAIN = "plain"
 GUIDED_UNKNOWN = "unknown"
+SCHEMA_CAPABLE = (GUIDED_CAPABLE, GUIDED_STRUCTURED)
+
+
+def schema_body(capability, schema):
+    """The request keys that hold this endpoint to a schema, in the
+    spelling it was measured to accept. Empty for an endpoint that
+    accepted none, so a caller can always splat this into a body."""
+    if schema is None:
+        return {}
+    if capability == GUIDED_CAPABLE:
+        return {"guided_json": schema}
+    if capability == GUIDED_STRUCTURED:
+        return {"structured_outputs": {"json": schema}}
+    return {}
 
 
 def probe_guided(entry, url=None, timeout=10, served_model=None):
@@ -380,6 +398,19 @@ def probe_guided(entry, url=None, timeout=10, served_model=None):
         return GUIDED_UNKNOWN, (f"the endpoint does not serve "
                                 f"{body['model']!r}, so nothing was asked "
                                 f"about schemas: {detail}")
+    # the old spelling was refused. Newer servers dropped it for
+    # structured outputs, so the same question is asked once more in
+    # that spelling before the endpoint is written down as plain
+    newer = {k: v for k, v in body.items() if k != "guided_json"}
+    newer["structured_outputs"] = {"json": GUIDED_SCHEMA}
+    try:
+        second = requests.post(f"{url}/v1/completions", json=newer,
+                               timeout=timeout)
+    except requests.RequestException:
+        second = None
+    if second is not None and second.status_code == 200:
+        return GUIDED_STRUCTURED, ("the endpoint accepted a schema as "
+                                   "structured outputs")
     return GUIDED_PLAIN, f"the endpoint refused a schema ({resp.status_code}): {detail}"
 
 

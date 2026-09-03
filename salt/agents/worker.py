@@ -256,10 +256,10 @@ def schema_smoke(handle, fixtures=SCHEMA_SMOKE):
 
 def capability_line(guided, passes, total):
     """What this worker is, in one word a person can act on."""
-    from salt.agents.roster import GUIDED_CAPABLE
+    from salt.agents.roster import SCHEMA_CAPABLE
     if passes < total:
         return f"flaky {passes}/{total}"
-    return "schema-native" if guided == GUIDED_CAPABLE else "plain"
+    return "schema-native" if guided in SCHEMA_CAPABLE else "plain"
 
 
 class WorkerHandle:

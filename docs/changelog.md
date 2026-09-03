@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.72
+## 2.11.0 - 2.11.75
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -203,6 +203,15 @@ cover the tools, the roster and the limits.
   on a different set of weights, paid out of the same turn allowance,
   with the first attempt's fate written on the answer. A piece that
   failed twice is reported as missing instead of waited on.
+- **2.11.74** Launch warns when two plan targets, workers and personas
+  alike, are described in shared words: the planner picks helpers by
+  their notes, so two described alike never split a task. The warning
+  blocks nothing.
+- **2.11.75** Newer vLLM servers dropped `guided_json` for structured
+  outputs. The capability probe now asks in both spellings, remembers
+  which one the server took, and every schema-holding call goes out in
+  that spelling, so planning and checking stay schema-guided across
+  vLLM versions.
 
 ## 2.10.0 - 2.10.123
 

@@ -393,8 +393,8 @@ def template_for(capability):
     will hold it to a schema is told to fill one; a model that will not
     be held to anything is shown the object instead, because an example
     is worth more to it than a description."""
-    from salt.agents.roster import GUIDED_CAPABLE
-    return "schema" if capability == GUIDED_CAPABLE else "plain"
+    from salt.agents.roster import SCHEMA_CAPABLE
+    return "schema" if capability in SCHEMA_CAPABLE else "plain"
 
 
 def target_lines(targets):

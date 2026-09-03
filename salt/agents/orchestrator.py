@@ -43,7 +43,8 @@ from salt.agents.delegate import (DelegationRequest, DelegationResult,
                                   RoundStop, TokenMeter, build_context,
                                   close_quietly, delegate)
 from salt.agents.policy import KWARGS, PolicyError, SwitchPolicy, check
-from salt.agents.roster import GUIDED_CAPABLE, GUIDED_PLAIN, RosterError
+from salt.agents.roster import (GUIDED_CAPABLE, GUIDED_PLAIN,
+                                SCHEMA_CAPABLE, RosterError, schema_body)
 
 ASK_HEADER = "ASK: "
 # a plan is a decision rather than prose: the same session asked the same
@@ -130,7 +131,7 @@ class Endpoint:
 
     @property
     def guided(self):
-        return self.capability == GUIDED_CAPABLE
+        return self.capability in SCHEMA_CAPABLE
 
 
 # What a planning call may generate when nothing else says. A directive
@@ -195,21 +196,21 @@ def main_capability(state):
     return seen[key]
 
 
-def main_runner_send(state, gen=None, think=None, schema=None):
+def main_runner_send(state, gen=None, think=None, schema_extra=None):
     """One prompt put to the session's chat model, waited out in full.
 
     A schema rides the request body when the caller asks for one and the
-    endpoint has been measured able to hold a model to it. Every backend
-    renders its own prompt, so this changes no prompt bytes and costs
-    the session's prefix cache nothing.
+    endpoint has been measured able to hold a model to it -
+    ``schema_extra`` arrives already spelled the way that endpoint
+    accepted. Every backend renders its own prompt, so this changes no
+    prompt bytes and costs the session's prefix cache nothing.
     """
     gen = planning_gen(getattr(state, "runner", None)) if gen is None else gen
     gen = dict(gen, **thinking.gen_kwargs(think))
 
     def send(messages, guided=False):
         pieces = []
-        over = dict(gen, guided_json=schema) if (
-            guided and schema is not None) else gen
+        over = dict(gen, **schema_extra) if (guided and schema_extra) else gen
         guard = thinking.ThinkGuard(over.get("max_new_tokens"))
         # held in a name rather than left to the loop, so an interrupt
         # closes it here: closing the generator is what stops a model
@@ -252,13 +253,12 @@ def main_endpoint(state, gen=None, kind=thinking.PLAN):
     cfg = getattr(runner, "cfg", None) or {}
     think = session_think(state, kind)
     capability = main_capability(state)
-    # a schema is carried only where it has been measured to work: an
-    # endpoint that would reject it must not be planned around as though
-    # it would not
-    schema = (protocol.DIRECTIVE_SCHEMA if capability == GUIDED_CAPABLE
-              else None)
+    # a schema is carried only where it has been measured to work, in
+    # the spelling that measurement learned: an endpoint that would
+    # reject it must not be planned around as though it would not
+    extra = schema_body(capability, protocol.DIRECTIVE_SCHEMA)
     return Endpoint(label=getattr(runner, "alias", None) or MAIN_LABEL,
-                    send=main_runner_send(state, gen, think, schema),
+                    send=main_runner_send(state, gen, think, extra),
                     stream=main_runner_stream(state, gen, think),
                     capability=capability,
                     model_id=cfg.get("hf_id"),
@@ -310,7 +310,7 @@ def handle_send(handle, gen=None, schema=None, think=None):
     def send(messages, guided=False):
         over = entry_gen(handle.entry, gen, handle.opened(), think)
         if guided and schema is not None:
-            over["guided_json"] = schema
+            over.update(schema_body(handle.guided, schema))
         pieces = []
         guard = thinking.ThinkGuard(over.get("max_new_tokens"))
         spent = {}
@@ -1267,8 +1267,7 @@ def verify(state, draft, results, memory_block=""):
     except Exception:
         capability = GUIDED_PLAIN
     over = {"temperature": 0.0, "max_new_tokens": VERIFY_TOKENS}
-    if capability == GUIDED_CAPABLE:
-        over["guided_json"] = VERDICT_SCHEMA
+    over.update(schema_body(capability, VERDICT_SCHEMA))
     try:
         text = "".join(handle.call(verify_messages(draft, results,
                                                    memory_block),

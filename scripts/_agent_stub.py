@@ -149,12 +149,19 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            refused = None
             if (not self.server.guided
                     and "guided_json" in self.server.last_payload):
-                # what a server that never heard of guided decoding says:
-                # the parameter itself is the complaint
+                # what a server that dropped (or never had) the old
+                # spelling says: the parameter itself is the complaint
+                refused = "guided_json"
+            elif (not self.server.structured
+                    and "structured_outputs" in self.server.last_payload):
+                # and an old server says the same of the new spelling
+                refused = "structured_outputs"
+            if refused:
                 body = json.dumps({"error": {
-                    "message": "unknown parameter: guided_json",
+                    "message": f"unknown parameter: {refused}",
                     "type": "BadRequestError"}}).encode()
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
@@ -213,11 +220,12 @@ class Stub:
     def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
                  status=200, raw=None, port=0, stall=0.0, drop=False,
                  serving=True, post_status=200, usage=False, guided=True,
-                 canned=None, unknown_model=False):
+                 canned=None, unknown_model=False, structured=False):
         self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
                         status=status, raw=raw, stall=stall, drop=drop,
                         post_status=post_status, usage=usage, guided=guided,
-                        canned=canned, unknown_model=unknown_model)
+                        canned=canned, unknown_model=unknown_model,
+                        structured=structured)
         self.port = port
         self.httpd = None
         self.aborted = threading.Event()

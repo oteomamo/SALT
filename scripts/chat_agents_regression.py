@@ -9290,6 +9290,52 @@ def check_note_overlap(tmp):
           "it, and nothing is refused")
 
 
+def check_structured_probe(tok_path):
+    """A server that dropped guided_json for structured outputs is still
+    measured schema-capable, in the spelling it accepted."""
+    import salt.agents.roster as RR
+    from salt.agents import protocol as PR
+    from salt.agents.worker import capability_line
+
+    assert RR.schema_body(RR.GUIDED_CAPABLE, {"type": "object"}) == \
+        {"guided_json": {"type": "object"}}
+    assert RR.schema_body(RR.GUIDED_STRUCTURED, {"type": "object"}) == \
+        {"structured_outputs": {"json": {"type": "object"}}}
+    assert RR.schema_body(RR.GUIDED_PLAIN, {"type": "object"}) == {}
+    assert RR.schema_body(RR.GUIDED_STRUCTURED, None) == {}
+    assert PR.template_for(RR.GUIDED_STRUCTURED) == "schema", (
+        "a structured endpoint was planned for as one that cannot be "
+        "held to anything")
+    assert capability_line(RR.GUIDED_STRUCTURED, 3, 3) == "schema-native"
+
+    cfg = {"alias": "stub", "hf_id": "some/model", "path": tok_path}
+    cards = [{"id": "some/model", "max_model_len": 4096}]
+    with Stub(cards=cards, guided=False, structured=True) as newer:
+        h = WorkerHandle(entry(newer.url, model=cfg))
+        assert h.probe_capabilities() == RR.GUIDED_STRUCTURED, \
+            h.guided_detail
+        sent = newer.httpd.last_payload
+        assert "guided_json" not in sent, sent
+        assert sent["structured_outputs"] == {"json": RR.GUIDED_SCHEMA}, sent
+
+    # an old server that never heard of either spelling stays plain,
+    # and the detail still names the first refusal
+    with Stub(cards=cards, guided=False) as old:
+        h = WorkerHandle(entry(old.url, model=cfg))
+        assert h.probe_capabilities() == RR.GUIDED_PLAIN, h.guided_detail
+        assert "400" in h.guided_detail, h.guided_detail
+
+    # a server that takes the old spelling is measured exactly as before
+    with Stub(cards=cards, guided=True) as older:
+        h = WorkerHandle(entry(older.url, model=cfg))
+        assert h.probe_capabilities() == RR.GUIDED_CAPABLE, h.guided_detail
+        assert "guided_json" in older.httpd.last_payload
+    print("86. structured outputs: the capability probe asks in the old "
+          "spelling first and the new one second, remembers which one "
+          "the server took, shapes every schema body in that spelling, "
+          "and a server that refuses both stays plain with the reason")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9387,6 +9433,7 @@ def main():
         check_verify(tmp)
         check_retarget(tmp)
         check_note_overlap(tmp)
+        check_structured_probe(tok_path)
         print("PASS")
     finally:
         if not args.keep:

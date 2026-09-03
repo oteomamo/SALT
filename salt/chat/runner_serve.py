@@ -19,10 +19,11 @@ from salt.chat.runner import (_model_input_limit, input_budget_for,
 
 
 # what a caller may put on the request body instead of into sampling:
-# vLLM's structured-output demands. Named here rather than guessed at,
-# so a stray generation setting can never become a body key
+# vLLM's structured-output demands, in both the deprecated spelling and
+# the one that replaced it. Named here rather than guessed at, so a
+# stray generation setting can never become a body key
 BODY_EXTRAS = ("guided_json", "guided_regex", "guided_choice",
-               "guided_grammar", "response_format")
+               "guided_grammar", "response_format", "structured_outputs")
 
 
 class VLLMServeChatRunner:
