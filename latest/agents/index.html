@@ -731,6 +731,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#personas-roles-without-a-second-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Personas: roles without a second GPU
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#letting-the-session-write-the-roster" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1554,6 +1565,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#personas-roles-without-a-second-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Personas: roles without a second GPU
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#letting-the-session-write-the-roster" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1999,6 +2021,44 @@ bad port, an unknown alias or a model whose weights are missing stops
 the launch instead of failing later. This file ships as
 <code>salt/agents/roster_sample.json</code>, ready to copy, with one entry of each
 mode in it.</p>
+<h2 id="personas-roles-without-a-second-gpu">Personas: roles without a second GPU</h2>
+<p>A roster names weights. A persona names a way of working: the same
+model asked to explain, to write code, or to check a drafted reply.
+One persona is one markdown file, a few facts between two <code>---</code> lines
+and then the system prompt it works under.</p>
+<div class="highlight"><pre><span></span><code>---
+name: explainer
+worker: chat
+role: target
+notes: "teaching and explanation: step by step reasoning, analogies,
+<span class="gu">the why behind a fact, worked examples"</span>
+<span class="gu">---</span>
+You are the EXPLAINER helper. Walk the reasoning in steps a newcomer
+can follow.
+</code></pre></div>
+<p><code>worker</code> says whose weights the persona rides. Name a roster worker and
+the persona becomes another door to that server, with its own system
+prompt in front. Name <code>chat</code> and the persona rides the session's own
+chat model. That second form is the one that matters on a small
+machine: it needs no roster, no second server and no second GPU, so a
+laptop can still plan a turn out across an explainer and a coder. The
+pieces run one after another on the one model, and each piece still
+gets its own memory selection for its own part of the work.</p>
+<div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen3-4b-instruct-2507<span class="w"> </span>--personas<span class="w"> </span>samples<span class="w"> </span>--agent
+</code></pre></div>
+<p><code>--personas</code> takes a directory of <code>*.md</code> files, a single file, or the
+word <code>samples</code> for the three roles that ship with salt: an <code>explainer</code>
+and a <code>coder</code> the planner can hand pieces to, and a <code>checker</code> held back
+for verification. <code>/roster</code> lists what loaded. The planner reads each
+persona's <code>notes</code> to decide which piece goes where, so two personas
+described in the same words will never split a task between them: give
+each role its own vocabulary.</p>
+<p><code>role</code> is <code>target</code> for a persona the planner may pick, or <code>verify</code> for
+one that only checks. A verify persona is never handed a piece of the
+work, and a plan that names it is refused with the reason. Personas
+never displace the standing worker rules: the persona's prompt comes
+first and the worker instructions stay last, so quoted context remains
+material rather than instructions, whoever is reading it.</p>
 <h2 id="letting-the-session-write-the-roster">Letting the session write the roster</h2>
 <div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen3-8b<span class="w"> </span>--backend<span class="w"> </span>vllm-serve<span class="w"> </span>--roster<span class="w"> </span>auto
 </code></pre></div>

@@ -1473,6 +1473,11 @@ real session before it is trusted.</p>
 <td>JSON file naming the worker models this session may reach, listed by <code>/roster</code>. <code>auto</code> fits one from the registry and the memory free right now, and writes it to the session folder</td>
 </tr>
 <tr>
+<td><code>--personas PATH</code></td>
+<td>none</td>
+<td>load persona role files: a directory of <code>*.md</code> files, one file, or the word <code>samples</code> for the shipped set. Repeatable. Personas ride a roster worker or the chat model itself, so agents work on one GPU or none</td>
+</tr>
+<tr>
 <td><code>--workers-autostart</code></td>
 <td>off</td>
 <td>start the roster's spawn entries once the chat model is loaded, instead of waiting for <code>/worker start</code></td>
