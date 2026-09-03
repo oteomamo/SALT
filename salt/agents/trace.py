@@ -22,8 +22,9 @@ from pathlib import Path
 SCHEMA = "salt-agent-trace/1"
 TRACE_NAME = "agent_trace.jsonl"
 FIELDS = ("schema", "ask", "action", "subtasks", "pieces", "planning",
-          "synthesis", "protocol_failures", "fell_back", "answered_directly",
-          "rounds", "reply_words", "t_start", "t_end", "seconds", "route")
+          "synthesis", "verify", "protocol_failures", "fell_back",
+          "answered_directly", "rounds", "reply_words", "t_start", "t_end",
+          "seconds", "route")
 PIECE_FIELDS = ("id", "target", "status", "ran", "usage", "seconds")
 CALL_FIELDS = ("calls", "prompt_tokens", "cached_tokens")
 
