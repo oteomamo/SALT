@@ -760,16 +760,20 @@ def execute_together(state, subtasks, limits, on_result=None, switches=None):
         # the join is over and the round is sequential again, so a piece
         # whose worker went quiet or died gets its one re-run here, on
         # the session's thread - which is also why even a persona riding
-        # the chat model may take it
-        spent = sum(delegated_tokens(r) for r in results
-                    if r is not None and r.ran)
-        for index, subtask in enumerate(subtasks):
-            second = retarget(state, subtask, results[index], limits,
-                              [r for r in results if r is not None],
-                              spent, started, switches)
-            if second is not None:
-                results[index] = second
-                spent += delegated_tokens(second)
+        # the chat model may take it. UNLESS the round itself was
+        # stopped: a piece the stop flag cut reports timeout too, but
+        # what ran out was the round's allowance, not the worker, and a
+        # stopped round retries nothing
+        if not stop.is_set():
+            spent = sum(delegated_tokens(r) for r in results
+                        if r is not None and r.ran)
+            for index, subtask in enumerate(subtasks):
+                second = retarget(state, subtask, results[index], limits,
+                                  [r for r in results if r is not None],
+                                  spent, started, switches)
+                if second is not None:
+                    results[index] = second
+                    spent += delegated_tokens(second)
     if on_result is not None:
         for result in results:
             on_result(result)
