@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21176" class="md-nav__link">
+  <a href="#2110-21177" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.76
+        2.11.0 - 2.11.77
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21176" class="md-nav__link">
+  <a href="#2110-21177" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.76
+        2.11.0 - 2.11.77
       
     </span>
   </a>
@@ -1454,7 +1454,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21176">2.11.0 - 2.11.76</h2>
+<h2 id="2110-21177">2.11.0 - 2.11.77</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1667,6 +1667,11 @@ cover the tools, the roster and the limits.</p>
   for the second failure to condemn that worker. A call that reached
   nothing is the safest one to ask again, since no part of an answer
   can be duplicated by asking.</li>
+<li><strong>2.11.77</strong> Fix: the sample personas and a fitted roster no longer
+  warn about each other at launch. <code>--roster auto</code> described its
+  lookup helper with a word the sample explainer also uses, so the
+  warning about targets described alike fired on the combination that
+  ships. The helper is described in words of its own again.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
