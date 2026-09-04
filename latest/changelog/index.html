@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21175" class="md-nav__link">
+  <a href="#2110-21176" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.75
+        2.11.0 - 2.11.76
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21175" class="md-nav__link">
+  <a href="#2110-21176" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.75
+        2.11.0 - 2.11.76
       
     </span>
   </a>
@@ -1454,7 +1454,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21175">2.11.0 - 2.11.75</h2>
+<h2 id="2110-21176">2.11.0 - 2.11.76</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1662,6 +1662,11 @@ cover the tools, the roster and the limits.</p>
   which one the server took, and every schema-holding call goes out in
   that spelling, so planning and checking stay schema-guided across
   vLLM versions.</li>
+<li><strong>2.11.76</strong> Fix: a piece whose worker has vanished is re-run on
+  another helper the first time it cannot connect, instead of waiting
+  for the second failure to condemn that worker. A call that reached
+  nothing is the safest one to ask again, since no part of an answer
+  can be duplicated by asking.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
