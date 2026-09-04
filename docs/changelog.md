@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.77
+## 2.11.0 - 2.11.79
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -173,55 +173,34 @@ cover the tools, the roster and the limits.
   long sessions can repeat material. Tied to the sentence, the
   discount follows it wherever the tree puts it next. `/stats` counts
   the rows carrying discount.
-- **2.11.63** Fix: temperature 0 now means greedy decoding on the
-  local backend even when the model's registry entry turns sampling
-  on. Planning a turn asks for temperature 0, so `--agent` no longer
-  errors on its first plan against such a model.
-- **2.11.64 - 2.11.67** `--personas`. A persona is a markdown role
-  file riding a roster worker or the session's own chat model, so one
-  GPU, or none, is enough to plan a turn across an explainer and a
-  coder with no roster at all. The planner picks personas by their
-  notes, pieces riding the chat model run one after another with
-  their own memory selections, and a `verify` persona is never handed
-  work. Three samples ship, `/roster` lists what loaded, and the
-  [agents](agents.md) page covers the format.
-- **2.11.68** A refused `--roster auto` no longer ends the launch when
-  `--personas` is on: the fit arithmetic is printed as information and
-  the session carries on with the roles riding the chat model, so the
-  same command line gives fitted workers on a big machine and a
-  working agent layer on a small one.
-- **2.11.69** Fix: a target persona now counts as a helper when
-  `--agent` asks whether anyone is ready, so a session with personas
-  and no roster plans its turns instead of always answering alone.
-- **2.11.70** The checker. A `verify` persona now grades every planned
-  turn's written reply against the material it was written from and
-  reports `supported`, `partial` or `unsupported` with the issues it
-  can pin to an excerpt. The verdict is printed and kept in the trace,
-  the reply is never touched, and a checker that fails records
-  `skipped` and costs the turn nothing.
-- **2.11.72** A piece whose worker went quiet or died is re-run once
-  on a different set of weights, paid out of the same turn allowance,
-  with the first attempt's fate written on the answer. A piece that
-  failed twice is reported as missing instead of waited on.
-- **2.11.74** Launch warns when two plan targets, workers and personas
-  alike, are described in shared words: the planner picks helpers by
-  their notes, so two described alike never split a task. The warning
-  blocks nothing.
-- **2.11.75** Newer vLLM servers dropped `guided_json` for structured
-  outputs. The capability probe now asks in both spellings, remembers
-  which one the server took, and every schema-holding call goes out in
-  that spelling, so planning and checking stay schema-guided across
-  vLLM versions.
-- **2.11.76** Fix: a piece whose worker has vanished is re-run on
-  another helper the first time it cannot connect, instead of waiting
-  for the second failure to condemn that worker. A call that reached
-  nothing is the safest one to ask again, since no part of an answer
-  can be duplicated by asking.
-- **2.11.77** Fix: the sample personas and a fitted roster no longer
-  warn about each other at launch. `--roster auto` described its
-  lookup helper with a word the sample explainer also uses, so the
-  warning about targets described alike fired on the combination that
-  ships. The helper is described in words of its own again.
+- **2.11.63 - 2.11.69** `--personas`. A persona is a markdown role
+  file that rides a roster worker or the session's own chat model, so
+  one GPU, or none, is enough to plan a turn across an explainer and a
+  coder with no roster at all. Handing pieces to several servers is a
+  latency optimization: the decomposition, the memory selected for
+  each piece alone and the role each piece is answered in all survive
+  running them one at a time. A refused `--roster auto` therefore
+  keeps the agent layer instead of ending the launch, printing the
+  arithmetic it refused on. Three sample roles ship, `/roster` lists
+  what loaded, and temperature 0 now means greedy decoding so planning
+  works against a locally loaded model. The [agents](agents.md) page
+  covers the format.
+- **2.11.70 - 2.11.71** The checker. A `verify` persona grades every
+  planned turn's written reply against the material it was written
+  from and reports `supported`, `partial` or `unsupported` with the
+  issues it can pin to an excerpt. The verdict is printed and kept in
+  the trace, the reply is never touched, and a checker that fails
+  records `skipped` and costs the turn nothing.
+- **2.11.72 - 2.11.77** Planned turns that hold together on a real
+  machine. A piece whose helper went quiet, died, or could not be
+  reached at all is re-run once on a different set of weights, paid
+  out of the same turn allowance and carrying the first attempt's fate
+  on the answer, while a turn with nothing left retries nothing.
+  Launch warns when two helpers are described in shared words, since
+  the planner picks them by their notes, and the roles that ship no
+  longer trip that warning against a fitted roster. Schema-held calls
+  follow newer vLLM servers to `structured_outputs`, so planning and
+  checking stay schema-guided across versions.
 
 ## 2.10.0 - 2.10.123
 
