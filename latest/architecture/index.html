@@ -1456,6 +1456,7 @@ so it is the fastest way to find where a change belongs:</p>
 │ ┌────────────────────────────────────────────────────────────────────┐   │
 │ │              Agents - saltChat asking other models                 │   │
 │ │ roster: worker + orchestrator endpoints, each its own server       │   │
+│ │ personas: roles as files, riding a worker or the chat model itself │   │
 │ │ /offload one task · @NAME one turn · /agent plan, hand out, write  │   │
 │ │ every piece gets the trie selected for IT, committing nothing      │   │
 │ │ switch agent: rules over the session's own numbers set the switches│   │
@@ -1667,7 +1668,7 @@ the contract a client has reached.</p>
 it reach others without giving either of those up. This is not a layer
 beside the chat: it is the same session, the same trie and the same
 turn, with the question of who answers opened up.</p>
-<p>Four things arrived in order, and each one is the previous one asked a
+<p>Six things arrived in order, and each one is the previous one asked a
 harder question.</p>
 <p><strong>The roster</strong> names models a session may reach, one server each, and
 nothing is contacted until something asks. A worker is a model tasks can
@@ -1706,9 +1707,30 @@ with the switches to change for that call. Rules are written down as
 sentences about the session, read by a parser that only compares and
 never runs anything. A model can propose instead, and meets exactly the
 refusals a written rule meets.</p>
-<p>Every step of this is off until asked for. A session with no roster
-consults nobody, describes itself to nobody and costs one call a turn,
-byte for byte what it cost before any of this existed.</p>
+<p><strong>Personas</strong> ask what a helper actually is. A persona is a role written
+as a file: a description the planner chooses it by, and a system prompt
+the piece is answered under. It names the model it rides, which is
+either a roster worker or the session's own chat model. That is what
+puts a planned turn on a machine with one card, or with none. Handing
+pieces to several servers at once is a latency optimization and nothing
+more. Breaking a question into pieces, selecting memory for each piece
+alone, framing each piece in a role and checking what comes back are the
+reasons to plan a turn at all, and every one of them survives running
+the pieces one at a time on the same weights. So a session fits a roster
+to the cards when they allow it and keeps the same agent layer with the
+roles riding the chat model when they do not, and it prints which of the
+two it did and the arithmetic it did it on.</p>
+<p><strong>The checker</strong> reads a reply back against what it was written from. A
+persona whose role is to verify is never handed a piece of work. It is
+shown the memory the reply was written from, what the helpers answered
+and the draft itself, and it answers with a verdict on whether the draft
+is supported, plus the issues it can pin to an excerpt. It never edits
+the reply and it never answers the question. Loading such a role is the
+whole of turning it on, and a check that cannot be completed is recorded
+as skipped and costs the turn nothing.</p>
+<p>Every step of this is off until asked for. A session that asks for none
+of it consults nobody, describes itself to nobody and costs one call a
+turn, byte for byte what it cost before any of this existed.</p>
 <h2 id="tail-aware-memory-selection">Tail-aware memory selection</h2>
 <p>The prompt already carries the last exchanges verbatim, and selection
 used to treat those same sentences as fair candidates. They match the
@@ -1794,7 +1816,7 @@ skip stands down rather than hand the model an empty memory block.
 <td><code>salt/mcp/server.py</code>, <code>salt/mcp/pool.py</code>, <code>salt/mcp/agents.py</code></td>
 </tr>
 <tr>
-<td>Agents (roster, delegation, orchestrator, switch policy)</td>
+<td>Agents (roster, personas, delegation, orchestrator, switch policy)</td>
 <td><code>salt/agents/</code></td>
 </tr>
 <tr>
