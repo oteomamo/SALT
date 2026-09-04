@@ -171,6 +171,7 @@ so it is the fastest way to find where a change belongs:
 │ ┌────────────────────────────────────────────────────────────────────┐   │
 │ │              Agents - saltChat asking other models                 │   │
 │ │ roster: worker + orchestrator endpoints, each its own server       │   │
+│ │ personas: roles as files, riding a worker or the chat model itself │   │
 │ │ /offload one task · @NAME one turn · /agent plan, hand out, write  │   │
 │ │ every piece gets the trie selected for IT, committing nothing      │   │
 │ │ switch agent: rules over the session's own numbers set the switches│   │
@@ -202,7 +203,7 @@ Where each stage lives:
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |
-| Agents (roster, delegation, orchestrator, switch policy) | `salt/agents/` |
+| Agents (roster, personas, delegation, orchestrator, switch policy) | `salt/agents/` |
 | Multi-GPU placement (`--gpu` list) | `salt/chat/runner.py`, `salt/chat/serve.py` |
 | CLI entry points | `salt` (`salt/compress.py`), `eval.py`, `saltChat`, `saltServe`, `salt-mcp` |
 
