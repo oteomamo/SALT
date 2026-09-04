@@ -98,7 +98,10 @@ class Job:
     given, so the descriptions are written from vocabularies that do not
     meet and ``check_notes`` holds them to it. The two clauses are added
     from what the model turned out to be, and they are written in the
-    job's own words for the same reason.
+    job's own words for the same reason. A fitted worker and a loaded
+    persona are shown to the planner side by side and warned about
+    together, so the vocabularies also stay clear of the words a helper
+    describing its own competence reaches for.
     """
     name: str
     window: int
@@ -118,7 +121,7 @@ JOBS = (
         "short factual lookups: dates, names, numbers, and one line "
         "answers pulled straight out of the memory it is handed.",
         " Its server tops out at {window} of context.",
-        " Replies straight away, with no reasoning."),
+        " Replies straight away, without thinking out loud."),
 )
 
 # words that describe nothing, so two notes sharing one share nothing.

@@ -9312,10 +9312,35 @@ def check_note_overlap(tmp):
     assert cli.overlap_warnings(roster, {other.name: other}) == []
     assert cli.overlap_warnings(None, {p.name: p for p in (twin, other)}) \
         == []
+
+    # AND THE SHIPPED COMBINATION DOES NOT WARN ON ITSELF. A fitted roster
+    # beside the sample personas is what a person gets with no files of
+    # their own, and the fit adds its clauses or not from what the model
+    # turned out to be, so every combination of them has to stay clear of
+    # the words a sample uses
+    shipped = {s.name: s for s in P.load_personas([str(P.sample_dir())])}
+    assert [n for n, s in shipped.items() if s.is_target], shipped
+    for clamped in (False, True):
+        for plain in (False, True):
+            fitted = []
+            for job in PV.JOBS:
+                note = job.notes
+                if clamped:
+                    note += job.clamped.format(window=8192)
+                if plain:
+                    note += job.plain
+                fitted.append(R.RosterEntry(
+                    name=job.name, alias="stub", role="worker",
+                    server_url="http://127.0.0.1:1", notes=note))
+            assert cli.overlap_warnings(
+                R.Roster(path="r", entries=tuple(fitted)), shipped) == [], (
+                f"a fitted roster (clamped {clamped}, plain {plain}) and "
+                f"the sample personas are described in shared words")
     print("85. overlapping notes: worker and persona targets described "
           "in shared words are named in a launch warning with the words "
           "that collide, verify personas and empty notes stay out of "
-          "it, and nothing is refused")
+          "it, nothing is refused, and the shipped personas beside a "
+          "fitted roster warn on nothing whatever the fit wrote down")
 
 
 def check_structured_probe(tok_path):

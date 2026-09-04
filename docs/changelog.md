@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.76
+## 2.11.0 - 2.11.77
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -217,6 +217,11 @@ cover the tools, the roster and the limits.
   for the second failure to condemn that worker. A call that reached
   nothing is the safest one to ask again, since no part of an answer
   can be duplicated by asking.
+- **2.11.77** Fix: the sample personas and a fitted roster no longer
+  warn about each other at launch. `--roster auto` described its
+  lookup helper with a word the sample explainer also uses, so the
+  warning about targets described alike fired on the combination that
+  ships. The helper is described in words of its own again.
 
 ## 2.10.0 - 2.10.123
 
