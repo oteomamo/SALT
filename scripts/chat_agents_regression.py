@@ -1522,10 +1522,16 @@ def check_delegation_call(tmp, tok, mdl):
         dead.stop()
         before, tail_before = trie_snapshot(state.trie), list(state.tail)
         _, first = run_delegation(state, task="anyone there", target="w")
+        # the status is a fact about the CALL, not about the handle: the
+        # worker is still on its two-failure allowance here, and the piece
+        # is already as unanswered as one from a condemned worker
+        assert state.worker("w").state != DEAD, (
+            "one refused connection condemned the worker")
         _, again = run_delegation(state, task="anyone there", target="w")
-        assert (first.status, again.status) == ("error", "dead"), (
+        assert (first.status, again.status) == ("dead", "dead"), (
             f"a vanished worker read {first.status} then {again.status}, "
-            f"expected one failure to be survivable and the second not")
+            f"expected a refused connection to read as never answered from "
+            f"the first call, which is what a round retries")
         assert state.worker("w").state == DEAD, state.worker("w").state
         assert again.error, "a dead worker came back with no reason"
         for res in (first, again):
@@ -9146,9 +9152,31 @@ def check_verify(tmp):
 def check_retarget(tmp):
     """A piece whose worker went quiet or died gets one more try on
     different weights, once, under what is left of the turn."""
+    import requests
+
     from salt.agents import orchestrator as O
     from salt.agents import personas as P
-    from salt.agents.delegate import DelegationResult
+    from salt.agents.delegate import DelegationResult, failure_status
+    from salt.agents.worker import READY, WorkerError
+
+    # WHAT OPENS THE GATE. A worker that vanished refuses the connection,
+    # and that is reported as never answered from the first call rather
+    # than after the failure count reaches the handle's allowance: nothing
+    # arrived, so nothing is duplicated by asking somebody else
+    class Cold:
+        state = READY
+
+    refused = requests.exceptions.ConnectionError("connection refused")
+    wrapped = WorkerError("worker 'w': refused")
+    wrapped.__cause__ = refused
+    stalled = WorkerError("worker 'w' sent nothing")
+    stalled.__cause__ = requests.exceptions.ReadTimeout("quiet")
+    for exc in (refused, wrapped):
+        assert failure_status(Cold(), exc) == "dead", exc
+        assert failure_status(Cold(), exc) in O.RETRY_STATUSES, exc
+    assert failure_status(Cold(), stalled) == "timeout", stalled
+    assert failure_status(Cold(), WorkerError("refused the request")) == \
+        "error", "a server that answered with an error read as unreachable"
 
     class Handle:
         def __init__(self, entry, open_=True):
@@ -9245,11 +9273,11 @@ def check_retarget(tmp):
         assert results[1].ok, results[1]
     finally:
         O.delegate = real
-    print("84. re-targeting: a quiet or dead piece is re-run once on "
-          "different weights with the first attempt's fate written on "
-          "the answer, personas on the same worker never count as "
-          "different, a spent turn buys no retry, and the plan's order "
-          "and length hold")
+    print("84. re-targeting: a piece that went quiet, found its worker "
+          "dead or could not connect at all is re-run once on different "
+          "weights with the first attempt's fate written on the answer, "
+          "personas on the same worker never count as different, a spent "
+          "turn buys no retry, and the plan's order and length hold")
 
 
 def check_note_overlap(tmp):

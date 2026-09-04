@@ -344,7 +344,10 @@ count.
 
 Inside a planned turn a piece that timed out or found its worker dead
 gets one more try, on a different set of weights: another worker, or a
-persona riding one, whichever opens right now. Two personas on one
+persona riding one, whichever opens right now. A call that could not
+connect at all counts as dead here from the first one, before the two
+failures that condemn the worker, because nothing arrived and so nothing
+is duplicated by asking somebody else. Two personas on one
 worker never count as different, since they are one queue under two
 names. The re-run's answer stands in the piece's place with the first
 attempt's fate written on it, it is paid for out of the same turn
@@ -403,9 +406,10 @@ worker had said by then is still shown.
 
 A delegation ends in one of five ways, and the status line says which:
 `ok` when the worker answered, `timeout` when it went quiet mid-reply and
-is still usable, `dead` when it has stopped answering at all, `aborted`
-when you interrupted it, and `error` for everything else, including a
-server that refused the request. Only `ok` leaves anything behind. A
+is still usable, `dead` when nothing was reached at all, whether the
+worker was already given up on or the connection was refused outright,
+`aborted` when you interrupted it, and `error` for everything else,
+including a server that answered the request with an error. Only `ok` leaves anything behind. A
 delegation that ended any other way never touches the conversation's
 memory, even with `--offload-ingest` on, because there is no answer to
 remember.

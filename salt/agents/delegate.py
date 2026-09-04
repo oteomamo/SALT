@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from salt.agents.thinking import ThinkGuard, gen_kwargs, settle
-from salt.agents.worker import DEAD, WorkerError, is_read_timeout
+from salt.agents.worker import (DEAD, WorkerError, is_connection_error,
+                                is_read_timeout)
 
 INSTRUCTIONS_PATH = Path(__file__).resolve().parent / "worker_instructions.md"
 FALLBACK_INSTRUCTIONS = (
@@ -338,9 +339,21 @@ def close_quietly(stream, attempts=CLOSE_ATTEMPTS):
 
 def failure_status(handle, exc):
     """Which kind of failure this was, from the state the worker is in
-    rather than from the wording of the message."""
-    if is_read_timeout(getattr(exc, "__cause__", None)):
+    rather than from the wording of the message.
+
+    A connection that was never made reads as never answered whatever
+    the handle's two-failure allowance says. Nothing arrived, so the
+    piece is as unanswered as one from a worker already condemned, and
+    a round that can offer it to somebody else should: the first
+    casualty of a worker that vanished is the safest thing there is to
+    ask again, for the same reason a refused connection is the one
+    shape a call retries by itself.
+    """
+    cause = getattr(exc, "__cause__", None)
+    if is_read_timeout(cause):
         return "timeout"
+    if is_connection_error(exc) or is_connection_error(cause):
+        return "dead"
     return "dead" if handle.state == DEAD else "error"
 
 
