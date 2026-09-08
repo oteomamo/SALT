@@ -44,9 +44,8 @@ sentences, so minor themes keep their share instead of being crowded out.
 Because the theme map is built once, it can be reused across the turns of a
 conversation without re-reading the document.
 
-> The legacy selector described in the paper is tagged
-> [`v1.0.0`](https://github.com/oteomamo/SALT/releases/tag/v1.0.0). `main` now
-> defaults to the coverage/CELF selector described below.
+> The legacy selector described in the paper now defaults to the coverage/CELF
+> selector described below.
 
 ## 📑 Table of contents
 
