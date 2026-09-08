@@ -30,20 +30,19 @@ model, keeping the sentences that carry the most information. It works with any
 model, produces a shorter plain-text prompt, and cuts the compute, memory, and
 wait time that long inputs cost.
 
-**The problem.** When a prompt is too long, existing compressors give each
-sentence a single relevance score and keep the top-scoring ones until the budget
-runs out. Under a tight budget this lets the document's main topic swallow the
-whole budget, so smaller but still important points get dropped - a failure
-called *theme collapse* (in multi-hop questions, for example, it can keep
-passages about the main entity yet lose the one sentence that links it to a
-second).
+When a prompt is too long, existing compressors give each sentence a single
+relevance score and keep the top-scoring ones until the budget runs out. Under a
+tight budget this lets the document's main topic swallow the whole budget, so
+smaller but still important points get dropped - a failure called *theme
+collapse* (in multi-hop questions, for example, it can keep passages about the
+main entity yet lose the one sentence that links it to a second).
 
-**The solution.** SALT first maps the document's recurring themes by organizing
-each sentence's keywords into a trie, a small keyword tree ordered by how often
-those keywords recur, then spreads the budget across those theme branches
-before choosing sentences, so minor themes keep their share instead of being
-crowded out. Because the theme map is built once, it can be reused across the
-turns of a conversation without re-reading the document.
+SALT first maps the document's recurring themes by organizing each sentence's
+keywords into a trie, a small keyword tree ordered by how often those keywords
+recur, then spreads the budget across those theme branches before choosing
+sentences, so minor themes keep their share instead of being crowded out.
+Because the theme map is built once, it can be reused across the turns of a
+conversation without re-reading the document.
 
 > The legacy selector described in the paper is tagged
 > [`v1.0.0`](https://github.com/oteomamo/SALT/releases/tag/v1.0.0). `main` now
