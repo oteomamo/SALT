@@ -89,7 +89,7 @@ Memory sizing:
 | Flag | Default | What it does |
 |---|---|---|
 | `--budget-pct P` | `0.20` | share of the remembered words the memory block may use |
-| `--memory-cap N\|auto\|off` | `auto` | absolute ceiling on the block, fitted to the model's window |
+| `--memory-cap N\|auto\|window\|off` | `auto` | absolute ceiling on the block, fitted to the model's window and never above 4096 tokens |
 
 Behavior already on by default:
 

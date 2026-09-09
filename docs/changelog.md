@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.79
+## 2.11.0 - 2.11.86
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -201,6 +201,11 @@ cover the tools, the roster and the limits.
   longer trip that warning against a fitted roster. Schema-held calls
   follow newer vLLM servers to `structured_outputs`, so planning and
   checking stay schema-guided across versions.
+- **2.11.86** A memory ceiling in tokens. `--memory-cap auto`, the
+  default, still fits the block to the model's window and now also
+  stops at 4096 tokens, so a long session or a huge document no longer
+  fills the window with memory. `--memory-cap window` keeps the window
+  fit alone.
 
 ## 2.10.0 - 2.10.123
 

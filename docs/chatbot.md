@@ -182,10 +182,12 @@ behind.
 A `salt@` file becomes **its own branch** of the session trie, hanging off the
 conversation's root - so multiple attachments never crowd each other out, and
 the per-turn budget (default 20%) spreads across files and conversation
-themes. The percentage is bounded by what actually fits the model's
-window: `--memory-cap auto` (the default) sizes the block to the space
-left after the fixed prompt, and `--memory-cap off` restores the old
-unbounded sizing. An `attach@` file skips the trie entirely: its full text
+themes. The percentage is bounded twice: `--memory-cap auto` (the default)
+sizes the block to the space left after the fixed prompt and never lets it
+pass 4096 tokens, so a huge document cannot fill the window with memory.
+`--memory-cap window` keeps only the window fit, and `--memory-cap off`
+restores the old unbounded sizing. An `attach@` file skips the trie
+entirely: its full text
 rides uncompressed in every prompt.
 
 ## How PDFs are cleaned
@@ -320,8 +322,8 @@ page lists them all with when to reach for each. In concept:
   material. Tied to the sentence itself, the discount follows it
   wherever the tree puts it next.
 - **Ceiling.** `--memory-cap auto` (the default) fits the memory block
-  to the space the model's window actually has left, instead of a
-  percentage that grows without bound.
+  to the space the model's window actually has left and stops at 4096
+  tokens, instead of a percentage that grows without bound.
 - **Short turns.** Terse decisions like "go with option B" stay in
   memory by default, and `--short-turns fuse` stores a bare "yes"
   together with the question it answers, so the decision is findable

@@ -76,10 +76,12 @@ SESSION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # seam: system-prompt wording is a later tuning knob
 SYSTEM_PROMPT = "You are a helpful assistant."
 
-# --memory-cap auto: tokens held back for the reply framing, and the floor
-# that keeps the memory block from collapsing when the window is tight.
-# The tokens-per-word seed is refined per session by an EMA of the real
-# measured ratio, so the cap self-corrects for the active tokenizer.
+# --memory-cap auto: the ceiling the block never exceeds, tokens held
+# back for the reply framing, and the floor that keeps the block from
+# collapsing when the window is tight. The tokens-per-word seed is
+# refined per session by an EMA of the real measured ratio, so the cap
+# self-corrects for the active tokenizer.
+MEMORY_CAP_AUTO_TOKENS = 4096
 MEMORY_CAP_RESERVE = 256
 MEMORY_CAP_FLOOR_WORDS = 64
 TOKENS_PER_WORD_SEED = 1.6
@@ -603,9 +605,10 @@ def normalize_budget(val):
 
 
 def parse_memory_cap(val):
-    """'off', 'auto', or a positive token count; None when unparseable."""
+    """'off', 'auto', 'window', or a positive token count; None when
+    unparseable."""
     v = str(val or "").strip().lower()
-    if v in ("off", "auto"):
+    if v in ("off", "auto", "window"):
         return v
     try:
         n = int(v)
@@ -2504,25 +2507,39 @@ def prompt_fixed_tokens(state):
     return None if tail_n is None else fixed + tail_n
 
 
+def window_fit_tokens(state, user_line=""):
+    """Tokens the window has left for the memory block after the fixed
+    prompt, the user line and a reply reserve; None when no runner is
+    loaded or the fixed cost is unknowable."""
+    if state.runner is None:
+        return None
+    limit = state.runner.input_budget()
+    fixed = prompt_fixed_tokens(state)
+    if not limit or fixed is None:
+        return None
+    line_tokens = state.count_tokens(user_line) or 0
+    return int(limit) - fixed - MEMORY_CAP_RESERVE - line_tokens
+
+
 def memory_word_cap(state, user_line=""):
     """Word ceiling for the memory block, or None when the cap is off or
     the inputs are unknowable. 'auto' fits the block to what the window
-    has left after the fixed prompt, the user line and a reply reserve;
-    an integer cap converts that many tokens directly. Either way the
+    has left and never exceeds MEMORY_CAP_AUTO_TOKENS, which also holds
+    when no window is known; 'window' is the window fit alone; an
+    integer cap converts that many tokens directly. Either way the
     token count becomes words via the session's measured tokens-per-word
     ratio, floored so the block never collapses to nothing."""
     cap = state.memory_cap
     if cap in (None, "off"):
         return None
     if cap == "auto":
-        if state.runner is None:
+        fit = window_fit_tokens(state, user_line)
+        tokens = (MEMORY_CAP_AUTO_TOKENS if fit is None
+                  else min(fit, MEMORY_CAP_AUTO_TOKENS))
+    elif cap == "window":
+        tokens = window_fit_tokens(state, user_line)
+        if tokens is None:
             return None
-        limit = state.runner.input_budget()
-        fixed = prompt_fixed_tokens(state)
-        if not limit or fixed is None:
-            return None
-        line_tokens = state.count_tokens(user_line) or 0
-        tokens = int(limit) - fixed - MEMORY_CAP_RESERVE - line_tokens
     else:
         tokens = int(cap)
     words = int(tokens / max(state.tokens_per_word, 0.1))
@@ -3369,12 +3386,15 @@ def build_parser():
                         "memory)")
     p.add_argument("--budget-pct", type=float, default=0.20,
                    help="token budget for the compressed memory block")
-    p.add_argument("--memory-cap", default="auto", metavar="N|auto|off",
+    p.add_argument("--memory-cap", default="auto",
+                   metavar="N|auto|window|off",
                    help="absolute ceiling on the compressed memory block, "
                         "in tokens. 'auto' fits the block to the space the "
                         "model's window has left after the fixed prompt "
-                        "and a reply reserve, a number caps it at that "
-                        "many tokens, 'off' restores the old unbounded "
+                        "and a reply reserve and never exceeds "
+                        f"{MEMORY_CAP_AUTO_TOKENS} tokens, 'window' is the "
+                        "window fit alone, a number caps it at that many "
+                        "tokens, 'off' restores the old unbounded "
                         "percentage sizing (default: auto)")
     p.add_argument("--doc", action="append", default=[], metavar="PATH",
                    help="text or PDF file to ingest into the trie at startup "
@@ -3786,8 +3806,8 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
 
     if parse_memory_cap(args.memory_cap) is None:
-        print("--memory-cap must be 'off', 'auto', or a positive token "
-              "count", file=sys.stderr)
+        print("--memory-cap must be 'off', 'auto', 'window', or a "
+              "positive token count", file=sys.stderr)
         return 1
 
     try:

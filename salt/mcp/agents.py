@@ -63,7 +63,7 @@ class DelegationState:
         self.bge_model = engine.model
         self.bge_device = engine.device
         # there is no chat model in this process, so there is no window to
-        # fit the block to: the budget is the only thing bounding it
+        # fit the block to: the budget and the auto ceiling bound it
         self.runner = None
         self.memory_cap = args.memory_cap
         self.tokens_per_word = 1.0

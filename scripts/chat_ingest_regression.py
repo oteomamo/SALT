@@ -255,9 +255,11 @@ def main():
     # stub runner, explicit int conversion, and the floor
     import types as _types
     from salt.chat.cli import (MEMORY_CAP_FLOOR_WORDS, memory_word_cap,
-                               parse_memory_cap, prompt_fixed_tokens)
+                               parse_memory_cap, prompt_fixed_tokens,
+                               MEMORY_CAP_AUTO_TOKENS)
     assert parse_memory_cap("off") == "off"
     assert parse_memory_cap("auto") == "auto"
+    assert parse_memory_cap("window") == "window"
     assert parse_memory_cap("4000") == 4000
     assert parse_memory_cap("-3") is None and parse_memory_cap("x") is None
 
@@ -278,18 +280,31 @@ def main():
     assert memory_word_cap(stub) is None, "off must disable the cap"
     fixed = prompt_fixed_tokens(stub)
     assert fixed and fixed > 5, "fixed cost missed the prompt components"
-    stub.memory_cap = "auto"
+    stub.memory_cap = "window"
     wide = memory_word_cap(stub, "the user line")
     assert wide and wide > MEMORY_CAP_FLOOR_WORDS, wide
+    stub.memory_cap = "auto"
+    ceiling = int(MEMORY_CAP_AUTO_TOKENS / 1.6)
+    assert memory_word_cap(stub, "the user line") == ceiling, (
+        "auto on a wide window must stop at the ceiling")
+    assert wide > ceiling, "the window fit must sit above the ceiling here"
     stub.runner = _StubRunner(fixed + 100)
     stub._fixed_tokens_cache = None
     tight = memory_word_cap(stub, "the user line")
     assert tight == MEMORY_CAP_FLOOR_WORDS, (
         f"a tight window must land on the floor, got {tight}")
+    stub.memory_cap = "window"
+    assert memory_word_cap(stub, "the user line") == MEMORY_CAP_FLOOR_WORDS
+    stub.runner = None
+    assert memory_word_cap(stub) is None, "window needs a runner"
+    stub.memory_cap = "auto"
+    assert memory_word_cap(stub) == ceiling, (
+        "auto without a runner must still apply the ceiling")
     stub.memory_cap = 320
     assert memory_word_cap(stub) == int(320 / 1.6)
-    print("memory cap: off/auto/int parse and convert, auto fits the "
-          "window, floor holds when the window is tight")
+    print("memory cap: off/auto/window/int parse and convert, auto fits "
+          "the window under the ceiling, window fits alone, floor holds "
+          "when the window is tight")
 
     print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
     tok, mdl = load_bge(BGE_MODEL, args.device)
