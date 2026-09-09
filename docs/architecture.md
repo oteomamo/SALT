@@ -1,5 +1,9 @@
 # 🧩 Architecture
 
+**How saltChat remembers a conversation.**
+
+![saltChat building one conversation memory across seven sources, selecting sentences per turn, and feeding three models](assets/saltchat.webp)
+
 **Why SALT exists.** When a prompt is too long, most compressors give
 each sentence one relevance score and keep the top scorers until the
 budget runs out. Under a tight budget the document's main topic
