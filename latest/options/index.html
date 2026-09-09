@@ -1614,6 +1614,21 @@ real session before it is trusted.</p>
 <td>off</td>
 <td>show in <code>/stats</code> how each branch of the memory trie, every attached file and the conversation, relates to the last question</td>
 </tr>
+<tr>
+<td><code>--scope off\|auto</code></td>
+<td><code>off</code></td>
+<td><code>auto</code> searches only the attached files a question is about, plus the conversation, and sizes the block from the words in that scope</td>
+</tr>
+<tr>
+<td><code>--scope-margin M</code></td>
+<td><code>0.02</code></td>
+<td>under <code>--scope auto</code>, how far below the best file's whole-file similarity a file may sit and stay in scope</td>
+</tr>
+<tr>
+<td><code>--scope-peak-margin M</code></td>
+<td><code>0.10</code></td>
+<td>under <code>--scope auto</code>, how far below the best file's best-sentence similarity a file may sit and stay in scope</td>
+</tr>
 </tbody>
 </table>
 <p>Behavior already on by default:</p>

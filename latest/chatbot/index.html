@@ -741,6 +741,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-a-turn-searches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a turn searches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-pdfs-are-cleaned" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1410,6 +1421,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-a-turn-searches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a turn searches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-pdfs-are-cleaned" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1734,6 +1756,22 @@ every query turn, <code>/stats</code> lists the conversation and each attached f
 with two similarities to the question, the branch as a whole and its
 best single sentence, plus how many of the question's keywords and names
 appear in it. Prompts and selection do not change.</p>
+<h2 id="where-a-turn-searches">Where a turn searches</h2>
+<p>With several files attached, a question about one of them used to draw
+its memory block from all of them, and the block grew with every file
+added. <code>--scope auto</code> keeps, for each question, the attached files whose
+content as a whole is about the question or holds a strong match for it,
+or that carry the most of the question's names, plus the conversation,
+which is always searched. The other files stay out of that turn's
+selection, and the block is sized from the words inside the scope rather
+than the whole session, with a floor so a short file is still read.
+Nothing about the files changes: the next question is routed again from
+scratch. Two margins set how close to the best file a file must be to
+stay in, <code>--scope-margin</code> for the whole-file similarity and
+<code>--scope-peak-margin</code> for the best-sentence one, and <code>/stats</code> prints
+which files the last turn searched, which it kept out, the words in
+scope and the budget. A session without attachments is not routed and
+selects exactly as before.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole and cleaned into proper sentences before
 they reach the trie: headers, footers and reference lists go, broken
