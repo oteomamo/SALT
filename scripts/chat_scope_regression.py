@@ -23,8 +23,17 @@ query and the seam that lets a caller encode the query once. Groups:
      off session reports no branch rows, the on session reports one row
      per branch with the asserted keys, and /stats differs only by the
      branch block.
+  D. SCOPE CANDIDACY - compress(scope_sources=...) never selects a row
+     outside the named branches, takes the budget fraction of the words
+     inside them, reports the rows it kept out, composes with tail
+     exclusion, and under stable_keys a coverage key carried only by an
+     out-of-scope branch survives the commit untouched (the commit-
+     universe union).
+  E. SCOPE IDENTITY - naming every branch selects exactly what no scope
+     selects, and a scope no living row belongs to is ignored outright;
+     stats agree except for the three scope fields.
 
-Groups B and C need the BGE encoder (downloaded to the HF cache on first
+Groups B to E need the BGE encoder (downloaded to the HF cache on first
 use). CPU is the default device; the run takes about a minute.
 
 Usage:
@@ -45,7 +54,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import salt.engine.session_trie as st_mod
-from salt.engine.session_trie import BRANCH_KEYS, SessionTrie
+from salt.engine.session_trie import (BRANCH_KEYS, FILE_TOKEN_PREFIX,
+                                      SessionTrie)
 
 if not __debug__:
     sys.exit("run without -O: this harness is assert-based")
@@ -73,6 +83,8 @@ DOC_TEXT = (
     "Rain sensors pause the irrigation schedule after heavy rainfall. "
     "The pump pressure for the drip system stays near two bar.")
 QUERY = "What did we decide about the solar inverter?"
+DOC_QUERY = "How long does the timer valve open the drip line?"
+SCOPE_STATS = ("scope_branches", "scope_words", "scope_excluded")
 
 
 def hand_built(tmp):
@@ -202,6 +214,88 @@ def check_passthrough(tmp, tok, mdl, device, budget):
           "costs the compressor no encoder call")
 
 
+def check_scope_candidacy(tmp, tok, mdl, device, budget):
+    trie = build_session("scope_cand", tmp, tok, mdl, device)
+    kw = dict(budget_pct=budget, tokenizer=tok, model=mdl, device=device,
+              defer_commit=True)
+    doc_rows = {i for i in range(trie.n_sentences)
+                if trie.sources[i] == DOC_NAME}
+    conv_rows = set(range(trie.n_sentences)) - doc_rows
+    assert doc_rows and conv_rows
+    conv_words = sum(trie.n_words[i] for i in conv_rows)
+    doc_words = sum(trie.n_words[i] for i in doc_rows)
+
+    c = trie.compress(QUERY, scope_sources={None}, **kw)
+    assert c["selected_sent_idx"], "a conversation-only scope selected nothing"
+    assert not set(c["selected_sent_idx"]) & doc_rows, (
+        "a scoped turn selected outside its scope")
+    s = c["stats"]
+    assert (s["scope_branches"], s["scope_excluded"], s["scope_words"]) == (
+        1, len(doc_rows), conv_words), s
+    assert s["word_budget"] == int(conv_words * budget), s
+
+    d = trie.compress(DOC_QUERY, scope_sources={DOC_NAME}, **kw)
+    assert d["selected_sent_idx"] and set(d["selected_sent_idx"]) <= doc_rows
+    assert d["stats"]["scope_words"] == doc_words, d["stats"]
+    assert d["stats"]["word_budget"] == int(doc_words * budget), d["stats"]
+
+    excl = set(sorted(conv_rows)[-4:])
+    e = trie.compress(QUERY, scope_sources={None}, exclude_sent_idx=excl, **kw)
+    assert not set(e["selected_sent_idx"]) & (doc_rows | excl), (
+        "scope and tail exclusion did not compose")
+    assert (e["stats"]["scope_excluded"], e["stats"]["excluded_sent"]) == (
+        len(doc_rows), len(excl)), e["stats"]
+
+    t2 = build_session("scope_keys", tmp, tok, mdl, device)
+    t2.compress(DOC_QUERY, budget, tokenizer=tok, model=mdl, device=device,
+                stable_keys=True)
+    held = {k: v for k, v in t2.coverage.items()
+            if any(x.startswith(FILE_TOKEN_PREFIX) for x in k)}
+    assert held, "the priming turn persisted no document key"
+    out = t2.compress(QUERY, budget, tokenizer=tok, model=mdl, device=device,
+                      stable_keys=True, scope_sources={None})
+    assert out["stats"]["scope_excluded"] == len(doc_rows), out["stats"]
+    for k, v in held.items():
+        assert k in t2.coverage and abs(t2.coverage[k] - v) < 1e-9, (
+            f"a document key did not survive a conversation-only scope: "
+            f"{sorted(k)}")
+    print("D. scope candidacy: nothing selected outside the scope, the "
+          "budget taken of the words in scope, the kept-out rows reported, "
+          "tail exclusion composes, and out-of-scope keys survive the "
+          "stable-keys commit")
+
+
+def check_scope_identity(tmp, tok, mdl, device, budget):
+    a = build_session("scope_id_a", tmp, tok, mdl, device)
+    b = build_session("scope_id_b", tmp, tok, mdl, device)
+    c = build_session("scope_id_c", tmp, tok, mdl, device)
+    kw = dict(budget_pct=budget, tokenizer=tok, model=mdl, device=device)
+    out_a = a.compress(QUERY, **kw)
+    out_b = b.compress(QUERY, scope_sources={None, DOC_NAME}, **kw)
+    out_c = c.compress(QUERY, scope_sources={"nothing.txt"}, **kw)
+
+    def core(stats):
+        return {k: v for k, v in comparable(stats).items()
+                if k not in SCOPE_STATS}
+
+    for out, what in ((out_b, "every branch named"),
+                      (out_c, "a scope no row belongs to")):
+        assert out["selected_sent_idx"] == out_a["selected_sent_idx"], what
+        assert out["context"] == out_a["context"], what
+        assert core(out["stats"]) == core(out_a["stats"]), what
+    assert out_a["stats"]["scope_branches"] is None
+    assert out_a["stats"]["scope_words"] is None
+    assert out_a["stats"]["scope_excluded"] == 0
+    assert out_b["stats"]["scope_words"] == a.live_words, out_b["stats"]
+    assert out_b["stats"]["scope_excluded"] == 0, out_b["stats"]
+    assert out_c["stats"]["scope_words"] is None, out_c["stats"]
+    assert out_c["stats"]["scope_excluded"] == 0, out_c["stats"]
+    assert a.coverage == b.coverage == c.coverage
+    print("E. scope identity: every branch named and an empty scope both "
+          "select exactly what no scope selects, with only the scope "
+          "fields differing in stats")
+
+
 class _FakeRunner:
     """Answers from a script and keeps every prompt: the turn path needs
     a tokenizer, a window and a stream, nothing else."""
@@ -302,6 +396,8 @@ def main():
         tok, mdl = load_bge(BGE_MODEL, args.device)
         check_passthrough(tmp, tok, mdl, args.device, args.budget)
         check_branch_stats_flag(tmp, tok, mdl, args.device)
+        check_scope_candidacy(tmp, tok, mdl, args.device, args.budget)
+        check_scope_identity(tmp, tok, mdl, args.device, args.budget)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

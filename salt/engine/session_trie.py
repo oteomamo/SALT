@@ -973,7 +973,8 @@ class SessionTrie:
                  coverage_max_keys=None, defer_commit=False,
                  exclude_sent_idx=None, query_identifiers=False,
                  episode_gap=None, assistant_weight=None,
-                 row_coverage=False, query_embedding=None):
+                 row_coverage=False, query_embedding=None,
+                 scope_sources=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -1059,6 +1060,19 @@ class SessionTrie:
         that scores the branches with branch_scores() and then selects
         pays the encoder once. Default None encodes the query here,
         exactly as before.
+
+        `scope_sources` (opt-in): the branches this call may select
+        from, as a set of source names with None standing for the
+        conversation. Rows outside it leave CANDIDACY the way tail rows
+        do, and their node keys join the same commit universe, so the
+        profile, the trie ordering and every piece of coverage
+        bookkeeping still see the full living corpus. The budget's base
+        becomes the living words inside the scope, so the fraction is
+        taken of what may be read. A scope that would empty the
+        candidate set is ignored like an emptying exclusion. Stats
+        report `scope_branches`, `scope_words` (the living words in
+        scope, None when no scope applied) and `scope_excluded`.
+        Default None reproduces today's selection exactly.
 
         `query_identifiers` (opt-in): also hand the lexical query
         channel the query's identifier-shaped tokens — dates, versions,
@@ -1236,13 +1250,54 @@ class SessionTrie:
             new_kw_order = self.kw_order + fresh_kws   # applied at commit
             kw_rank = {kw: r for r, kw in enumerate(new_kw_order)}
 
+        def node_keys_of(rows):
+            # The rows' own node keys, unioned into the commit universe
+            # below: a coverage key whose only carriers cannot be
+            # selected this turn is temporarily unselectable, not
+            # orphaned, and must survive the stable-keys reconcile, the
+            # GC and the cap's victim ordering. Path prefixes are
+            # per-record under the shared keyword ordering, so this
+            # union equals the full corpus's keys.
+            rpaths, _, _, rnode_kw = build_trie_paths(
+                [set(sd["keyword_weights"]) & set(theme_keywords)
+                 for sd in rows],
+                kw_df, theme_keywords, kw_rank=kw_rank)
+            keys = set()
+            for pid in rpaths:
+                acc = []
+                for v in pid:
+                    acc.append(rnode_kw[v])
+                    keys.add(frozenset(acc))
+            return keys
+
+        # Scope: the branches this call may select from, applied before
+        # tail exclusion so each keeps its own count. Rows outside the
+        # scope leave candidacy exactly as tail rows do, and the budget's
+        # base becomes the words that stayed.
+        n_scope_excluded = 0
+        n_scope_branches = None
+        scope_words = None
+        excluded_node_keys = None
+        if scope_sources is not None:
+            allowed = set(scope_sources)
+            n_scope_branches = len(allowed)
+            kept = [sd for sd in sent_data
+                    if self.sources[sd["sent_idx"]] in allowed]
+            if kept:
+                scope_words = sum(sd["n_words"] for sd in kept)
+            if kept and len(kept) < len(sent_data):
+                outside = [sd for sd in sent_data
+                           if self.sources[sd["sent_idx"]] not in allowed]
+                n_scope_excluded = len(outside)
+                sent_data = kept
+                excluded_node_keys = node_keys_of(outside)
+
         # Tail exclusion: drop the caller's rows from CANDIDACY only. The
         # profile above and the bookkeeping below keep seeing the full
         # living corpus, so the trie shape and the coverage keys stay
         # exactly what the flag-off turn would build — an excluded row
         # simply cannot be selected while the model already reads it.
         n_excluded = 0
-        excluded_node_keys = None
         if exclude_sent_idx:
             # normalize first: the two scans below would consume a one-shot
             # iterable, and set membership keeps them O(1) either way
@@ -1254,25 +1309,11 @@ class SessionTrie:
                             if sd["sent_idx"] in exclude_sent_idx]
                 n_excluded = len(excluded)
                 sent_data = kept
-                # The excluded rows' own node keys, unioned into the
-                # commit universe below: a coverage key whose only
-                # carriers ride in the tail is temporarily unselectable,
-                # not orphaned, and must survive the stable-keys
-                # reconcile, the GC and the cap's victim ordering. Path
-                # prefixes are per-record under the shared keyword
-                # ordering, so this union equals the full corpus's keys.
-                epaths, _, _, enode_kw = build_trie_paths(
-                    [set(sd["keyword_weights"]) & set(theme_keywords)
-                     for sd in excluded],
-                    kw_df, theme_keywords, kw_rank=kw_rank)
-                excluded_node_keys = set()
-                for pid in epaths:
-                    acc = []
-                    for v in pid:
-                        acc.append(enode_kw[v])
-                        excluded_node_keys.add(frozenset(acc))
+                tail_keys = node_keys_of(excluded)
+                excluded_node_keys = (tail_keys if excluded_node_keys is None
+                                      else excluded_node_keys | tail_keys)
 
-        orig_words = self.live_words
+        orig_words = self.live_words if scope_words is None else scope_words
         word_budget = int(orig_words * budget_pct)
         word_budget_capped = False
         if max_words is not None and int(max_words) > 0:
@@ -1446,6 +1487,9 @@ class SessionTrie:
         stats["word_budget"] = word_budget
         stats["word_budget_capped"] = word_budget_capped
         stats["excluded_sent"] = n_excluded
+        stats["scope_branches"] = n_scope_branches
+        stats["scope_words"] = scope_words
+        stats["scope_excluded"] = n_scope_excluded
         stats["query_identifiers"] = n_query_identifiers
         stats["episodes"] = n_episodes
         stats["down_weighted_rows"] = n_down_weighted
