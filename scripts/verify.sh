@@ -6,8 +6,8 @@
 #   bash scripts/verify.sh chat      # chat ingest + theme suites
 #   bash scripts/verify.sh all      # every CPU suite + eval smoke + docs
 #
-# Areas: chat, engine, dedup, keys, evict, incr, tail, text, agents, mcp,
-# pdf, docs, smoke, vllm, serve, all. `all` covers everything that runs on CPU
+# Areas: chat, engine, dedup, keys, evict, incr, tail, text, scope, agents,
+# mcp, pdf, docs, smoke, vllm, serve, all. `all` covers everything that runs on CPU
 # with no server (vllm and serve need a GPU or a running server, run them
 # explicitly).
 #
@@ -66,13 +66,15 @@ smoke_suite() {
 }
 
 area_chat()   { run "chat ingest"     "${PY[@]}" scripts/chat_ingest_regression.py
-                run "chat themes"     "${PY[@]}" scripts/chat_theme_regression.py; }
+                run "chat themes"     "${PY[@]}" scripts/chat_theme_regression.py
+                area_scope; }
 area_dedup()  { run "near-dup gate"   "${PY[@]}" scripts/chat_dedup_regression.py; }
 area_keys()   { run "coverage keys"   "${PY[@]}" scripts/chat_keystab_regression.py; }
 area_evict()  { run "session cap"     "${PY[@]}" scripts/chat_evict_regression.py; }
 area_incr()   { run "carried caches"  "${PY[@]}" scripts/chat_incremental_regression.py; }
 area_tail()   { run "tail exclusion"  "${PY[@]}" scripts/chat_tail_regression.py; }
 area_text()   { run "chat text"       "${PY[@]}" scripts/chat_textclean_regression.py; }
+area_scope()  { run "branch scope"    "${PY[@]}" scripts/chat_scope_regression.py; }
 area_agents() { run "agent layer"     "${PY[@]}" scripts/chat_agents_regression.py; }
 area_mcp()    { run "mcp server"      "${PY[@]}" scripts/chat_mcp_regression.py; }
 area_pdf()    { run "pdf ingestion"   pdf_suite; }
@@ -86,7 +88,7 @@ area_all()    { area_text; area_keys; area_chat; area_dedup; area_evict
                 area_smoke; area_docs; }
 
 case "${1:-}" in
-  chat|engine|dedup|keys|evict|incr|tail|text|agents|mcp|pdf|docs|smoke|vllm|serve|all)
+  chat|engine|dedup|keys|evict|incr|tail|text|scope|agents|mcp|pdf|docs|smoke|vllm|serve|all)
     "area_$1" ;;
   *)
     sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'

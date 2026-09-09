@@ -58,7 +58,7 @@ from salt.engine.trie_core import (
     run_dense_attention, get_bge_sentence_embeddings, embed_query,
     profile_themes, is_content_word, clean_text_words, expand_with_stems,
     extract_query_keywords, extract_proper_nouns_in_query,
-    clean_query_word, build_trie_paths,
+    clean_query_word, build_trie_paths, soft_stem,
 )
 from salt.engine.celf import coverage_select
 
@@ -143,6 +143,9 @@ def file_token(source):
 
 
 EP_TOKEN_PREFIX = "§ep:"
+
+# one row per branch of the trie, as branch_scores() reports them
+BRANCH_KEYS = ("name", "rows", "words", "centroid", "peak", "terms", "names")
 
 
 def ep_token(episode_id):
@@ -905,6 +908,62 @@ class SessionTrie:
         else:
             self.dirty = True
 
+    def branch_scores(self, query_embedding, query_keywords=None,
+                      query_proper_nouns=None):
+        """How each branch of the trie relates to one query. One row per
+        attached source and one for the conversation: the cosine of the
+        query against the branch's mean vector (is the branch about
+        this), against its best single row (does the branch mention
+        this), and how many of the query's keywords and proper nouns
+        hit a row of the branch, by the same test the lexical channel
+        applies. A source with fewer living rows than
+        MIN_SOURCE_SENTENCES folds into the conversation, as the theme
+        profile folds it. Masked rows are not read. Pure: nothing on the
+        session changes. The conversation row comes first with name
+        None, then the sources by name; every row carries BRANCH_KEYS.
+        Empty when the session holds no living row."""
+        if self.embeddings is None:
+            return []
+        buckets = {}
+        for i in range(self.n_sentences):
+            if self.alive[i]:
+                buckets.setdefault(self.sources[i], []).append(i)
+        if not buckets:
+            return []
+        conv = buckets.pop(None, [])
+        for src in [s for s, b in buckets.items()
+                    if len(b) < MIN_SOURCE_SENTENCES]:
+            conv.extend(buckets.pop(src))
+        q = np.asarray(query_embedding, dtype=np.float32)
+        terms = {w for w in (query_keywords or ()) if len(w) >= 2}
+        names = {p.lower() for p in (query_proper_nouns or ())}
+        branches = ([(None, conv)] if conv else []) + sorted(buckets.items())
+        out = []
+        for name, idxs in branches:
+            idxs = sorted(idxs)
+            vecs = self.embeddings[idxs]
+            centroid = vecs.mean(axis=0)
+            norm = float(np.linalg.norm(centroid))
+            about = float(centroid @ q) / norm if norm > 1e-9 else 0.0
+            peak = float((vecs @ q).max())
+            hit_terms = hit_names = 0
+            if terms or names:
+                toks = set()
+                for i in idxs:
+                    toks.update(self._lex_tokens(self.texts[i]))
+                hit_terms = sum(1 for w in terms
+                                if w in toks or soft_stem(w) in toks)
+                hit_names = sum(1 for p in names
+                                if p in toks or soft_stem(p) in toks)
+            row = {"name": name, "rows": len(idxs),
+                   "words": sum(self.n_words[i] for i in idxs),
+                   "centroid": round(max(about, 0.0), 4),
+                   "peak": round(max(peak, 0.0), 4),
+                   "terms": hit_terms, "names": hit_names}
+            assert tuple(row) == BRANCH_KEYS
+            out.append(row)
+        return out
+
     def compress(self, query="", budget_pct=None, *, tokenizer, model,
                  device="cpu", delimiter=" ",
                  coverage_half_life=None, coverage_decay_docs=False,
@@ -914,7 +973,7 @@ class SessionTrie:
                  coverage_max_keys=None, defer_commit=False,
                  exclude_sent_idx=None, query_identifiers=False,
                  episode_gap=None, assistant_weight=None,
-                 row_coverage=False):
+                 row_coverage=False, query_embedding=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -993,6 +1052,13 @@ class SessionTrie:
         `stable_keys` would reconcile the whole coverage dict away).
         Stats report `excluded_sent`, the candidacy rows actually
         removed. Default None reproduces today's selection exactly.
+
+        `query_embedding` (opt-in): the query's vector, already
+        computed by the caller, used in place of the encoder call this
+        method would otherwise make for a non-empty query. A caller
+        that scores the branches with branch_scores() and then selects
+        pays the encoder once. Default None encodes the query here,
+        exactly as before.
 
         `query_identifiers` (opt-in): also hand the lexical query
         channel the query's identifier-shaped tokens — dates, versions,
@@ -1223,7 +1289,8 @@ class SessionTrie:
                 n_query_identifiers = len(q_ids)
                 q_kws |= q_ids
             q_pns = extract_proper_nouns_in_query(query)
-            q_emb = embed_query(query, tokenizer, model, device)
+            q_emb = (query_embedding if query_embedding is not None
+                     else embed_query(query, tokenizer, model, device))
 
         # Topic-shift detection: query cosine vs the mean of recent
         # conversation embeddings (attachments excluded — a stable document
