@@ -91,6 +91,9 @@ Memory sizing:
 | `--budget-pct P` | `0.20` | share of the remembered words the memory block may use |
 | `--memory-cap N\|auto\|window\|off` | `auto` | absolute ceiling on the block, fitted to the model's window and never above 4096 tokens |
 | `--branch-stats` | off | show in `/stats` how each branch of the memory trie, every attached file and the conversation, relates to the last question |
+| `--scope off\|auto` | `off` | `auto` searches only the attached files a question is about, plus the conversation, and sizes the block from the words in that scope |
+| `--scope-margin M` | `0.02` | under `--scope auto`, how far below the best file's whole-file similarity a file may sit and stay in scope |
+| `--scope-peak-margin M` | `0.10` | under `--scope auto`, how far below the best file's best-sentence similarity a file may sit and stay in scope |
 
 Behavior already on by default:
 

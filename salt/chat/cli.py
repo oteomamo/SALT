@@ -58,6 +58,7 @@ from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
 from salt.chat.runner import make_runner
+from salt.chat import scope as scope_module
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
 from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
                                  is_short_user_unit)
@@ -336,6 +337,9 @@ class ChatState:
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.branch_stats = args.branch_stats
+        self.scope_mode = args.scope
+        self.scope_margin = args.scope_margin
+        self.scope_peak_margin = args.scope_peak_margin
         self.tokens_per_word = TOKENS_PER_WORD_SEED
         # coverage-decay, shift-damping + near-dup knobs live here and
         # travel as per-call kwargs to compress()/add_turn(): SessionTrie
@@ -371,6 +375,7 @@ class ChatState:
         self.tail_max = 2 * args.tail
         self.last_stats = None
         self.last_branch_scores = None
+        self.last_scope = None
         self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
@@ -484,6 +489,7 @@ class ChatState:
         self.ingest = worker
         self.last_stats = None
         self.last_branch_scores = None
+        self.last_scope = None
         # ids and totals belong to the session, not to the process: a new
         # one starts from its own ledger or from nothing
         self.delegation_seq, self.delegation_stats = resume_delegations(
@@ -2057,6 +2063,7 @@ def build_stats(state):
         "routed": route_report(state),
         "decided": switch_report(state),
         "branches": state.last_branch_scores,
+        "scoped": state.last_scope,
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -2197,6 +2204,8 @@ def print_stats(state, payload=None):
     print_switch_audit(state, d["decided"])
     print_route_audit(state, d.get("routed"))
     for ln in branch_lines(d.get("branches")):
+        print(ln)
+    for ln in scope_module.lines(d.get("scoped")):
         print(ln)
     if d["signals"]:
         print(f"signals: {d['signals']['lines']} turns recorded "
@@ -2873,7 +2882,7 @@ def branch_query(state, line, switches):
     the line holds no query. The vector goes on to the compressor, so a
     turn that scores its branches still pays the encoder once."""
     query = line.strip()
-    if not state.branch_stats or not query:
+    if not (state.branch_stats or state.scope_mode == "auto") or not query:
         return None, None
     keywords = extract_query_keywords(query)
     if switches["query_identifiers"]:
@@ -2901,7 +2910,18 @@ def branch_lines(rows):
     return lines
 
 
-def compress_kwargs(state, line, excl, switches, query_embedding=None):
+def scope_extra(state):
+    """This turn's scope, as kvtrace keys. Empty on a turn that was not
+    scoped, so the event keeps exactly the shape it has always had."""
+    rec = state.last_scope
+    if not rec or rec["note"]:
+        return {}
+    return {"scope_kept": list(rec["kept"]), "scope_out": len(rec["out"]),
+            "scope_words": rec["words"]}
+
+
+def compress_kwargs(state, line, excl, switches, query_embedding=None,
+                    scope_sources=None):
     """Everything this turn asks the compressor for. Assembled in one
     place so what a turn selects under is a thing that can be read,
     decided about and pinned, rather than a call site."""
@@ -2925,6 +2945,7 @@ def compress_kwargs(state, line, excl, switches, query_embedding=None):
             "coverage_gc": switches["coverage_gc"],
             "coverage_max_keys": switches["coverage_max_keys"],
             "query_embedding": query_embedding,
+            "scope_sources": scope_sources,
             "defer_commit": True,
             "exclude_sent_idx": excl}
 
@@ -2958,7 +2979,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     # and a turn with nothing to select makes none
     state.last_overrides, state.last_audit = {}, ()
     state.turn_switches = None
-    state.last_branch_scores = None
+    state.last_branch_scores = state.last_scope = None
     if state.trie.n_sentences > 0:
         switches, state.last_overrides, state.last_audit = turn_switches(state)
         # what anything this turn does inside itself selects under. A
@@ -2967,12 +2988,19 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         state.turn_switches = switches
         excl = (tail_resident_sent_idx(state.trie, state.tail)
                 if switches["tail_exclude"] else None)
-        state.last_branch_scores, q_vec = branch_query(state, line, switches)
+        rows, q_vec = branch_query(state, line, switches)
+        state.last_branch_scores = rows if state.branch_stats else None
+        scope_sources, scope_note = scope_module.decide(
+            state.scope_mode, rows, state.scope_margin,
+            state.scope_peak_margin)
         comp = state.trie.compress(
-            **compress_kwargs(state, line, excl, switches, q_vec))
+            **compress_kwargs(state, line, excl, switches, q_vec,
+                              scope_sources))
         selected_idx = comp["selected_sent_idx"]
         commit = comp.get("commit")
         state.last_stats = comp["stats"]
+        state.last_scope = scope_module.record(
+            state.scope_mode, rows, scope_sources, scope_note, comp["stats"])
         memory_block = format_memory_block(state.trie, selected_idx,
                                            state.turn_labels,
                                            state.conversation_map)
@@ -3059,6 +3087,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     extra.update(agent_extra(state))
     extra.update(route_extra(state))
     extra.update(switch_extra(state))
+    extra.update(scope_extra(state))
     try:
         state.kvtrace.record_turn(
             tokenizer=reply_tokenizer or state.runner.tokenizer,
@@ -3447,6 +3476,22 @@ def build_parser():
                         "attached file and the conversation, against each "
                         "query and show the scores in /stats; prompts and "
                         "selection do not change (default: off)")
+    p.add_argument("--scope", default="off", choices=list(scope_module.MODES),
+                   help="which branches of the memory trie a turn searches: "
+                        "'auto' keeps the attached files the question is "
+                        "about, plus the conversation, and sizes the block "
+                        "from the words in that scope; 'off' searches every "
+                        "branch (default: off)")
+    p.add_argument("--scope-margin", type=float,
+                   default=scope_module.SCOPE_CENTROID_MARGIN,
+                   help="under --scope auto, how far below the best file's "
+                        "whole-file similarity to the question a file may "
+                        "sit and stay in scope (default: %(default)s)")
+    p.add_argument("--scope-peak-margin", type=float,
+                   default=scope_module.SCOPE_PEAK_MARGIN,
+                   help="under --scope auto, how far below the best file's "
+                        "best-sentence similarity to the question a file "
+                        "may sit and stay in scope (default: %(default)s)")
     p.add_argument("--doc", action="append", default=[], metavar="PATH",
                    help="text or PDF file to ingest into the trie at startup "
                         "(repeatable)")
@@ -3859,6 +3904,10 @@ def main(argv=None):
     if parse_memory_cap(args.memory_cap) is None:
         print("--memory-cap must be 'off', 'auto', 'window', or a "
               "positive token count", file=sys.stderr)
+        return 1
+    if args.scope_margin < 0 or args.scope_peak_margin < 0:
+        print("--scope-margin and --scope-peak-margin must be zero or "
+              "more", file=sys.stderr)
         return 1
 
     try:

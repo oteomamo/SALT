@@ -33,9 +33,22 @@ query and the seam that lets a caller encode the query once. Groups:
   E. SCOPE IDENTITY - naming every branch selects exactly what no scope
      selects, and a scope no living row belongs to is ignored outright;
      stats agree except for the three scope fields.
+  F. SCOPE RULE - on declared rows (no encoder): one file about the
+     question beside three that mention it and six cold ones keeps the
+     one; tied peaks keep every tied file; the file with the most name
+     hits stays in on names alone; tighter margins never widen; nothing
+     to route gives None; a failing rule is reported, never raised; the
+     record and its /stats lines carry the asserted keys.
+  G. SCOPE FLAG - real sessions through the chat turn: --scope auto on a
+     session without attachments is byte-identical (prompts, stats,
+     kvtrace keys, no scoped block); with one file the file is kept and
+     the prompts still match; with two files under zero margins the out
+     file leaves the prompt and the scoped block, the stats and the
+     kvtrace keys agree; a rule that raises leaves the turn unscoped and
+     says so.
 
-Groups B to E need the BGE encoder (downloaded to the HF cache on first
-use). CPU is the default device; the run takes about a minute.
+Groups B to G need the BGE encoder (downloaded to the HF cache on first
+use). CPU is the default device; the run takes about two minutes.
 
 Usage:
     python scripts/chat_scope_regression.py [--device cpu] [--budget 0.2]
@@ -55,6 +68,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import salt.engine.session_trie as st_mod
+from salt.chat import scope as scope_module
 from salt.engine.session_trie import (BRANCH_KEYS, FILE_TOKEN_PREFIX,
                                       SCOPE_FLOOR_WORDS, SessionTrie)
 
@@ -84,6 +98,12 @@ DOC_TEXT = (
     "Rain sensors pause the irrigation schedule after heavy rainfall. "
     "The pump pressure for the drip system stays near two bar.")
 QUERY = "What did we decide about the solar inverter?"
+DOC2_NAME = "mooring-notes.txt"
+DOC2_TEXT = (
+    "The zeppelin mooring mast stands at the north end of the airfield. "
+    "Its hydrogen manifold uses a nitrile gasket that is replaced yearly. "
+    "Ground crews check the mast winch cable before every mooring. "
+    "A red beacon on the mast warns aircraft after dusk.")
 DOC_QUERY = "How long does the timer valve open the drip line?"
 SCOPE_STATS = ("scope_branches", "scope_words", "scope_excluded")
 
@@ -334,16 +354,17 @@ class _FakeRunner:
         pass
 
 
-def chat_session(root, tok, mdl, device, flags):
+def chat_session(root, tok, mdl, device, flags, docs=1):
     """One session under the given flags, driven through the real chat
-    turn: the document attached, four questions, then the query."""
+    turn: `docs` documents attached, four questions, then the query."""
     from salt.chat import cli
     args = cli.build_parser().parse_args(
         ["--device", device, "--sync-ingest", *flags])
     trie = SessionTrie("scope_flag", cache_dir=root, model_name=BGE_MODEL,
                        budget_pct_default=args.budget_pct)
-    trie.add_turn(DOC_TEXT, "user", tokenizer=tok, model=mdl, device=device,
-                  source=DOC_NAME, save=False)
+    for name, text in ((DOC_NAME, DOC_TEXT), (DOC2_NAME, DOC2_TEXT))[:docs]:
+        trie.add_turn(text, "user", tokenizer=tok, model=mdl, device=device,
+                      source=name, save=False)
     state = cli.ChatState(args, tok, mdl, _FakeRunner(tok), trie)
     with redirect_stdout(io.StringIO()):
         for user, _ in EXCHANGES:
@@ -395,6 +416,127 @@ def check_branch_stats_flag(tmp, tok, mdl, device):
           "/stats differs only by the branch block")
 
 
+def check_scope_rule():
+    def row(name, c, p, n=0):
+        return {"name": name, "rows": 10, "words": 100, "centroid": c,
+                "peak": p, "terms": 0, "names": n}
+    conv = row(None, 0.40, 0.50)
+    about = row("computers.pdf", 0.72, 0.80)
+    mentions = [row(f"mention{i}.pdf", 0.62, 0.69) for i in range(3)]
+    cold = [row(f"cold{i}.pdf", 0.52, 0.58) for i in range(6)]
+    keep = scope_module.scope_of([conv, about, *mentions, *cold])
+    assert keep == {None, "computers.pdf"}, keep
+    tied = [row(f"t{i}.pdf", 0.55, 0.78 + 0.005 * i) for i in range(4)]
+    keep = scope_module.scope_of([conv, *tied, *cold])
+    assert keep == {None} | {f"t{i}.pdf" for i in range(4)}, keep
+    named = row("people.pdf", 0.50, 0.55, n=2)
+    keep = scope_module.scope_of([conv, about, named, *cold])
+    assert keep == {None, "computers.pdf", "people.pdf"}, keep
+    wide = scope_module.scope_of([conv, about, *mentions], 0.2, 0.2)
+    tight = scope_module.scope_of([conv, about, *mentions], 0.0, 0.0)
+    assert tight == {None, "computers.pdf"} and len(wide) == 5, (tight, wide)
+    assert tight <= wide, "a tighter margin widened the scope"
+    assert scope_module.scope_of([conv]) is None
+    assert scope_module.decide("off", [conv, about]) == (None, None)
+    assert scope_module.decide("auto", None) == (None, None)
+    assert scope_module.decide("auto", [conv, about]) == (
+        {None, "computers.pdf"}, None)
+    sources, note = scope_module.decide("auto", [{"name": "x.pdf"}])
+    assert sources is None and note and "KeyError" in note, (sources, note)
+    stats = {"scope_words": 300, "word_budget": 60, "scope_excluded": 60}
+    rec = scope_module.record("auto", [conv, about, *cold],
+                              {None, "computers.pdf"}, None, stats)
+    assert tuple(rec) == scope_module.SCOPED_KEYS, rec
+    assert rec["kept"] == ["computers.pdf"] and len(rec["out"]) == 6, rec
+    assert (rec["words"], rec["budget"], rec["excluded"]) == (300, 60, 60)
+    assert scope_module.record("auto", [conv], None, None, {}) is None
+    failed = scope_module.record("auto", [conv, about], None,
+                                 "KeyError: 'peak'", {})
+    assert failed["kept"] == [] and failed["out"] == ["computers.pdf"]
+    assert scope_module.lines(None) == []
+    assert scope_module.lines(failed)[0].startswith(
+        "scope (auto): not applied"), scope_module.lines(failed)
+    text = scope_module.lines(rec)
+    assert len(text) == 2 and "'computers.pdf'" in text[0], text
+    assert "60 rows held back" in text[1], text
+    print("F. scope rule: the about-it file alone beats three mentions and "
+          "six cold files, tied peaks all stay, the most-names file stays, "
+          "tighter never widens, nothing to route is None, a failing rule "
+          "is reported not raised, record and lines carry the keys")
+
+
+def check_scope_flag(tmp, tok, mdl, device):
+    from salt.chat import cli
+    off = chat_session(tmp / "g_off", tok, mdl, device, [], docs=0)
+    on = chat_session(tmp / "g_on", tok, mdl, device, ["--scope", "auto"],
+                      docs=0)
+    assert off.runner.prompts == on.runner.prompts, (
+        "--scope auto changed a prompt of a session without attachments")
+    assert off.last_stats == on.last_stats
+    assert on.last_scope is None and cli.build_stats(on)["scoped"] is None
+    d_off, d_on = cli.build_stats(off), cli.build_stats(on)
+    assert set(d_off["kv"]["last_event"] or {}) == set(
+        d_on["kv"]["last_event"] or {}), "--scope auto changed kvtrace keys"
+    assert not any(ln.startswith("scope (") for ln in stats_text(on))
+
+    one_off = chat_session(tmp / "g_one_off", tok, mdl, device, [])
+    one = chat_session(tmp / "g_one", tok, mdl, device, ["--scope", "auto"])
+    assert one_off.runner.prompts == one.runner.prompts, (
+        "a single attached file is its own best, so nothing may narrow")
+    rec = one.last_scope
+    assert rec and tuple(rec) == scope_module.SCOPED_KEYS, rec
+    assert (rec["mode"], rec["kept"], rec["out"], rec["note"]) == (
+        "auto", [DOC_NAME], [], None), rec
+    assert rec["excluded"] == 0 and rec["words"] == one.trie.live_words, rec
+    assert one.last_stats["scope_branches"] == 2, one.last_stats
+
+    two = chat_session(tmp / "g_two", tok, mdl, device,
+                       ["--scope", "auto", "--scope-margin", "0",
+                        "--scope-peak-margin", "0"], docs=2)
+    with redirect_stdout(io.StringIO()):
+        cli.chat_turn(two, DOC_QUERY)
+    rec = two.last_scope
+    assert rec and set(rec["kept"]) | set(rec["out"]) == {DOC_NAME, DOC2_NAME}
+    assert rec["kept"] and rec["out"] == [DOC2_NAME], (
+        "the irrigation question did not keep the irrigation notes alone")
+    s = two.last_stats
+    assert (s["scope_branches"], s["scope_excluded"] > 0) == (2, True), s
+    assert (rec["words"], rec["budget"], rec["excluded"]) == (
+        s["scope_words"], s["word_budget"], s["scope_excluded"]), (rec, s)
+    prompt = two.runner.prompts[-1][-1]["content"]
+    assert f"[from attached file '{DOC2_NAME}'" not in prompt, (
+        "an out-of-scope file reached the prompt")
+    assert cli.build_stats(two)["scoped"] == rec
+    text = stats_text(two)
+    assert any(ln.startswith("scope (auto): searched") for ln in text), text
+    ev = cli.build_stats(two)["kv"]["last_event"] or {}
+    assert ev.get("scope_kept") == rec["kept"] and ev.get("scope_out") == 1
+    assert ev.get("scope_words") == rec["words"], ev
+    assert "scope_kept" not in (d_on["kv"]["last_event"] or {})
+
+    real = scope_module.scope_of
+
+    def broken(*a, **kw):
+        raise RuntimeError("no rule today")
+
+    scope_module.scope_of = broken
+    try:
+        with redirect_stdout(io.StringIO()):
+            cli.chat_turn(two, QUERY)
+    finally:
+        scope_module.scope_of = real
+    rec = two.last_scope
+    assert rec and rec["note"] == "RuntimeError: no rule today", rec
+    assert two.last_stats["scope_branches"] is None, two.last_stats
+    assert "scope_kept" not in (cli.build_stats(two)["kv"]["last_event"] or {})
+    assert any(ln.startswith("scope (auto): not applied")
+               for ln in stats_text(two)), stats_text(two)
+    print("G. --scope auto: byte-identical without attachments and with one "
+          "file, a two-file question keeps its file and the other leaves "
+          "the prompt, stats and kvtrace agree, and a failing rule leaves "
+          "the turn unscoped and reported")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -403,6 +545,7 @@ def main():
     tmp = Path(tempfile.mkdtemp(prefix="salt_scope_regression_"))
     try:
         check_branch_scores(tmp)
+        check_scope_rule()
         from salt.engine.compressor import load_bge
         print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
         tok, mdl = load_bge(BGE_MODEL, args.device)
@@ -410,6 +553,7 @@ def main():
         check_branch_stats_flag(tmp, tok, mdl, args.device)
         check_scope_candidacy(tmp, tok, mdl, args.device, args.budget)
         check_scope_identity(tmp, tok, mdl, args.device, args.budget)
+        check_scope_flag(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

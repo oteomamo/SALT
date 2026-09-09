@@ -29,8 +29,8 @@ plain install stays green.
   (`--tail-exclude`).
 - `chat_scope_regression.py` covers the branch scores the session trie
   reports for a query, the `--branch-stats` view of them, the
-  query-embedding pass-through of its compressor, and the scope its
-  compressor can be held to.
+  query-embedding pass-through of its compressor, the scope its
+  compressor can be held to, and the `--scope auto` rule that sets it.
 - `chat_vllm_regression.py` covers the in-process `--backend vllm`.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.

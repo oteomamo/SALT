@@ -195,6 +195,24 @@ with two similarities to the question, the branch as a whole and its
 best single sentence, plus how many of the question's keywords and names
 appear in it. Prompts and selection do not change.
 
+## Where a turn searches
+
+With several files attached, a question about one of them used to draw
+its memory block from all of them, and the block grew with every file
+added. `--scope auto` keeps, for each question, the attached files whose
+content as a whole is about the question or holds a strong match for it,
+or that carry the most of the question's names, plus the conversation,
+which is always searched. The other files stay out of that turn's
+selection, and the block is sized from the words inside the scope rather
+than the whole session, with a floor so a short file is still read.
+Nothing about the files changes: the next question is routed again from
+scratch. Two margins set how close to the best file a file must be to
+stay in, `--scope-margin` for the whole-file similarity and
+`--scope-peak-margin` for the best-sentence one, and `/stats` prints
+which files the last turn searched, which it kept out, the words in
+scope and the budget. A session without attachments is not routed and
+selects exactly as before.
+
 ## How PDFs are cleaned
 
 Attached PDFs are read whole and cleaned into proper sentences before
