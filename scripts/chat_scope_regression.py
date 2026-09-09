@@ -25,7 +25,8 @@ query and the seam that lets a caller encode the query once. Groups:
      branch block.
   D. SCOPE CANDIDACY - compress(scope_sources=...) never selects a row
      outside the named branches, takes the budget fraction of the words
-     inside them, reports the rows it kept out, composes with tail
+     inside them floored so a short branch is still read and never
+     above the unscoped budget, reports the rows it kept out, composes with tail
      exclusion, and under stable_keys a coverage key carried only by an
      out-of-scope branch survives the commit untouched (the commit-
      universe union).
@@ -55,7 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import salt.engine.session_trie as st_mod
 from salt.engine.session_trie import (BRANCH_KEYS, FILE_TOKEN_PREFIX,
-                                      SessionTrie)
+                                      SCOPE_FLOOR_WORDS, SessionTrie)
 
 if not __debug__:
     sys.exit("run without -O: this harness is assert-based")
@@ -224,6 +225,15 @@ def check_scope_candidacy(tmp, tok, mdl, device, budget):
     assert doc_rows and conv_rows
     conv_words = sum(trie.n_words[i] for i in conv_rows)
     doc_words = sum(trie.n_words[i] for i in doc_rows)
+    plain = int(trie.live_words * budget)
+
+    def scoped_budget(words):
+        return min(max(int(words * budget), min(words, SCOPE_FLOOR_WORDS)),
+                   plain)
+
+    assert int(doc_words * budget) < min(trie.n_words[i] for i in doc_rows), (
+        "the fixture no longer exercises the floor: the document's "
+        "fraction must be smaller than its shortest sentence")
 
     c = trie.compress(QUERY, scope_sources={None}, **kw)
     assert c["selected_sent_idx"], "a conversation-only scope selected nothing"
@@ -232,12 +242,13 @@ def check_scope_candidacy(tmp, tok, mdl, device, budget):
     s = c["stats"]
     assert (s["scope_branches"], s["scope_excluded"], s["scope_words"]) == (
         1, len(doc_rows), conv_words), s
-    assert s["word_budget"] == int(conv_words * budget), s
+    assert s["word_budget"] == scoped_budget(conv_words), (s, plain)
 
     d = trie.compress(DOC_QUERY, scope_sources={DOC_NAME}, **kw)
     assert d["selected_sent_idx"] and set(d["selected_sent_idx"]) <= doc_rows
     assert d["stats"]["scope_words"] == doc_words, d["stats"]
-    assert d["stats"]["word_budget"] == int(doc_words * budget), d["stats"]
+    assert d["stats"]["word_budget"] == scoped_budget(doc_words) <= plain, (
+        d["stats"], plain)
 
     excl = set(sorted(conv_rows)[-4:])
     e = trie.compress(QUERY, scope_sources={None}, exclude_sent_idx=excl, **kw)
@@ -260,8 +271,9 @@ def check_scope_candidacy(tmp, tok, mdl, device, budget):
             f"a document key did not survive a conversation-only scope: "
             f"{sorted(k)}")
     print("D. scope candidacy: nothing selected outside the scope, the "
-          "budget taken of the words in scope, the kept-out rows reported, "
-          "tail exclusion composes, and out-of-scope keys survive the "
+          "budget taken of the words in scope with the short-branch floor "
+          "under the unscoped budget, the kept-out rows reported, tail "
+          "exclusion composes, and out-of-scope keys survive the "
           "stable-keys commit")
 
 

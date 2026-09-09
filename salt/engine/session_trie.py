@@ -98,6 +98,11 @@ COVERAGE_DECAY_FLOOR = 0.05
 DF_SCALE = 1000
 MIN_SOURCE_SENTENCES = 3
 
+# the least a scoped turn may read: a fraction of a short branch is
+# smaller than any one of its sentences, and a few hundred words cost
+# inference nothing
+SCOPE_FLOOR_WORDS = 400
+
 # Orphan-GC grace (compress calls): an orphaned coverage key is inert
 # while orphaned, so the only cost of dropping one is that a later
 # reordering could resurrect the same prefix and find its suppression
@@ -1068,8 +1073,10 @@ class SessionTrie:
         profile, the trie ordering and every piece of coverage
         bookkeeping still see the full living corpus. The budget's base
         becomes the living words inside the scope, so the fraction is
-        taken of what may be read. A scope that would empty the
-        candidate set is ignored like an emptying exclusion. Stats
+        taken of what may be read, floored at SCOPE_FLOOR_WORDS or the
+        whole scope when it is shorter, and never above the budget the
+        same call would have had without a scope. A scope that would
+        empty the candidate set is ignored like an emptying exclusion. Stats
         report `scope_branches`, `scope_words` (the living words in
         scope, None when no scope applied) and `scope_excluded`.
         Default None reproduces today's selection exactly.
@@ -1313,8 +1320,12 @@ class SessionTrie:
                 excluded_node_keys = (tail_keys if excluded_node_keys is None
                                       else excluded_node_keys | tail_keys)
 
-        orig_words = self.live_words if scope_words is None else scope_words
+        orig_words = self.live_words
         word_budget = int(orig_words * budget_pct)
+        if scope_words is not None:
+            word_budget = min(max(int(scope_words * budget_pct),
+                                  min(scope_words, SCOPE_FLOOR_WORDS)),
+                              word_budget)
         word_budget_capped = False
         if max_words is not None and int(max_words) > 0:
             word_budget_capped = word_budget > int(max_words)
