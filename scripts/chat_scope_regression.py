@@ -46,8 +46,14 @@ query and the seam that lets a caller encode the query once. Groups:
      file leaves the prompt and the scoped block, the stats and the
      kvtrace keys agree; a rule that raises leaves the turn unscoped and
      says so.
+  H. SCOPE CENSUS - under --scope auto the session counts every turn the
+     rule was asked about and how it came out, the counts follow the
+     records turn by turn, a failing rule counts as not applied, a
+     session without attachments counts plain turns, /stats prints the
+     census and a new session starts it over; with scope off there is
+     no census.
 
-Groups B to G need the BGE encoder (downloaded to the HF cache on first
+Groups B to H need the BGE encoder (downloaded to the HF cache on first
 use). CPU is the default device; the run takes about two minutes.
 
 Usage:
@@ -55,6 +61,7 @@ Usage:
 """
 
 import argparse
+import copy
 import io
 import json
 import shutil
@@ -541,6 +548,73 @@ def check_scope_flag(tmp, tok, mdl, device):
           "the turn unscoped and reported")
 
 
+def check_scope_census(tmp, tok, mdl, device):
+    from salt.chat import cli
+    off = chat_session(tmp / "h_off", tok, mdl, device, [], docs=2)
+    assert cli.build_stats(off)["scope_census"] is None
+    assert not any(ln.startswith("scope census") for ln in stats_text(off))
+
+    st = chat_session(tmp / "h_on", tok, mdl, device,
+                      ["--scope", "auto", "--scope-margin", "0",
+                       "--scope-peak-margin", "0"], docs=2)
+    c = st.scope_stats
+    assert tuple(c) == scope_module.CENSUS_KEYS, c
+    assert c["asked"] == 5 == c["scoped"] and c["plain"] == c["guarded"] == 0, c
+    before = copy.deepcopy(c)
+    with redirect_stdout(io.StringIO()):
+        cli.chat_turn(st, DOC_QUERY)
+    rec, after = st.last_scope, st.scope_stats
+    assert after["asked"] == 6 and after["scoped"] == 6, after
+    n = len(rec["kept"])
+    assert after["branches"][n] == before["branches"].get(n, 0) + 1, after
+    for name in rec["kept"]:
+        assert after["kept"][name] == before["kept"].get(name, 0) + 1, after
+    assert sum(after["branches"].values()) == after["scoped"], after
+    assert sum(after["kept"].values()) == sum(
+        k * v for k, v in after["branches"].items()), after
+
+    real = scope_module.scope_of
+
+    def broken(*a, **kw):
+        raise RuntimeError("no rule today")
+
+    scope_module.scope_of = broken
+    try:
+        with redirect_stdout(io.StringIO()):
+            cli.chat_turn(st, QUERY)
+    finally:
+        scope_module.scope_of = real
+    assert (st.scope_stats["asked"], st.scope_stats["guarded"]) == (7, 1), (
+        st.scope_stats)
+    assert cli.build_stats(st)["scope_census"] == st.scope_stats
+    text = stats_text(st)
+    head = [ln for ln in text if ln.startswith("scope census:")]
+    assert head == ["scope census: 7 turns asked, 6 scoped, 0 with nothing "
+                    "to route, 1 not applied"], text
+    assert any(ln.startswith("  files kept per scoped turn:") for ln in text)
+    assert any(ln.startswith("  kept:") for ln in text), text
+
+    sessions, cli.SESSIONS_DIR = cli.SESSIONS_DIR, tmp / "h_sessions"
+    try:
+        with redirect_stdout(io.StringIO()):
+            cli.handle_command("/new h_fresh", st)
+    finally:
+        cli.SESSIONS_DIR = sessions
+    assert st.scope_stats == scope_module.census(), st.scope_stats
+
+    bare = chat_session(tmp / "h_bare", tok, mdl, device, ["--scope", "auto"],
+                        docs=0)
+    c = bare.scope_stats
+    assert (c["asked"], c["plain"], c["scoped"]) == (4, 4, 0), c
+    assert cli.scope_module.census_lines(c)[0] == (
+        "scope census: 4 turns asked, 0 scoped, 4 with nothing to route, "
+        "0 not applied")
+    print("H. scope census: counts follow the records turn by turn, a "
+          "failing rule counts as not applied, plain turns count on a "
+          "session without attachments, /stats prints it, a new session "
+          "starts it over, and scope off keeps no census")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -558,6 +632,7 @@ def main():
         check_scope_candidacy(tmp, tok, mdl, args.device, args.budget)
         check_scope_identity(tmp, tok, mdl, args.device, args.budget)
         check_scope_flag(tmp, tok, mdl, args.device)
+        check_scope_census(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

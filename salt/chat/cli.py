@@ -376,6 +376,7 @@ class ChatState:
         self.last_stats = None
         self.last_branch_scores = None
         self.last_scope = None
+        self.scope_stats = scope_module.census()
         self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
@@ -490,6 +491,7 @@ class ChatState:
         self.last_stats = None
         self.last_branch_scores = None
         self.last_scope = None
+        self.scope_stats = scope_module.census()
         # ids and totals belong to the session, not to the process: a new
         # one starts from its own ledger or from nothing
         self.delegation_seq, self.delegation_stats = resume_delegations(
@@ -2064,6 +2066,8 @@ def build_stats(state):
         "decided": switch_report(state),
         "branches": state.last_branch_scores,
         "scoped": state.last_scope,
+        "scope_census": (state.scope_stats if state.scope_mode == "auto"
+                         else None),
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -2206,6 +2210,8 @@ def print_stats(state, payload=None):
     for ln in branch_lines(d.get("branches")):
         print(ln)
     for ln in scope_module.lines(d.get("scoped")):
+        print(ln)
+    for ln in scope_module.census_lines(d.get("scope_census")):
         print(ln)
     if d["signals"]:
         print(f"signals: {d['signals']['lines']} turns recorded "
@@ -3001,6 +3007,8 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         state.last_stats = comp["stats"]
         state.last_scope = scope_module.record(
             state.scope_mode, rows, scope_sources, scope_note, comp["stats"])
+        if state.scope_mode == "auto" and rows is not None:
+            scope_module.count(state.scope_stats, state.last_scope)
         memory_block = format_memory_block(state.trie, selected_idx,
                                            state.turn_labels,
                                            state.conversation_map)

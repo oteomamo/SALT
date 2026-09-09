@@ -3,7 +3,7 @@
 What each version added. Versions match the git tags on the
 [repository](https://github.com/oteomamo/SALT).
 
-## 2.11.0 - 2.11.91
+## 2.11.0 - 2.11.94
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -206,13 +206,14 @@ cover the tools, the roster and the limits.
   stops at 4096 tokens, so a long session or a huge document no longer
   fills the window with memory. `--memory-cap window` keeps the window
   fit alone.
-- **2.11.87 - 2.11.91** Scoped search. A session reports how each
+- **2.11.87 - 2.11.94** Scoped search. A session reports how each
   attached file and the conversation relate to a question, whole-file
   and best-sentence similarity with keyword and name hits, shown by
   `--branch-stats`, and `--scope auto` searches only the files a
   question is about plus the conversation, sizing the block from the
-  words in that scope with a floor for short files. Off by default, and
-  a session without attachments selects exactly as before.
+  words in that scope with a floor for short files, and `/stats` keeps
+  a census of the session's routing. Off by default, and a session
+  without attachments selects exactly as before.
 
 ## 2.10.0 - 2.10.123
 

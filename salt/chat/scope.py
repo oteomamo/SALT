@@ -13,6 +13,8 @@ SCOPE_PEAK_MARGIN = 0.10
 MODES = ("off", "auto")
 # what a turn records about its scope, in this order
 SCOPED_KEYS = ("mode", "kept", "out", "words", "budget", "excluded", "note")
+# the census of a session's routing, one counter per outcome
+CENSUS_KEYS = ("asked", "scoped", "plain", "guarded", "branches", "kept")
 
 
 def scope_of(rows, centroid_margin=SCOPE_CENTROID_MARGIN,
@@ -66,6 +68,49 @@ def record(mode, rows, sources, note, stats):
            "excluded": stats.get("scope_excluded", 0), "note": note}
     assert tuple(rec) == SCOPED_KEYS
     return rec
+
+
+def census():
+    """A fresh census: turns the rule was asked about, how each came out,
+    how many files each scoped turn kept, and how often each file was
+    kept. Session-lifetime, never persisted."""
+    return {"asked": 0, "scoped": 0, "plain": 0, "guarded": 0,
+            "branches": {}, "kept": {}}
+
+
+def count(census, rec):
+    """One more turn the rule was asked about: `rec` is that turn's
+    record, None when there was nothing to route."""
+    census["asked"] += 1
+    if rec is None:
+        census["plain"] += 1
+    elif rec["note"]:
+        census["guarded"] += 1
+    else:
+        census["scoped"] += 1
+        n = len(rec["kept"])
+        census["branches"][n] = census["branches"].get(n, 0) + 1
+        for name in rec["kept"]:
+            census["kept"][name] = census["kept"].get(name, 0) + 1
+
+
+def census_lines(census):
+    """The /stats lines for a session's census; nothing when the session
+    does not route."""
+    if census is None:
+        return []
+    assert tuple(census) == CENSUS_KEYS
+    out = [f"scope census: {census['asked']} turns asked, "
+           f"{census['scoped']} scoped, {census['plain']} with nothing to "
+           f"route, {census['guarded']} not applied"]
+    if census["branches"]:
+        hist = ", ".join(f"{n} x{c}" for n, c in sorted(census["branches"].items()))
+        out.append(f"  files kept per scoped turn: {hist}")
+    if census["kept"]:
+        kept = ", ".join(f"{k!r} x{c}" for k, c in
+                         sorted(census["kept"].items(), key=lambda kv: (-kv[1], kv[0])))
+        out.append(f"  kept: {kept}")
+    return out
 
 
 def lines(rec):
