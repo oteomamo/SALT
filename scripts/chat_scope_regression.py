@@ -489,8 +489,10 @@ def check_scope_flag(tmp, tok, mdl, device):
     assert rec and tuple(rec) == scope_module.SCOPED_KEYS, rec
     assert (rec["mode"], rec["kept"], rec["out"], rec["note"]) == (
         "auto", [DOC_NAME], [], None), rec
-    assert rec["excluded"] == 0 and rec["words"] == one.trie.live_words, rec
-    assert one.last_stats["scope_branches"] == 2, one.last_stats
+    s = one.last_stats
+    assert rec["excluded"] == 0 and s["scope_excluded"] == 0, (rec, s)
+    assert (rec["words"], rec["budget"]) == (s["scope_words"], s["word_budget"])
+    assert s["scope_branches"] == 2, s
 
     two = chat_session(tmp / "g_two", tok, mdl, device,
                        ["--scope", "auto", "--scope-margin", "0",
