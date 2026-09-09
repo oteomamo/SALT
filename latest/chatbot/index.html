@@ -1770,8 +1770,11 @@ scratch. Two margins set how close to the best file a file must be to
 stay in, <code>--scope-margin</code> for the whole-file similarity and
 <code>--scope-peak-margin</code> for the best-sentence one, and <code>/stats</code> prints
 which files the last turn searched, which it kept out, the words in
-scope and the budget. A session without attachments is not routed and
-selects exactly as before.</p>
+scope and the budget. It also keeps a census of the session: how many
+turns were routed, how many had nothing to route, how many files each
+routed turn kept and how often each file was kept, so a rule that has
+stopped keeping anything out is visible rather than silent. A session
+without attachments is not routed and selects exactly as before.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole and cleaned into proper sentences before
 they reach the trie: headers, footers and reference lists go, broken
