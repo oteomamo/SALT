@@ -74,6 +74,7 @@ can be resumed here. The [MCP server](mcp.md) page has the setup.
 | `/add <hf_id> [alias]` | download and register another model |
 | `/doc <path>` | ingest a text or PDF file into the trie |
 | `/budget <pct>` | set the memory budget (`0.3` or `30`) |
+| `/scope` | which attached files a turn searches: `auto` lets the rule choose, `off` searches every file, `<file>[,<file>]` names them |
 | `/stats` | session, attachments, compression, and GPU-memory stats |
 | `/roster` | list the models `--roster` names, `/roster probe` contacts them |
 | `/worker` | show each worker's connection, calls and mean latency |
@@ -213,8 +214,12 @@ which files the last turn searched, which it kept out, the words in
 scope and the budget. It also keeps a census of the session: how many
 turns were routed, how many had nothing to route, how many files each
 routed turn kept and how often each file was kept, so a rule that has
-stopped keeping anything out is visible rather than silent. A session
-without attachments is not routed and selects exactly as before.
+stopped keeping anything out is visible rather than silent. The files
+can also be named by hand: `/scope notes.pdf,report.pdf` searches those
+two until the next `/scope`, `/scope auto` returns the choice to the
+rule and `/scope off` searches every file. An unknown name lists what is
+attached and changes nothing. A session without attachments is not
+routed and selects exactly as before.
 
 ## How PDFs are cleaned
 

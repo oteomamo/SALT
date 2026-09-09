@@ -161,6 +161,9 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
                    splits the task, workers take the pieces, it writes the reply
 /doc <path>        ingest a text or PDF file into the trie (role=doc)
 /budget <pct>      set memory token budget (0.3 or 30 for 30%)
+/scope             which attached files a turn searches: /scope auto lets
+                   the rule choose, /scope off searches every file, and
+                   /scope <file>[,<file>] names them until the next /scope
 /stats             session, attachments, compression, and GPU memory stats
 /new [id]          start (or resume) another conversation
 /clear             wipe and restart the current conversation
@@ -168,7 +171,7 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 
 # what TAB offers: every command HELP lists, so the two cannot drift
 COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/offload",
-            "/offload!", "/agent", "/doc", "/budget", "/stats", "/new",
+            "/offload!", "/agent", "/doc", "/budget", "/scope", "/stats", "/new",
             "/clear", "/exit"]
 
 
@@ -337,7 +340,8 @@ class ChatState:
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.branch_stats = args.branch_stats
-        self.scope_mode = args.scope
+        self.scope_mode = self.scope_launch_mode = args.scope
+        self.scope_names = None
         self.scope_margin = args.scope_margin
         self.scope_peak_margin = args.scope_peak_margin
         self.tokens_per_word = TOKENS_PER_WORD_SEED
@@ -492,6 +496,7 @@ class ChatState:
         self.last_branch_scores = None
         self.last_scope = None
         self.scope_stats = scope_module.census()
+        self.scope_mode, self.scope_names = self.scope_launch_mode, None
         # ids and totals belong to the session, not to the process: a new
         # one starts from its own ledger or from nothing
         self.delegation_seq, self.delegation_stats = resume_delegations(
@@ -2066,7 +2071,7 @@ def build_stats(state):
         "decided": switch_report(state),
         "branches": state.last_branch_scores,
         "scoped": state.last_scope,
-        "scope_census": (state.scope_stats if state.scope_mode == "auto"
+        "scope_census": (state.scope_stats if state.scope_mode != "off"
                          else None),
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
@@ -2639,6 +2644,34 @@ def switch_model(state, name):
             print("No model loaded - use /model <name> when ready.")
 
 
+def scope_command(state, rest):
+    """`/scope` shows the setting. `/scope auto` hands the choice to the
+    rule, `/scope off` searches every file, and `/scope <file>[,<file>]`
+    names the attached files to search until the next /scope. An
+    unknown name lists what is attached and changes nothing."""
+    attached = state.trie.attached_sources
+    if not rest:
+        if state.scope_mode == scope_module.NAMED:
+            names = ", ".join(repr(n) for n in sorted(state.scope_names))
+            return f"scope: named by hand, {names}"
+        return f"scope: {state.scope_mode}"
+    arg = " ".join(rest)
+    if arg.lower() in scope_module.MODES:
+        state.scope_mode, state.scope_names = arg.lower(), None
+        return f"scope: {state.scope_mode}"
+    parts = arg.split(",") if "," in arg else arg.split()
+    names = {p.strip() for p in parts if p.strip()}
+    unknown = sorted(names - set(attached))
+    if unknown:
+        listing = ", ".join(repr(a) for a in attached) or "nothing"
+        return (f"No attached file named "
+                f"{', '.join(repr(u) for u in unknown)}. Attached: "
+                f"{listing}. Scope unchanged.")
+    state.scope_mode, state.scope_names = scope_module.NAMED, names
+    return (f"scope: named by hand, "
+            f"{', '.join(repr(n) for n in sorted(names))}")
+
+
 def handle_command(line, state):
     """Dispatch a slash command. Returns False to exit the REPL."""
     parts = line.split()
@@ -2702,6 +2735,8 @@ def handle_command(line, state):
             return True
         state.budget = val
         print(f"Memory budget set to {val:.0%}.")
+    elif cmd == "/scope":
+        print(scope_command(state, rest))
     elif cmd == "/stats":
         print_stats(state)
     elif cmd == "/new":
@@ -2888,7 +2923,7 @@ def branch_query(state, line, switches):
     the line holds no query. The vector goes on to the compressor, so a
     turn that scores its branches still pays the encoder once."""
     query = line.strip()
-    if not (state.branch_stats or state.scope_mode == "auto") or not query:
+    if not (state.branch_stats or state.scope_mode != "off") or not query:
         return None, None
     keywords = extract_query_keywords(query)
     if switches["query_identifiers"]:
@@ -2998,7 +3033,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         state.last_branch_scores = rows if state.branch_stats else None
         scope_sources, scope_note = scope_module.decide(
             state.scope_mode, rows, state.scope_margin,
-            state.scope_peak_margin)
+            state.scope_peak_margin, state.scope_names)
         comp = state.trie.compress(
             **compress_kwargs(state, line, excl, switches, q_vec,
                               scope_sources))
@@ -3007,7 +3042,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         state.last_stats = comp["stats"]
         state.last_scope = scope_module.record(
             state.scope_mode, rows, scope_sources, scope_note, comp["stats"])
-        if state.scope_mode == "auto" and rows is not None:
+        if state.scope_mode != "off" and rows is not None:
             scope_module.count(state.scope_stats, state.last_scope)
         memory_block = format_memory_block(state.trie, selected_idx,
                                            state.turn_labels,

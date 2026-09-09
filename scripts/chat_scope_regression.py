@@ -52,8 +52,13 @@ query and the seam that lets a caller encode the query once. Groups:
      session without attachments counts plain turns, /stats prints the
      census and a new session starts it over; with scope off there is
      no census.
+  I. SCOPE COMMAND - /scope names the files a turn searches and wins
+     over the rule, an unknown name lists what is attached and changes
+     nothing, /scope auto and /scope off return to the rule and to
+     everything, the census counts named turns on their own, and a new
+     session starts from the launch setting.
 
-Groups B to H need the BGE encoder (downloaded to the HF cache on first
+Groups B to I need the BGE encoder (downloaded to the HF cache on first
 use). CPU is the default device; the run takes about two minutes.
 
 Usage:
@@ -589,8 +594,9 @@ def check_scope_census(tmp, tok, mdl, device):
     assert cli.build_stats(st)["scope_census"] == st.scope_stats
     text = stats_text(st)
     head = [ln for ln in text if ln.startswith("scope census:")]
-    assert head == ["scope census: 7 turns asked, 6 scoped, 0 with nothing "
-                    "to route, 1 not applied"], text
+    assert head == ["scope census: 7 turns asked, 6 scoped by the rule, "
+                    "0 named by hand, 0 with nothing to route, 1 not "
+                    "applied"], text
     assert any(ln.startswith("  files kept per scoped turn:") for ln in text)
     assert any(ln.startswith("  kept:") for ln in text), text
 
@@ -607,12 +613,76 @@ def check_scope_census(tmp, tok, mdl, device):
     c = bare.scope_stats
     assert (c["asked"], c["plain"], c["scoped"]) == (4, 4, 0), c
     assert cli.scope_module.census_lines(c)[0] == (
-        "scope census: 4 turns asked, 0 scoped, 4 with nothing to route, "
-        "0 not applied")
+        "scope census: 4 turns asked, 0 scoped by the rule, 0 named by "
+        "hand, 4 with nothing to route, 0 not applied")
     print("H. scope census: counts follow the records turn by turn, a "
           "failing rule counts as not applied, plain turns count on a "
           "session without attachments, /stats prints it, a new session "
           "starts it over, and scope off keeps no census")
+
+
+def check_scope_command(tmp, tok, mdl, device):
+    from salt.chat import cli
+    assert "/scope" in cli.COMMANDS and "/scope" in cli.HELP
+    st = chat_session(tmp / "i_on", tok, mdl, device,
+                      ["--scope", "auto", "--scope-margin", "0",
+                       "--scope-peak-margin", "0"], docs=2)
+    said = []
+    with redirect_stdout(io.StringIO()) as buf:
+        for line in ("/scope", "/scope nothing.txt", "/scope",
+                     f"/scope {DOC2_NAME}", "/scope"):
+            assert cli.handle_command(line, st) is not False
+            said.append(buf.getvalue().strip().splitlines()[-1])
+    assert said[0] == "scope: auto", said
+    assert said[1].startswith("No attached file named 'nothing.txt'"), said
+    assert f"'{DOC_NAME}'" in said[1] and said[1].endswith("Scope unchanged.")
+    assert said[2] == "scope: auto", said
+    assert said[3] == said[4] == f"scope: named by hand, '{DOC2_NAME}'", said
+    assert st.scope_mode == "named" and st.scope_names == {DOC2_NAME}
+
+    before = copy.deepcopy(st.scope_stats)
+    with redirect_stdout(io.StringIO()):
+        cli.chat_turn(st, DOC_QUERY)
+    rec = st.last_scope
+    assert (rec["mode"], rec["kept"], rec["out"]) == (
+        "named", [DOC2_NAME], [DOC_NAME]), rec
+    assert st.last_stats["scope_excluded"] > 0, st.last_stats
+    prompt = st.runner.prompts[-1][-1]["content"]
+    assert f"[from attached file '{DOC_NAME}'" not in prompt, (
+        "a file kept out by hand reached the prompt")
+    assert st.scope_stats["named"] == before["named"] + 1
+    assert st.scope_stats["scoped"] == before["scoped"], st.scope_stats
+    assert st.scope_stats["kept"][DOC2_NAME] == before["kept"].get(
+        DOC2_NAME, 0) + 1
+    assert any(ln.startswith("scope (named): searched") for ln in stats_text(st))
+
+    with redirect_stdout(io.StringIO()):
+        cli.handle_command("/scope off", st)
+        cli.chat_turn(st, QUERY)
+    assert st.scope_mode == "off" and st.scope_names is None
+    assert st.last_scope is None and st.last_stats["scope_branches"] is None
+    assert cli.build_stats(st)["scope_census"] is None
+    with redirect_stdout(io.StringIO()):
+        cli.handle_command("/scope auto", st)
+        cli.chat_turn(st, DOC_QUERY)
+    assert st.scope_mode == "auto" and st.last_scope["mode"] == "auto"
+    assert st.last_scope["kept"] == [DOC_NAME], st.last_scope
+
+    with redirect_stdout(io.StringIO()):
+        cli.handle_command(f"/scope {DOC_NAME}, {DOC2_NAME}", st)
+    assert st.scope_names == {DOC_NAME, DOC2_NAME}, st.scope_names
+    sessions, cli.SESSIONS_DIR = cli.SESSIONS_DIR, tmp / "i_sessions"
+    try:
+        with redirect_stdout(io.StringIO()):
+            cli.handle_command("/new i_fresh", st)
+    finally:
+        cli.SESSIONS_DIR = sessions
+    assert (st.scope_mode, st.scope_names) == ("auto", None), (
+        "a new session did not start from the launch setting")
+    print("I. /scope: names win over the rule and keep the other file out "
+          "of the prompt, an unknown name changes nothing, auto and off "
+          "return, named turns count on their own, and a new session "
+          "starts from the launch setting")
 
 
 def main():
@@ -633,6 +703,7 @@ def main():
         check_scope_identity(tmp, tok, mdl, args.device, args.budget)
         check_scope_flag(tmp, tok, mdl, args.device)
         check_scope_census(tmp, tok, mdl, args.device)
+        check_scope_command(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

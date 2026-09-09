@@ -11,10 +11,13 @@ the scope. The conversation is always kept.
 SCOPE_CENTROID_MARGIN = 0.02
 SCOPE_PEAK_MARGIN = 0.10
 MODES = ("off", "auto")
+# the third mode, reachable only by /scope: the files named by hand
+NAMED = "named"
 # what a turn records about its scope, in this order
 SCOPED_KEYS = ("mode", "kept", "out", "words", "budget", "excluded", "note")
 # the census of a session's routing, one counter per outcome
-CENSUS_KEYS = ("asked", "scoped", "plain", "guarded", "branches", "kept")
+CENSUS_KEYS = ("asked", "scoped", "named", "plain", "guarded", "branches",
+               "kept")
 
 
 def scope_of(rows, centroid_margin=SCOPE_CENTROID_MARGIN,
@@ -42,11 +45,16 @@ def scope_of(rows, centroid_margin=SCOPE_CENTROID_MARGIN,
 
 
 def decide(mode, rows, centroid_margin=SCOPE_CENTROID_MARGIN,
-           peak_margin=SCOPE_PEAK_MARGIN):
+           peak_margin=SCOPE_PEAK_MARGIN, names=None):
     """The scope for one turn as (sources, note): `sources` is None when
     the turn is not scoped, and `note` says why when the rule could not
-    run. Never raises into a turn."""
-    if mode != "auto" or rows is None:
+    run. Under the named mode the files named by hand are the scope and
+    the rule is not asked. Never raises into a turn."""
+    if rows is None:
+        return None, None
+    if mode == NAMED:
+        return {None} | set(names or ()), None
+    if mode != "auto":
         return None, None
     try:
         return scope_of(rows, centroid_margin, peak_margin), None
@@ -74,7 +82,7 @@ def census():
     """A fresh census: turns the rule was asked about, how each came out,
     how many files each scoped turn kept, and how often each file was
     kept. Session-lifetime, never persisted."""
-    return {"asked": 0, "scoped": 0, "plain": 0, "guarded": 0,
+    return {"asked": 0, "scoped": 0, "named": 0, "plain": 0, "guarded": 0,
             "branches": {}, "kept": {}}
 
 
@@ -87,7 +95,7 @@ def count(census, rec):
     elif rec["note"]:
         census["guarded"] += 1
     else:
-        census["scoped"] += 1
+        census["named" if rec["mode"] == NAMED else "scoped"] += 1
         n = len(rec["kept"])
         census["branches"][n] = census["branches"].get(n, 0) + 1
         for name in rec["kept"]:
@@ -101,8 +109,9 @@ def census_lines(census):
         return []
     assert tuple(census) == CENSUS_KEYS
     out = [f"scope census: {census['asked']} turns asked, "
-           f"{census['scoped']} scoped, {census['plain']} with nothing to "
-           f"route, {census['guarded']} not applied"]
+           f"{census['scoped']} scoped by the rule, {census['named']} named "
+           f"by hand, {census['plain']} with nothing to route, "
+           f"{census['guarded']} not applied"]
     if census["branches"]:
         hist = ", ".join(f"{n} x{c}" for n, c in sorted(census["branches"].items()))
         out.append(f"  files kept per scoped turn: {hist}")
