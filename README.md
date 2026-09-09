@@ -61,21 +61,10 @@ conversation without re-reading the document.
 
 ## 🧩 Architecture
 
-**Selection under a budget.**
+**How saltChat remembers a conversation.**
 
 <p align="center">
-  <img src="salt/assets/coverage.webp" width="100%" alt="Theme collapse under score-and-rank selection, and how coverage selection avoids it">
-</p>
-
-**Memory across a conversation.**
-
-<p align="center">
-  <img src="salt/assets/memory.webp" width="100%" alt="How saltChat grows a session trie and re-selects memory on every turn">
-</p>
-
-**Serving with a warm cache.**
-<p align="center">
-  <img src="salt/assets/serving.webp" width="100%" alt="saltServe keeping the model loaded and the prefix cache warm across sessions">
+  <img src="salt/assets/saltchat.webp" width="100%" alt="saltChat building one conversation memory across seven sources, selecting sentences per turn, and feeding three models">
 </p>
 
 
