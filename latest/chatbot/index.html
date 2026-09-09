@@ -1723,10 +1723,12 @@ behind.</p>
 <p>A <code>salt@</code> file becomes <strong>its own branch</strong> of the session trie, hanging off the
 conversation's root - so multiple attachments never crowd each other out, and
 the per-turn budget (default 20%) spreads across files and conversation
-themes. The percentage is bounded by what actually fits the model's
-window: <code>--memory-cap auto</code> (the default) sizes the block to the space
-left after the fixed prompt, and <code>--memory-cap off</code> restores the old
-unbounded sizing. An <code>attach@</code> file skips the trie entirely: its full text
+themes. The percentage is bounded twice: <code>--memory-cap auto</code> (the default)
+sizes the block to the space left after the fixed prompt and never lets it
+pass 4096 tokens, so a huge document cannot fill the window with memory.
+<code>--memory-cap window</code> keeps only the window fit, and <code>--memory-cap off</code>
+restores the old unbounded sizing. An <code>attach@</code> file skips the trie
+entirely: its full text
 rides uncompressed in every prompt.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole and cleaned into proper sentences before
@@ -1845,8 +1847,8 @@ page lists them all with when to reach for each. In concept:</p>
   material. Tied to the sentence itself, the discount follows it
   wherever the tree puts it next.</li>
 <li><strong>Ceiling.</strong> <code>--memory-cap auto</code> (the default) fits the memory block
-  to the space the model's window actually has left, instead of a
-  percentage that grows without bound.</li>
+  to the space the model's window actually has left and stops at 4096
+  tokens, instead of a percentage that grows without bound.</li>
 <li><strong>Short turns.</strong> Terse decisions like "go with option B" stay in
   memory by default, and <code>--short-turns fuse</code> stores a bare "yes"
   together with the question it answers, so the decision is findable

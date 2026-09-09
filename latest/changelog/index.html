@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21179" class="md-nav__link">
+  <a href="#2110-21186" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.79
+        2.11.0 - 2.11.86
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21179" class="md-nav__link">
+  <a href="#2110-21186" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.79
+        2.11.0 - 2.11.86
       
     </span>
   </a>
@@ -1454,7 +1454,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21179">2.11.0 - 2.11.79</h2>
+<h2 id="2110-21186">2.11.0 - 2.11.86</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1651,6 +1651,11 @@ cover the tools, the roster and the limits.</p>
   longer trip that warning against a fitted roster. Schema-held calls
   follow newer vLLM servers to <code>structured_outputs</code>, so planning and
   checking stay schema-guided across versions.</li>
+<li><strong>2.11.86</strong> A memory ceiling in tokens. <code>--memory-cap auto</code>, the
+  default, still fits the block to the model's window and now also
+  stops at 4096 tokens, so a long session or a huge document no longer
+  fills the window with memory. <code>--memory-cap window</code> keeps the window
+  fit alone.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
