@@ -1623,6 +1623,10 @@ can be resumed here. The <a href="../mcp/">MCP server</a> page has the setup.</p
 <td>set the memory budget (<code>0.3</code> or <code>30</code>)</td>
 </tr>
 <tr>
+<td><code>/scope</code></td>
+<td>which attached files a turn searches: <code>auto</code> lets the rule choose, <code>off</code> searches every file, <code>&lt;file&gt;[,&lt;file&gt;]</code> names them</td>
+</tr>
+<tr>
 <td><code>/stats</code></td>
 <td>session, attachments, compression, and GPU-memory stats</td>
 </tr>
@@ -1773,8 +1777,12 @@ which files the last turn searched, which it kept out, the words in
 scope and the budget. It also keeps a census of the session: how many
 turns were routed, how many had nothing to route, how many files each
 routed turn kept and how often each file was kept, so a rule that has
-stopped keeping anything out is visible rather than silent. A session
-without attachments is not routed and selects exactly as before.</p>
+stopped keeping anything out is visible rather than silent. The files
+can also be named by hand: <code>/scope notes.pdf,report.pdf</code> searches those
+two until the next <code>/scope</code>, <code>/scope auto</code> returns the choice to the
+rule and <code>/scope off</code> searches every file. An unknown name lists what is
+attached and changes nothing. A session without attachments is not
+routed and selects exactly as before.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole and cleaned into proper sentences before
 they reach the trie: headers, footers and reference lists go, broken
