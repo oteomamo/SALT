@@ -63,7 +63,10 @@ from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
                                  is_short_user_unit)
 from salt.engine.chat_text import is_protected_chat_unit
 from salt.engine.compressor import load_bge
-from salt.engine.session_trie import VALID_ROLES, SessionTrie
+from salt.engine.session_trie import (BRANCH_KEYS, VALID_ROLES, SessionTrie,
+                                      extract_query_identifiers)
+from salt.engine.trie_core import (embed_query, extract_proper_nouns_in_query,
+                                   extract_query_keywords)
 
 SESSIONS_DIR = Path(__file__).resolve().parent / "sessions"
 FILES_DIR = Path(__file__).resolve().parents[1] / "files"
@@ -332,6 +335,7 @@ class ChatState:
         self.offload_budget_pct = args.offload_budget_pct
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
+        self.branch_stats = args.branch_stats
         self.tokens_per_word = TOKENS_PER_WORD_SEED
         # coverage-decay, shift-damping + near-dup knobs live here and
         # travel as per-call kwargs to compress()/add_turn(): SessionTrie
@@ -366,6 +370,7 @@ class ChatState:
         self.tail_min = args.tail
         self.tail_max = 2 * args.tail
         self.last_stats = None
+        self.last_branch_scores = None
         self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
@@ -478,6 +483,7 @@ class ChatState:
         self.trie = trie
         self.ingest = worker
         self.last_stats = None
+        self.last_branch_scores = None
         # ids and totals belong to the session, not to the process: a new
         # one starts from its own ledger or from nothing
         self.delegation_seq, self.delegation_stats = resume_delegations(
@@ -2050,6 +2056,7 @@ def build_stats(state):
         "signals": signals_report(state),
         "routed": route_report(state),
         "decided": switch_report(state),
+        "branches": state.last_branch_scores,
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -2189,6 +2196,8 @@ def print_stats(state, payload=None):
     print_agent_stats(state, d["rounds"])
     print_switch_audit(state, d["decided"])
     print_route_audit(state, d.get("routed"))
+    for ln in branch_lines(d.get("branches")):
+        print(ln)
     if d["signals"]:
         print(f"signals: {d['signals']['lines']} turns recorded "
               f"({SIGNALS_NAME})")
@@ -2858,7 +2867,41 @@ def turn_switch_values(state):
     return getattr(state, "turn_switches", None)
 
 
-def compress_kwargs(state, line, excl, switches):
+def branch_query(state, line, switches):
+    """This turn's branch scores and the query vector they were scored
+    with, or (None, None) when the session was not asked for them or
+    the line holds no query. The vector goes on to the compressor, so a
+    turn that scores its branches still pays the encoder once."""
+    query = line.strip()
+    if not state.branch_stats or not query:
+        return None, None
+    keywords = extract_query_keywords(query)
+    if switches["query_identifiers"]:
+        keywords |= extract_query_identifiers(query)
+    vec = embed_query(query, state.bge_tok, state.bge_model, state.bge_device)
+    rows = state.trie.branch_scores(vec, keywords,
+                                    extract_proper_nouns_in_query(query))
+    return rows, vec
+
+
+def branch_lines(rows):
+    """The /stats lines for one turn's branch scores; nothing when the
+    session does not report them."""
+    if rows is None:
+        return []
+    lines = ["branches (the last query against each branch of the trie):"]
+    for r in rows:
+        assert tuple(r) == BRANCH_KEYS
+        name = "conversation" if r["name"] is None else f"file {r['name']!r}"
+        lines.append(f"  {name}: {r['rows']} rows, {r['words']} words, "
+                     f"centroid {r['centroid']:.3f}, peak {r['peak']:.3f}, "
+                     f"terms {r['terms']}, names {r['names']}")
+    if len(lines) == 1:
+        lines.append("  (no living rows at the last query)")
+    return lines
+
+
+def compress_kwargs(state, line, excl, switches, query_embedding=None):
     """Everything this turn asks the compressor for. Assembled in one
     place so what a turn selects under is a thing that can be read,
     decided about and pinned, rather than a call site."""
@@ -2881,6 +2924,7 @@ def compress_kwargs(state, line, excl, switches):
             "stable_keys": switches["stable_coverage_keys"],
             "coverage_gc": switches["coverage_gc"],
             "coverage_max_keys": switches["coverage_max_keys"],
+            "query_embedding": query_embedding,
             "defer_commit": True,
             "exclude_sent_idx": excl}
 
@@ -2914,6 +2958,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     # and a turn with nothing to select makes none
     state.last_overrides, state.last_audit = {}, ()
     state.turn_switches = None
+    state.last_branch_scores = None
     if state.trie.n_sentences > 0:
         switches, state.last_overrides, state.last_audit = turn_switches(state)
         # what anything this turn does inside itself selects under. A
@@ -2922,8 +2967,9 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         state.turn_switches = switches
         excl = (tail_resident_sent_idx(state.trie, state.tail)
                 if switches["tail_exclude"] else None)
+        state.last_branch_scores, q_vec = branch_query(state, line, switches)
         comp = state.trie.compress(
-            **compress_kwargs(state, line, excl, switches))
+            **compress_kwargs(state, line, excl, switches, q_vec))
         selected_idx = comp["selected_sent_idx"]
         commit = comp.get("commit")
         state.last_stats = comp["stats"]
@@ -3396,6 +3442,11 @@ def build_parser():
                         "window fit alone, a number caps it at that many "
                         "tokens, 'off' restores the old unbounded "
                         "percentage sizing (default: auto)")
+    p.add_argument("--branch-stats", action="store_true",
+                   help="score every branch of the memory trie, each "
+                        "attached file and the conversation, against each "
+                        "query and show the scores in /stats; prompts and "
+                        "selection do not change (default: off)")
     p.add_argument("--doc", action="append", default=[], metavar="PATH",
                    help="text or PDF file to ingest into the trie at startup "
                         "(repeatable)")

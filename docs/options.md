@@ -90,6 +90,7 @@ Memory sizing:
 |---|---|---|
 | `--budget-pct P` | `0.20` | share of the remembered words the memory block may use |
 | `--memory-cap N\|auto\|window\|off` | `auto` | absolute ceiling on the block, fitted to the model's window and never above 4096 tokens |
+| `--branch-stats` | off | show in `/stats` how each branch of the memory trie, every attached file and the conversation, relates to the last question |
 
 Behavior already on by default:
 

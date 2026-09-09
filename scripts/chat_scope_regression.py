@@ -17,18 +17,27 @@ query and the seam that lets a caller encode the query once. Groups:
      the same selection, the same context, the same stats, the same
      coverage and the same drift state, and the handed-in vector costs
      the compressor no encoder call.
+  C. BRANCH STATS FLAG - the same session driven through the chat turn
+     with --branch-stats off and on, against a fake runner: every prompt,
+     the selection stats and the kvtrace event keys are identical, the
+     off session reports no branch rows, the on session reports one row
+     per branch with the asserted keys, and /stats differs only by the
+     branch block.
 
-Group B needs the BGE encoder (downloaded to the HF cache on first use).
-CPU is the default device; the run takes well under a minute.
+Groups B and C need the BGE encoder (downloaded to the HF cache on first
+use). CPU is the default device; the run takes about a minute.
 
 Usage:
     python scripts/chat_scope_regression.py [--device cpu] [--budget 0.2]
 """
 
 import argparse
+import io
+import json
 import shutil
 import sys
 import tempfile
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import numpy as np
@@ -193,6 +202,93 @@ def check_passthrough(tmp, tok, mdl, device, budget):
           "costs the compressor no encoder call")
 
 
+class _FakeRunner:
+    """Answers from a script and keeps every prompt: the turn path needs
+    a tokenizer, a window and a stream, nothing else."""
+
+    kind = "fake"
+
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.alias = "fake"
+        self.cfg = {"alias": "fake", "hf_id": "test/fake", "path": "-"}
+        self.max_input_len = 4096
+        self.last_prompt_tokens = None
+        self.last_engine_stats = None
+        self.prompts = []
+
+    def input_budget(self, max_new_tokens=None):
+        return self.max_input_len
+
+    def stream_chat(self, messages, **overrides):
+        self.prompts.append(json.loads(json.dumps(messages)))
+        yield f"noted point {len(self.prompts)}."
+
+    def unload(self):
+        pass
+
+
+def chat_session(root, tok, mdl, device, flags):
+    """One session under the given flags, driven through the real chat
+    turn: the document attached, four questions, then the query."""
+    from salt.chat import cli
+    args = cli.build_parser().parse_args(
+        ["--device", device, "--sync-ingest", *flags])
+    trie = SessionTrie("scope_flag", cache_dir=root, model_name=BGE_MODEL,
+                       budget_pct_default=args.budget_pct)
+    trie.add_turn(DOC_TEXT, "user", tokenizer=tok, model=mdl, device=device,
+                  source=DOC_NAME, save=False)
+    state = cli.ChatState(args, tok, mdl, _FakeRunner(tok), trie)
+    with redirect_stdout(io.StringIO()):
+        for user, _ in EXCHANGES:
+            cli.chat_turn(state, user)
+        cli.chat_turn(state, QUERY)
+    return state
+
+
+def stats_text(state):
+    from salt.chat import cli
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.print_stats(state)
+    return [ln for ln in buf.getvalue().splitlines()
+            if not ln.startswith("ingest")]
+
+
+def check_branch_stats_flag(tmp, tok, mdl, device):
+    from salt.chat import cli
+    off = chat_session(tmp / "off", tok, mdl, device, [])
+    on = chat_session(tmp / "on", tok, mdl, device, ["--branch-stats"])
+    assert off.runner.prompts == on.runner.prompts, (
+        "--branch-stats changed a prompt")
+    assert off.last_stats == on.last_stats, "--branch-stats changed selection"
+    d_off, d_on = cli.build_stats(off), cli.build_stats(on)
+    assert set(d_off["kv"]["last_event"] or {}) == set(
+        d_on["kv"]["last_event"] or {}), "--branch-stats changed kvtrace keys"
+    assert off.last_branch_scores is None and d_off["branches"] is None
+    rows = on.last_branch_scores
+    assert rows and [tuple(r) for r in rows] == [BRANCH_KEYS] * len(rows), rows
+    assert [r["name"] for r in rows] == [None, DOC_NAME], rows
+    assert all(0.0 <= r["centroid"] <= 1.0 and 0.0 <= r["peak"] <= 1.0
+               for r in rows), rows
+    assert d_on["branches"] == rows
+    volatile = {"ingest", "branches"}
+    assert {k: v for k, v in d_off.items() if k not in volatile} == {
+        k: v for k, v in d_on.items() if k not in volatile}, (
+        "--branch-stats changed a /stats section other than its own")
+    lines = cli.branch_lines(rows)
+    assert lines[0].startswith("branches") and len(lines) == 1 + len(rows)
+    text_off, text_on = stats_text(off), stats_text(on)
+    assert all(ln in text_on for ln in lines), text_on
+    assert [ln for ln in text_on if ln not in set(lines)] == text_off, (
+        text_off, text_on)
+    assert cli.branch_lines(None) == []
+    assert cli.branch_lines([])[1:] == ["  (no living rows at the last query)"]
+    print("C. --branch-stats: prompts, selection and kvtrace keys identical "
+          "off and on, no rows off, one asserted row per branch on, and "
+          "/stats differs only by the branch block")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -205,6 +301,7 @@ def main():
         print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
         tok, mdl = load_bge(BGE_MODEL, args.device)
         check_passthrough(tmp, tok, mdl, args.device, args.budget)
+        check_branch_stats_flag(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

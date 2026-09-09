@@ -187,8 +187,13 @@ sizes the block to the space left after the fixed prompt and never lets it
 pass 4096 tokens, so a huge document cannot fill the window with memory.
 `--memory-cap window` keeps only the window fit, and `--memory-cap off`
 restores the old unbounded sizing. An `attach@` file skips the trie
-entirely: its full text
-rides uncompressed in every prompt.
+entirely: its full text rides uncompressed in every prompt.
+
+`--branch-stats` shows how each branch relates to the question. After
+every query turn, `/stats` lists the conversation and each attached file
+with two similarities to the question, the branch as a whole and its
+best single sentence, plus how many of the question's keywords and names
+appear in it. Prompts and selection do not change.
 
 ## How PDFs are cleaned
 
