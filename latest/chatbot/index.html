@@ -1728,8 +1728,12 @@ sizes the block to the space left after the fixed prompt and never lets it
 pass 4096 tokens, so a huge document cannot fill the window with memory.
 <code>--memory-cap window</code> keeps only the window fit, and <code>--memory-cap off</code>
 restores the old unbounded sizing. An <code>attach@</code> file skips the trie
-entirely: its full text
-rides uncompressed in every prompt.</p>
+entirely: its full text rides uncompressed in every prompt.</p>
+<p><code>--branch-stats</code> shows how each branch relates to the question. After
+every query turn, <code>/stats</code> lists the conversation and each attached file
+with two similarities to the question, the branch as a whole and its
+best single sentence, plus how many of the question's keywords and names
+appear in it. Prompts and selection do not change.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole and cleaned into proper sentences before
 they reach the trie: headers, footers and reference lists go, broken
