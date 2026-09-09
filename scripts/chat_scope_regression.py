@@ -399,7 +399,9 @@ def check_branch_stats_flag(tmp, tok, mdl, device):
     assert all(0.0 <= r["centroid"] <= 1.0 and 0.0 <= r["peak"] <= 1.0
                for r in rows), rows
     assert d_on["branches"] == rows
-    volatile = {"ingest", "branches"}
+    # ingest carries busy time and kv its event timestamps; the kv event's
+    # key set is compared above, its values move with the clock
+    volatile = {"ingest", "branches", "kv"}
     assert {k: v for k, v in d_off.items() if k not in volatile} == {
         k: v for k, v in d_on.items() if k not in volatile}, (
         "--branch-stats changed a /stats section other than its own")
