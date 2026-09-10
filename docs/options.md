@@ -37,7 +37,7 @@ Models:
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--model NAME` | none | load a registered model and start the REPL |
+| `--model NAME` | the single registered model, if there is one | load a registered model and start the REPL |
 | `--add HF_ID` | none | download and register a model |
 | `--alias NAME` | derived | short name for `--add` |
 | `--dtype T` | `bfloat16` | weight dtype at registration |
@@ -113,7 +113,7 @@ Backends and hardware:
 | `--device D` | auto | device for the chat model |
 | `--gpu LIST` | none | card index or comma list, several cards shard the model |
 | `--bge-device D` | same as model | device for the encoder |
-| `--gpu-mem-util F` | per backend | fraction of each card the engine may claim |
+| `--gpu-mem-util F` | `0.80` across several cards, `0.85` alone | fraction of each card the engine may claim |
 | `--max-model-len N` | model's own | cap the context window |
 
 Tuning values for switches above:
@@ -158,6 +158,7 @@ One shot compression of a dataset or a single document.
 | `--query-mass R` | `1.0` | query weight as a ratio of document mass |
 | `--synthetic` | off | paragraph unit adapter for enumerated tasks |
 | `--code` | off | line record adapter for code datasets |
+| `--fewshot` | off | few-shot mode: for exemplar-shaped contexts, keep a diverse subset of whole exemplars chosen by the selector |
 | `--max-samples N` | all | cap the number of records |
 | `--verbose` | off | also print the top theme keywords for each record |
 
