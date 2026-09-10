@@ -380,7 +380,7 @@ class SessionTrie:
                 self._kw_df.pop(k, None)
         self._kw_df_rows = (self._kw_df_rows[0], self._kw_df_rows[1] - 1)
 
-    def _themes_from_df(self, df):
+    def _themes_from_df(self, df, theme_percentile=None):
         """(kw_df, theme_keywords) from a maintained count, mirroring
         `profile_themes` line for line: the same percentile index into the
         sorted df values, the same `>=` membership, the same answer for a
@@ -391,8 +391,10 @@ class SessionTrie:
         mutates."""
         if not df:
             return {}, set()
+        if theme_percentile is None:
+            theme_percentile = self.config["theme_percentile"]
         values = sorted(df.values())
-        idx = int(len(values) * self.config["theme_percentile"])
+        idx = int(len(values) * theme_percentile)
         threshold = values[min(idx, len(values) - 1)]
         return dict(df), {k for k, v in df.items() if v >= threshold}
 
@@ -722,7 +724,8 @@ class SessionTrie:
                 df[k] = df.get(k, 0.0) + w
         return df
 
-    def _profile(self, sent_data, per_source=False, role_weight=None):
+    def _profile(self, sent_data, per_source=False, role_weight=None,
+                 theme_percentile=None):
         """One (kw_df, theme_keywords) pair for CELF. Global mode is the
         frozen path: a single pooled profile_themes call. Per-source mode
         profiles each attachment and the conversation separately with the
@@ -734,18 +737,21 @@ class SessionTrie:
         max-merged df in both. With `role_weight` set, df comes from
         _weighted_df through the same percentile mirror instead of
         profile_themes, in both modes."""
+        if theme_percentile is None:
+            theme_percentile = self.config["theme_percentile"]
         if not per_source:
             self._profile_diag = {"sources": 1, "keywords_conv": None}
             if role_weight is not None:
                 return self._themes_from_df(
-                    self._weighted_df(sent_data, role_weight))
+                    self._weighted_df(sent_data, role_weight),
+                    theme_percentile)
             # The maintained count describes the LIVING corpus and nothing
             # else, so a caller handing over some other list of records
             # gets the full recount it asked for.
             if len(sent_data) == self.n_alive:
-                return self._themes_from_df(self._live_kw_df())
-            return profile_themes(
-                sent_data, theme_percentile=self.config["theme_percentile"])
+                return self._themes_from_df(self._live_kw_df(),
+                                            theme_percentile)
+            return profile_themes(sent_data, theme_percentile=theme_percentile)
         buckets = {}
         for sd in sent_data:
             buckets.setdefault(self.sources[sd["sent_idx"]], []).append(sd)
@@ -759,10 +765,10 @@ class SessionTrie:
         for bucket in grouped:
             if role_weight is not None:
                 df, themes = self._themes_from_df(
-                    self._weighted_df(bucket, role_weight))
+                    self._weighted_df(bucket, role_weight), theme_percentile)
             else:
                 df, themes = profile_themes(
-                    bucket, theme_percentile=self.config["theme_percentile"])
+                    bucket, theme_percentile=theme_percentile)
             top = max(df.values(), default=1)
             for k, v in df.items():
                 s = max(1, int(round(DF_SCALE * v / top)))
@@ -979,9 +985,17 @@ class SessionTrie:
                  exclude_sent_idx=None, query_identifiers=False,
                  episode_gap=None, assistant_weight=None,
                  row_coverage=False, query_embedding=None,
-                 scope_sources=None):
+                 scope_sources=None, theme_percentile=None, lam=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
+
+        `theme_percentile` and `lam` override the session's own values for
+        THIS call only: a lower percentile admits more keywords as themes
+        (more branches for the budget to spread across), a lower `lam`
+        makes a filling branch lose value faster (fewer sentences per
+        branch). Neither touches the persisted config. None keeps the
+        session's values exactly. Every result reports the values used
+        as `theme_percentile_used` and `lam_used`.
 
         Returns {context, stats, selected_sent_idx, n_total_sentences, n_turns}.
         When `query` is empty, selection is document-coverage only (no query
@@ -1185,8 +1199,19 @@ class SessionTrie:
             n_down_weighted = sum(
                 1 for sd in sent_data
                 if self.roles[sd["sent_idx"]] in DOWN_WEIGHT_ROLES)
+        if theme_percentile is not None and not (
+                0.0 <= theme_percentile < 1.0):
+            raise ValueError(f"theme_percentile must be in [0, 1), got "
+                             f"{theme_percentile}")
+        if lam is not None and not (0.0 < lam < 1.0):
+            raise ValueError(f"lam must be in (0, 1), got {lam}")
+        if theme_percentile is None:
+            theme_percentile = self.config["theme_percentile"]
+        if lam is None:
+            lam = self.config["lam"]
         kw_df, theme_keywords = self._profile(sent_data, per_source_themes,
-                                              role_weight=role_w)
+                                              role_weight=role_w,
+                                              theme_percentile=theme_percentile)
 
         # Sticky theme membership (stable_keys only): a keyword that
         # already earned a place in the tree keeps it while its remembered
@@ -1423,7 +1448,7 @@ class SessionTrie:
         selected, stats, cov = coverage_select(
             sent_data, dict(kw_df), theme_keywords, word_budget,
             query_keywords=q_kws, query_embedding=q_emb, query_proper_nouns=q_pns,
-            lam=self.config["lam"], query_mass_ratio=query_mass_ratio,
+            lam=lam, query_mass_ratio=query_mass_ratio,
             token_fn=self._lex_tokens,
             seed_coverage=seed_passed, return_coverage=True,
             kw_rank=kw_rank)
@@ -1501,6 +1526,8 @@ class SessionTrie:
         stats["scope_branches"] = n_scope_branches
         stats["scope_words"] = scope_words
         stats["scope_excluded"] = n_scope_excluded
+        stats["theme_percentile_used"] = theme_percentile
+        stats["lam_used"] = lam
         stats["query_identifiers"] = n_query_identifiers
         stats["episodes"] = n_episodes
         stats["down_weighted_rows"] = n_down_weighted

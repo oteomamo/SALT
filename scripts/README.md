@@ -34,6 +34,9 @@ plain install stays green.
   reports for a query, the `--branch-stats` view of them, the
   query-embedding pass-through of its compressor, the scope its
   compressor can be held to, and the `--scope auto` rule that sets it.
+- `chat_summary_regression.py` covers the per-call theme percentile and
+  discount overrides of the session trie's compressor: their identity
+  when unset, what each one changes, and how the result reports them.
 - `chat_vllm_regression.py` covers the in-process `--backend vllm`.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.
