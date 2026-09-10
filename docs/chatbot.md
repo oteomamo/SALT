@@ -140,6 +140,16 @@ the session it ran in. A document item is attached to the session of the
 item that follows it. Every session stays on disk and can be resumed by
 its id.
 
+A long run reports itself and survives interruptions. After every turn a
+line gives that turn's time, the elapsed time and an estimate of what is
+left. `--turns-timeout SECONDS` gives up on a turn whose server has sent
+nothing for that long and goes on to the next item, with the row noting
+the error, which needs `--backend vllm-serve` since an in-process backend
+cannot be interrupted mid-generation. `--turns-resume` keeps an existing
+`--turns-out` file and skips every item it already holds an answer for, so
+a run that was stopped continues where it left off, and an item that
+failed runs again.
+
 An object item can also carry a `timestamp`, either epoch seconds or an
 ISO 8601 string like `2026-03-14T09:30`. The exchange is then filed in
 memory at that time instead of the moment of the replay, so a

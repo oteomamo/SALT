@@ -3325,7 +3325,37 @@ def item_session_id(base, label, taken):
     return cid
 
 
-def run_turns(state, turns, out_path=None, mode="conversation"):
+def answered_turns(out_path):
+    """The items an earlier run already answered, read from its output
+    file: by id where the item has one, by position otherwise, and only
+    rows that carry an answer, so an item that failed runs again."""
+    done = set()
+    p = Path(out_path)
+    if not p.is_file():
+        return done
+    for line in p.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get("answer") is None or row.get("kind") == "doc":
+            continue
+        done.add(("id", row["id"]) if row.get("id") is not None
+                 else ("turn", row.get("turn")))
+    return done
+
+
+def clock(seconds):
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m {seconds % 60:02d}s"
+    return f"{seconds // 3600}h {seconds % 3600 // 60:02d}m"
+
+
+def run_turns(state, turns, out_path=None, mode="conversation",
+              timeout=None, resume=False):
     """Feed a scripted list of user turns through the chat path one after
     another. Under `conversation` (the default) they enter the same
     session, so SALT's memory builds across them exactly as in a live
@@ -3337,12 +3367,31 @@ def run_turns(state, turns, out_path=None, mode="conversation"):
     answer is appended to a JSONL file."""
     if mode not in TURNS_MODES:
         raise ValueError(f"unknown --turns-mode {mode!r}")
-    out = open(out_path, "w", encoding="utf-8") if out_path else None
+    if timeout is not None:
+        if hasattr(state.runner, "read_timeout"):
+            state.runner.read_timeout = timeout
+        else:
+            print("note: --turns-timeout abandons a turn whose server has "
+                  "sent nothing for that long, which needs --backend "
+                  "vllm-serve; this backend generates in process and the "
+                  "timeout does not apply.")
+    done = answered_turns(out_path) if (resume and out_path) else set()
+    out = (open(out_path, "a" if resume else "w", encoding="utf-8")
+           if out_path else None)
     base = state.trie.conversation_id
     taken, fresh_needed = set(), True
+    started, ran = time.monotonic(), 0
     try:
         for i, item in enumerate(turns):
             label = item.id if item.id is not None else i
+            key = ("id", item.id) if item.id is not None else ("turn", i)
+            if item.kind != "doc" and key in done:
+                print(f"\n=== turn {i + 1}/{len(turns)} [{label}] skipped, "
+                      f"answered in an earlier run ===")
+                if mode == "independent":
+                    fresh_needed = True
+                continue
+            t0 = time.monotonic()
             if mode == "independent" and fresh_needed:
                 cid = item_session_id(base, label, taken)
                 state.new_trie(cid)
@@ -3353,7 +3402,7 @@ def run_turns(state, turns, out_path=None, mode="conversation"):
             print(f"\n=== turn {i + 1}/{len(turns)} [{label}] ===")
             print(f"{TURN_PROMPTS[item.kind]} {item.text}")
             report_ingest_failures(state.ingest.drain())
-            answer, result, stop = None, None, False
+            answer, result, stop, error = None, None, False, None
             before = state.last_round
             try:
                 if item.kind == "doc":
@@ -3379,10 +3428,18 @@ def run_turns(state, turns, out_path=None, mode="conversation"):
             except KeyboardInterrupt:
                 stop = True
             except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
                 print(f"[turn {label} failed: {exc}]")
+            ran += 1
+            took, elapsed = time.monotonic() - t0, time.monotonic() - started
+            eta = elapsed / ran * (len(turns) - i - 1)
+            print(f"[turn {i + 1}/{len(turns)} took {clock(took)}, elapsed "
+                  f"{clock(elapsed)}, ETA {clock(eta)}]")
             if out is not None:
                 row = {"id": item.id, "turn": i, "question": item.text,
                        "answer": answer}
+                if error is not None:
+                    row["error"] = error
                 if mode == "independent":
                     row["conversation"] = state.trie.conversation_id
                 if item.kind != "chat":
@@ -3915,6 +3972,16 @@ def build_parser():
                         "session of its own (a document is attached to the "
                         "item after it) so unrelated items never see each "
                         "other's memory (default: conversation)")
+    p.add_argument("--turns-timeout", type=float, default=None,
+                   metavar="SECONDS",
+                   help="under --turns, give up on a turn whose server "
+                        "has sent nothing for this long and go on to the "
+                        "next item (needs --backend vllm-serve; the row "
+                        "records the error)")
+    p.add_argument("--turns-resume", action="store_true",
+                   help="under --turns with --turns-out, keep the file and "
+                        "skip every item it already holds an answer for, "
+                        "so a stopped run continues where it left off")
     return p
 
 
@@ -3991,6 +4058,15 @@ def main(argv=None):
     if parse_memory_cap(args.memory_cap) is None:
         print("--memory-cap must be 'off', 'auto', 'window', or a "
               "positive token count", file=sys.stderr)
+        return 1
+    if args.turns_timeout is not None and not (
+            math.isfinite(args.turns_timeout) and args.turns_timeout > 0):
+        print("--turns-timeout must be a positive number of seconds",
+              file=sys.stderr)
+        return 1
+    if args.turns_resume and not args.turns_out:
+        print("--turns-resume needs --turns-out, the file it continues",
+              file=sys.stderr)
         return 1
     if args.scope_margin < 0 or args.scope_peak_margin < 0:
         print("--scope-margin and --scope-peak-margin must be zero or "
@@ -4227,7 +4303,8 @@ def main(argv=None):
 
     try:
         if turns is not None:
-            run_turns(state, turns, args.turns_out, args.turns_mode)
+            run_turns(state, turns, args.turns_out, args.turns_mode,
+                      args.turns_timeout, args.turns_resume)
         else:
             repl(state)
     finally:

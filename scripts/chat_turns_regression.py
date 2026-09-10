@@ -18,6 +18,11 @@ sessions kept under a temporary directory. Groups:
      to the session of the item after it and to no other, a repeated id
      never resumes another item's memory, and each session persists on
      disk under its own id.
+  D. LONG RUNS - every turn prints its time and an ETA, a failing turn
+     writes its row with the error and the run goes on, --turns-resume
+     keeps the file, skips the items it already answers, retries a
+     failed one and never skips a document, and --turns-timeout sets
+     the served client's stall timeout or says it does not apply.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes about a minute.
@@ -62,7 +67,7 @@ DOC_TEXT = ("The garden irrigation system uses a drip line on each "
 class _FakeRunner:
     kind = "fake"
 
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, fail_on=None):
         self.tokenizer = tokenizer
         self.alias = "fake"
         self.cfg = {"alias": "fake", "hf_id": "test/fake", "path": "-"}
@@ -70,26 +75,29 @@ class _FakeRunner:
         self.last_prompt_tokens = None
         self.last_engine_stats = None
         self.prompts = []
+        self.fail_on = fail_on
 
     def input_budget(self, max_new_tokens=None):
         return self.max_input_len
 
     def stream_chat(self, messages, **overrides):
         self.prompts.append(json.loads(json.dumps(messages)))
+        if self.fail_on == len(self.prompts):
+            raise RuntimeError("the server went quiet")
         yield f"noted point {len(self.prompts)}."
 
     def unload(self):
         pass
 
 
-def make_state(tmp, tok, mdl, device, flags=()):
+def make_state(tmp, tok, mdl, device, flags=(), fail_on=None):
     from salt.chat import cli
     args = cli.build_parser().parse_args(
         ["--device", device, "--sync-ingest", "--conversation-id", BASE,
          *flags])
     trie = SessionTrie(BASE, cache_dir=tmp, model_name=BGE_MODEL,
                        budget_pct_default=args.budget_pct)
-    return cli.ChatState(args, tok, mdl, _FakeRunner(tok), trie)
+    return cli.ChatState(args, tok, mdl, _FakeRunner(tok, fail_on), trie)
 
 
 def write_items(tmp, items, name="turns.json"):
@@ -189,6 +197,79 @@ def check_independent(tmp, tok, mdl, device):
           "repeated id never resumes another item, sessions persist")
 
 
+def check_long_runs(tmp, tok, mdl, device):
+    from salt.chat import cli
+    root = tmp / "long"
+    root.mkdir()
+    sessions, cli.SESSIONS_DIR = cli.SESSIONS_DIR, root
+    try:
+        out = root / "out.jsonl"
+        turns = cli.load_turns(write_items(root, ITEMS))
+        # a failing second turn: its row carries the error, the run goes on
+        state = make_state(root, tok, mdl, device, fail_on=2)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.run_turns(state, turns, str(out))
+        rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
+        assert [r["answer"] is None for r in rows] == [False, True, False], rows
+        assert rows[1]["error"].startswith("RuntimeError: the server went quiet"), rows[1]
+        assert "error" not in rows[0] and "error" not in rows[2], rows
+        text = buf.getvalue()
+        assert text.count("ETA") == 3 and "elapsed" in text, text
+        state.trie.save()
+        # resume: the answered items are skipped, the failed one runs again
+        state = make_state(root, tok, mdl, device)
+        with redirect_stdout(io.StringIO()) as buf:
+            cli.run_turns(state, turns, str(out), resume=True)
+        rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
+        assert len(rows) == 4 and len(state.runner.prompts) == 1, (rows, state.runner.prompts)
+        assert rows[3]["id"] == "sourdough/loaf 2" and rows[3]["answer"], rows[3]
+        assert buf.getvalue().count("skipped, answered in an earlier run") == 2
+        assert cli.answered_turns(str(out)) == {("id", "zeppelin"), ("id", "sourdough/loaf 2")}
+        # without --turns-resume the file starts over
+        state = make_state(root, tok, mdl, device)
+        with redirect_stdout(io.StringIO()):
+            cli.run_turns(state, turns, str(out))
+        rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
+        assert len(rows) == 3 and len(state.runner.prompts) == 3
+        # a document is never skipped on resume
+        doc = root / "notes.txt"
+        doc.write_text(DOC_TEXT, encoding="utf-8")
+        items = [{"id": "a", "doc": str(doc)}, {"id": "b", "puzzle": "When does the timer valve open?"}]
+        out2 = root / "out2.jsonl"
+        state = make_state(root, tok, mdl, device)
+        with redirect_stdout(io.StringIO()):
+            cli.run_turns(state, cli.load_turns(write_items(root, items, "t2.json")), str(out2))
+        state = make_state(root, tok, mdl, device)
+        with redirect_stdout(io.StringIO()) as buf:
+            cli.run_turns(state, cli.load_turns(write_items(root, items, "t2.json")), str(out2), resume=True)
+        assert "attach>" in buf.getvalue() and buf.getvalue().count("skipped") == 1
+        # the stall timeout reaches a served client and is declined elsewhere
+        state = make_state(root, tok, mdl, device)
+        state.runner.read_timeout = None
+        with redirect_stdout(io.StringIO()):
+            cli.run_turns(state, turns[:1], None, timeout=7.5)
+        assert state.runner.read_timeout == 7.5
+        state = make_state(root, tok, mdl, device)
+        with redirect_stdout(io.StringIO()) as buf:
+            cli.run_turns(state, turns[:1], None, timeout=7.5)
+        assert "does not apply" in buf.getvalue(), buf.getvalue()
+        assert cli.clock(59) == "59s" and cli.clock(61) == "1m 01s" and cli.clock(3725) == "1h 02m"
+        p = cli.build_parser()
+        assert p.parse_args([]).turns_timeout is None and not p.parse_args([]).turns_resume
+        assert p.parse_args(["--turns-timeout", "30", "--turns-resume"]).turns_resume
+        assert cli.main(["--turns-timeout", "-1"]) == 1
+        assert cli.main(["--turns-resume"]) == 1
+    finally:
+        cli.SESSIONS_DIR = sessions
+    print("D. long runs: every turn reports time and ETA, a failing turn "
+          "keeps its row with the error and the run goes on, resume skips "
+          "answered items and retries the failed one and never a document, "
+          "the stall timeout reaches a served client and is declined "
+          "elsewhere, and the launch checks refuse a bad timeout or a "
+          "resume without an output file")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -201,6 +282,7 @@ def main():
     try:
         check_conversation(tmp, tok, mdl, args.device)
         check_independent(tmp, tok, mdl, args.device)
+        check_long_runs(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")
