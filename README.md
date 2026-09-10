@@ -19,11 +19,14 @@
 > [!NOTE]
 > **What is next**
 >
-> - **Scripted conversation runs** - richer tooling around `--turns` for
->   driving and scoring long canned conversations.
-> - **Self-deciding memory** - the memory switches are already read and
->   set per turn through rules, and the next step is an agent that
->   decides them from what the session reports about itself.
+> - **Scripted conversation runs** - richer tooling around `--turns`, so
+>   canned conversations can drive long sessions and be scored afterward.
+> - **Summarization coverage** - extend the theme-coverage objective to
+>   better serve summarization, where recall across many minor themes
+>   matters most.
+> - **Self-deciding memory** - the switch layer's rules, its signals and
+>   an experimental model policy are in place, and the next step is a
+>   policy that earns a default from measured sessions.
 
 SALT shrinks a long document down to a fixed size before it is sent to a language
 model, keeping the sentences that carry the most information. It works with any
@@ -326,9 +329,9 @@ Next:
 
 - **Summarization coverage** - extend the theme-coverage objective to better
   serve summarization, where recall across many minor themes matters most.
-- **Self-deciding memory** - the switch layer's rules and signals are in
-  place, and the next step is an agent that sets the switches per turn
-  from what the session reports about itself.
+- **Self-deciding memory** - the switch layer's rules, its signals and an
+  experimental model policy are in place, and the next step is a policy
+  that earns a default from measured sessions.
 
 ## 🤝 Contributing
 
