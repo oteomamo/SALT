@@ -948,6 +948,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#where-a-turn-searches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a turn searches
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1337,6 +1348,17 @@
     <span class="md-ellipsis">
       
         Tail-aware memory selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-a-turn-searches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a turn searches
       
     </span>
   </a>
@@ -1756,6 +1778,46 @@ longer word, and a sentence altered at ingest simply stays selectable.
 And when everything alive is still on screen, early in a session, the
 skip stands down rather than hand the model an empty memory block.
 <code>--no-tail-exclude</code> restores the old overlapping selection.</p>
+<h2 id="where-a-turn-searches">Where a turn searches</h2>
+<p>Every attached file is its own branch of the memory trie, so a session
+with several files holds several branches beside the conversation.
+Selection used to treat them as one corpus: a question about one file
+drew its block from every file, and the block grew with each file
+added, until a huge document or a long session pushed it against the
+model's window. Two things changed.</p>
+<p>The block has a ceiling. The default memory cap fits the block to the
+space the window has left and never lets it pass 4096 tokens, whatever
+the session's size. Measured over chat histories of 70 to 100 thousand
+words, a window-sized block bought no accuracy over the ceiling for
+four times the seconds per turn, and on the largest histories it
+answered worse: it held the evidence more often and used it less well.
+<code>--memory-cap window</code> keeps the old window-only fit.</p>
+<p>A turn searches only the branches it is about. Before selecting, the
+session scores every branch against the question: the similarity of
+the question to the branch as a whole and to its best single sentence,
+and how many of the question's keywords and names the branch contains,
+all from the embeddings and keywords the session already holds, at one
+encoder call per turn. A file stays in scope when it sits within a
+small margin of the best file on either similarity, or carries the
+most of the question's names, and the conversation is always in. The
+other files leave that turn's candidacy the way sentences already
+visible in the recent messages do, and the budget fraction is taken of
+the words inside the scope, with a floor so a short file is still
+read. The theme map, the keyword order and the remembered discounts
+still describe the whole session, so the trie keeps its shape, and
+nothing about the decision persists: the next question is routed
+again.</p>
+<p>What it is worth. Measured at a fixed block size on ten conversations
+attached as files, drawing the block from the right branch is worth
+six to eight F1 points on the conversation benchmark when the branch
+is named by hand, and the rule earns about half of that on its own,
+with recall up, seconds down and the right branch kept on every
+question. On sets of same-domain papers the rule keeps nearly every
+file and answers as before: the signals separate distinct topics, not
+documents that share one. <code>/scope</code> names the files by hand,
+<code>--scope off</code> searches everything, <code>--branch-stats</code> shows the scores,
+and <code>/stats</code> prints which files the last turn searched and keeps a
+census of the session's routing.</p>
 <p>Where each stage lives:</p>
 <table>
 <thead>
@@ -1804,6 +1866,10 @@ skip stands down rather than hand the model an empty memory block.
 <tr>
 <td>Document ingest (PDF/text cleanup, <code>salt@</code>, <code>--doc</code>)</td>
 <td><code>salt/chat/pdfio.py</code></td>
+</tr>
+<tr>
+<td>Scoped search (branch scores, the rule, <code>/scope</code>)</td>
+<td><code>salt/chat/scope.py</code>, <code>salt/engine/session_trie.py</code></td>
 </tr>
 <tr>
 <td>Chat REPL + model registry</td>
