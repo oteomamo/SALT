@@ -57,6 +57,7 @@ Session:
 | `--turns-mode conversation\|independent` | `conversation` | one session for all items, or a fresh session per item so unrelated items never see each other's memory |
 | `--turns-timeout SECONDS` | none | give up on a turn whose server sent nothing for this long and go on (served backends) |
 | `--turns-resume` | off | keep the `--turns-out` file and skip the items it already answers, so a stopped run continues |
+| `--turns-gold-field KEY` | auto | which key holds the reference answer in `--turns` items, so each row is scored and the run ends with its count |
 
 Agents:
 

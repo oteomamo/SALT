@@ -30,6 +30,14 @@ sessions kept under a temporary directory. Groups:
      `think` while the answer holds only what it said and memory holds
      the answer alone, and an item's other fields ride along under
      `item` while a bare string item carries none.
+  F. SCORING - the comparison ignores case, markup, punctuation and
+     articles and keeps a decimal point, the three rules fire in order
+     and the row names the one that did, a list of references accepts
+     any, an item with a reference gains gold and a verdict while one
+     without gains nothing, the reference never repeats under `item`,
+     an explicit field wins over a common key, a failed turn scores
+     wrong and its retry replaces it in the count, and the run ends with
+     the count overall and per category on the error stream.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes about a minute.
@@ -343,6 +351,98 @@ def check_richer_rows(tmp, tok, mdl, device):
           "other fields under item")
 
 
+def check_scoring(tmp, tok, mdl, device):
+    from salt.chat import cli, scoring
+    v = scoring.verdict
+    assert scoring.normalize("**The Answer:** 3.14, Please!") == "answer 3.14 please"
+    assert scoring.normalize("About 1,000 km") == "about 1000 km"
+    assert scoring.final_line("some thought\n\n**Answer:** Nitrile") == "Nitrile"
+    assert v("Nitrile", "nitrile") == {"correct": True, "match": "exact", "f1": 1.0}
+    assert v("I weighed the options.\nFinal answer: 42", "42")["match"] == "final"
+    assert v("The gasket should be nitrile rubber, not silicone.",
+             "nitrile rubber")["match"] == "contains"
+    assert v("Silicone.", "nitrile") == {"correct": False, "match": None, "f1": 0.0}
+    assert v("Seventy percent.", ["70%", "seventy percent"])["match"] == "exact"
+    assert v("It is 7.", 7)["match"] == "contains"
+    assert v(None, "42") == {"correct": False, "match": None, "f1": 0.0}
+    assert v("nitrile rubber gasket", "nitrile gasket") == {
+        "correct": False, "match": None, "f1": 0.8}
+    assert v("42", "")["correct"] is False
+    assert scoring.summary_line(scoring.summary([])) is None
+    root = tmp / "score"
+    root.mkdir()
+    sessions, cli.SESSIONS_DIR = cli.SESSIONS_DIR, root
+    try:
+        items = [{"id": "p1", "category": "128", "answer": "nitrile",
+                  "puzzle": "Which gasket suits a hydrogen manifold?"},
+                 {"id": "p2", "category": "128",
+                  "solution": ["70%", "seventy percent"],
+                  "puzzle": "What hydration suits this loaf?"},
+                 {"id": "p3", "category": "256", "answer": "two bar",
+                  "puzzle": "Name the pump pressure."},
+                 {"id": "p4", "puzzle": "A question with no reference."}]
+        replies = ["<think>\nnitrile resists hydrogen embrittlement better than "
+                   "the other elastomers on the list\n</think>\nA nitrile gasket "
+                   "suits a hydrogen manifold on a mooring mast.",
+                   "Seventy percent.",
+                   "The pump pressure stays near three bar on that line.",
+                   "There is no reference answer for this one, and that is fine."]
+        state = make_state(root, tok, mdl, device, replies=replies)
+        out, err = root / "out.jsonl", io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(err):
+            score = cli.run_turns(state, cli.load_turns(write_items(root, items)),
+                                  str(out))
+        rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
+        assert [r.get("match") for r in rows] == ["contains", "exact", None, None], rows
+        assert [r.get("correct") for r in rows] == [True, True, False, None], rows
+        assert rows[0]["gold"] == "nitrile" and rows[1]["gold"] == ["70%", "seventy percent"], rows
+        assert rows[0]["item"] == {"category": "128"}, rows[0]
+        assert set(rows[3]) == ROW_KEYS, rows[3]
+        assert 0 < rows[2]["f1"] < 1 and rows[2]["gold"] == "two bar", rows[2]
+        mean = round(sum(r["f1"] for r in rows[:3]) / 3, 4)
+        assert score == {"scored": 3, "correct": 2, "f1": mean,
+                         "categories": {"128": [2, 2], "256": [0, 1]}}, score
+        assert (f"[scored 2/3 correct, mean F1 {mean:.3f}, by category "
+                f"128 2/2, 256 0/1]") in err.getvalue(), err.getvalue()
+        # an explicit field wins, a failed turn scores wrong, its retry
+        # replaces it in the count
+        items = [{"id": "a", "puzzle": "First?", "ref": "alpha"},
+                 {"id": "b", "puzzle": "Second?", "ref": "beta", "answer": "decoy"}]
+        script = write_items(root, items, "t2.json")
+        out2 = root / "out2.jsonl"
+        state = make_state(root, tok, mdl, device, replies=["Alpha.", "Beta."],
+                           fail_on=2)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            score = cli.run_turns(state, cli.load_turns(script, gold_field="ref"),
+                                  str(out2))
+        rows = [json.loads(l) for l in out2.read_text(encoding="utf-8").splitlines()]
+        assert [r["correct"] for r in rows] == [True, False] and "error" in rows[1], rows
+        assert rows[1]["item"] == {"answer": "decoy"} and rows[1]["gold"] == "beta", rows[1]
+        assert score["scored"] == 2 and score["correct"] == 1 and not score["categories"], score
+        state = make_state(root, tok, mdl, device, replies=["Beta."])
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(err):
+            score = cli.run_turns(state, cli.load_turns(script, gold_field="ref"),
+                                  str(out2), resume=True)
+        rows = [json.loads(l) for l in out2.read_text(encoding="utf-8").splitlines()]
+        assert len(rows) == 3 and rows[2]["id"] == "b" and rows[2]["correct"] is True, rows
+        assert score["scored"] == 2 and score["correct"] == 2, score
+        assert "[scored 2/2 correct, mean F1 1.000]" in err.getvalue(), err.getvalue()
+        # a run without references ends without a count
+        state = make_state(root, tok, mdl, device)
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(err):
+            score = cli.run_turns(state, cli.load_turns(write_items(root, ITEMS)))
+        assert score["scored"] == 0 and "scored" not in err.getvalue(), err.getvalue()
+    finally:
+        cli.SESSIONS_DIR = sessions
+    print("F. scoring: the three rules fire in order and the row names the "
+          "one that did, a reference under a common or an explicit field "
+          "grades the row and never repeats under item, a failed turn "
+          "scores wrong until its retry, and the run ends with its count "
+          "overall and per category on the error stream")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -357,6 +457,7 @@ def main():
         check_independent(tmp, tok, mdl, args.device)
         check_long_runs(tmp, tok, mdl, args.device)
         check_richer_rows(tmp, tok, mdl, args.device)
+        check_scoring(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

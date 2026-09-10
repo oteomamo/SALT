@@ -59,6 +59,7 @@ from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
 from salt.chat.runner import make_runner
 from salt.chat import scope as scope_module
+from salt.chat import scoring
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
 from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
                                  is_short_user_unit)
@@ -3175,8 +3176,9 @@ _OFFLOAD_KEYS = ("task", "target", "ingest")
 # what one line of a scripted run is. `kind` says which of the four,
 # because a run is read long after it was written and "it has an offload
 # key" is not something a reader should have to work out
-ScriptedTurn = namedtuple("ScriptedTurn", "id text offload kind ts fields",
-                          defaults=(None, None))
+ScriptedTurn = namedtuple("ScriptedTurn",
+                          "id text offload kind ts fields gold",
+                          defaults=(None, None, None))
 TURN_KINDS = ("chat", "offload", "agent", "doc")
 
 
@@ -3273,6 +3275,18 @@ def _turn_ts(item, i):
                      f"an ISO 8601 string")
 
 
+def _turn_gold(item, gold_field):
+    """The reference answer an item carries and the key it sits under:
+    the explicit field, else the first common key holding a value."""
+    if not isinstance(item, dict):
+        return None, None
+    keys = (gold_field,) if gold_field is not None else scoring.GOLD_KEYS
+    for k in keys:
+        if k in item and scoring.references(item[k]):
+            return k, item[k]
+    return None, None
+
+
 def _turn_named(item, key, i):
     """The text an item's named key carries, or None when it has no such
     key. Refused when the key is there and holds nothing usable, since a
@@ -3285,7 +3299,7 @@ def _turn_named(item, key, i):
     return text.strip()
 
 
-def load_turns(path, field=None):
+def load_turns(path, field=None, gold_field=None):
     """Read a --turns file into an ordered list of scripted items.
 
     Four kinds of line, and a run mixes them freely: a turn for the chat
@@ -3315,12 +3329,18 @@ def load_turns(path, field=None):
         if ts is not None and kind != "chat":
             raise ValueError(f"turn {i}: timestamp belongs on a plain "
                              f"chat turn, not a {kind} line")
-        fields = None
+        fields = gold = None
         if isinstance(item, dict):
-            spent = {"id", "timestamp", kind if kind != "chat"
-                     else _turn_text_key(item, field)}
+            text_key = (_turn_text_key(item, field) if kind == "chat"
+                        else kind)
+            gold_key, gold = ((None, None) if kind == "doc"
+                              else _turn_gold(item, gold_field))
+            if gold_key == text_key:
+                gold_key = gold = None
+            spent = {"id", "timestamp", text_key, gold_key}
             fields = {k: v for k, v in item.items() if k not in spent} or None
-        turns.append(ScriptedTurn(turn_id, text, spec, kind, ts, fields))
+        turns.append(ScriptedTurn(turn_id, text, spec, kind, ts, fields,
+                                  gold))
     return turns
 
 
@@ -3341,19 +3361,27 @@ def item_session_id(base, label, taken):
     return cid
 
 
+def output_rows(out_path):
+    """The rows of a run's output file, in order; a line that is not a
+    row is skipped."""
+    rows = []
+    p = Path(out_path)
+    if not p.is_file():
+        return rows
+    for line in p.read_text(encoding="utf-8").splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            continue
+    return rows
+
+
 def answered_turns(out_path):
     """The items an earlier run already answered, read from its output
     file: by id where the item has one, by position otherwise, and only
     rows that carry an answer, so an item that failed runs again."""
     done = set()
-    p = Path(out_path)
-    if not p.is_file():
-        return done
-    for line in p.read_text(encoding="utf-8").splitlines():
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
+    for row in output_rows(out_path):
         if row.get("answer") is None or row.get("kind") == "doc":
             continue
         done.add(("id", row["id"]) if row.get("id") is not None
@@ -3380,7 +3408,9 @@ def run_turns(state, turns, out_path=None, mode="conversation",
     item's id, and a document is attached to the session the item after
     it runs in, so unrelated items never see each other's memory. Every
     backend works, including --backend vllm-serve. With out_path, each
-    answer is appended to a JSONL file."""
+    answer is appended to a JSONL file. An item that carries a reference
+    answer is scored, and the run ends with the count, which is also
+    what this returns."""
     if mode not in TURNS_MODES:
         raise ValueError(f"unknown --turns-mode {mode!r}")
     if timeout is not None:
@@ -3396,7 +3426,7 @@ def run_turns(state, turns, out_path=None, mode="conversation",
            if out_path else None)
     base = state.trie.conversation_id
     taken, fresh_needed = set(), True
-    started, ran = time.monotonic(), 0
+    started, ran, scored = time.monotonic(), 0, []
     try:
         for i, item in enumerate(turns):
             label = item.id if item.id is not None else i
@@ -3469,6 +3499,10 @@ def run_turns(state, turns, out_path=None, mode="conversation",
                     row["think"] = thought
                 if item.fields:
                     row["item"] = item.fields
+                if item.gold is not None:
+                    row["gold"] = item.gold
+                    row.update(scoring.verdict(answer, item.gold))
+                    scored.append(row)
                 if error is not None:
                     row["error"] = error
                 if mode == "independent":
@@ -3490,6 +3524,14 @@ def run_turns(state, turns, out_path=None, mode="conversation",
             if stop:
                 print("\n[interrupted - stopping the run]")
                 break
+        if out is not None:
+            out.flush()
+            scored = output_rows(out_path)
+        score = scoring.summary(scored)
+        line = scoring.summary_line(score)
+        if line:
+            print(line, file=sys.stderr)
+        return score
     finally:
         if out is not None:
             out.close()
@@ -3995,7 +4037,9 @@ def build_parser():
                         "{id, turn, question, answer, seconds, "
                         "prompt_tokens, engine}, plus {think} when the "
                         "model reasoned first, {item} for the item's other "
-                        "fields, {error} on a failed turn, {kind, status, "
+                        "fields, {gold, correct, match, f1} when the item "
+                        "carries a reference answer, {error} on a failed "
+                        "turn, {kind, status, "
                         "worker} on a delegated one and {conversation} "
                         "under --turns-mode independent")
     p.add_argument("--turns-mode", default="conversation",
@@ -4016,6 +4060,11 @@ def build_parser():
                    help="under --turns with --turns-out, keep the file and "
                         "skip every item it already holds an answer for, "
                         "so a stopped run continues where it left off")
+    p.add_argument("--turns-gold-field", metavar="KEY", default=None,
+                   help="which key holds the reference answer in --turns "
+                        "items (default: gold, answer, solution or expected "
+                        "when one is there); a row is then scored and the "
+                        "run ends with its count on the error stream")
     return p
 
 
@@ -4215,7 +4264,8 @@ def main(argv=None):
     turns = None
     if args.turns:
         try:
-            turns = load_turns(args.turns, args.turns_field)
+            turns = load_turns(args.turns, args.turns_field,
+                               args.turns_gold_field)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"--turns: {exc}", file=sys.stderr)
             return 1
