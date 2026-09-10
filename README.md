@@ -105,7 +105,8 @@ so it is the fastest way to find where a change belongs:
 │ │ BGE-small encoder  │  │ SF-ordered paths   │  │ coverage (CELF)    │   │
 │ │ attention keywords │  │ theme branches     │  │ branch discounting │   │
 │ │ knee cutoff        │  │ §file: doc branches│  │ multi-anchor query │   │
-│ │ junk filter        │  │ rebuilt cheaply    │  │ ≤ word budget      │   │
+│ │ junk filter        │  │ rebuilt cheaply    │  │ ≤20% · 4k tokens   │   │
+│ │                    │  │ branch scores      │  │ scoped search      │   │
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
@@ -138,7 +139,8 @@ so it is the fastest way to find where a change belongs:
 │ │         │                     │              │             │       │   │
 │ │     sentences             sentences      sentences     sentences   │   │
 │ │                                                                    │   │
-│ │ each turn: ≤ budget spread across branches (CELF discounting)      │   │
+│ │ each turn: branch scores set the scope, the files the question is  │   │
+│ │ about with the conversation always in, then ≤ budget across them   │   │
 │ │ the untrie - the verbatim tail - sits OUTSIDE the trie, as the     │   │
 │ │ prompt's stable recent-history window                              │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
