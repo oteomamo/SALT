@@ -67,6 +67,7 @@ can be resumed here. The [MCP server](mcp.md) page has the setup.
 
 | Command | Effect |
 |---|---|
+| `/help` | list the commands |
 | `salt@` | list attachable files staged in `salt/files/` |
 | `salt@<file>` | attach a `.pdf`/`.txt`/`.md`/`.rst`: whole text, own trie branch |
 | `attach@<file>` | attach in full: uncompressed text rides in every prompt |
@@ -76,7 +77,7 @@ can be resumed here. The [MCP server](mcp.md) page has the setup.
 | `/budget <pct>` | set the memory budget (`0.3` or `30`) |
 | `/scope` | which attached files a turn searches: `auto` lets the rule choose, `off` searches every file, `<file>[,<file>]` names them |
 | `/stats` | session, attachments, compression, and GPU-memory stats |
-| `/roster` | list the models `--roster` names, `/roster probe` contacts them |
+| `/roster` | list the models `--roster` names, `/roster probe` contacts them, `/roster probe --deep NAME` reports what one serves |
 | `/worker` | show each worker's connection, calls and mean latency |
 | `/worker probe <name>` | reconnect one worker and report what it serves |
 | `/worker start <name>` | launch a spawn entry's server, `start --all` does them all |
@@ -86,7 +87,7 @@ can be resumed here. The [MCP server](mcp.md) page has the setup.
 | `@NAME <question>` | let that worker answer this turn instead |
 | `/agent <task>` | answer this turn by planning it out and handing the pieces to workers (see [agents](agents.md#a-turn-planned-out)) |
 | `/new [id]`, `/clear` | start another conversation, wipe this one |
-| `/exit` | leave (the session is saved and resumable by id) |
+| `/exit` | leave (also `/quit`, `/q`), the session is saved and resumable by id |
 
 TAB completes `/commands`, `@worker` names, `salt@<file>`, and
 `attach@<file>` names (see
@@ -182,17 +183,20 @@ behind.
 
 A `salt@` file becomes **its own branch** of the session trie, hanging off the
 conversation's root - so multiple attachments never crowd each other out, and
-the per-turn budget (default 20%) spreads across files and conversation
-themes. The percentage is bounded twice: `--memory-cap auto` (the default)
-sizes the block to the space left after the fixed prompt and never lets it
-pass 4096 tokens, so a huge document cannot fill the window with memory.
+the per-turn budget (default 20%) is taken of the files a question is about
+plus the conversation (see "Where a turn searches" below), with a floor so
+a short file is still read. The block is bounded further: `--memory-cap
+auto` (the default) sizes it to the space left after the fixed prompt and
+never lets it pass 4096 tokens, so a huge document cannot fill the window
+with memory.
 `--memory-cap window` keeps only the window fit, and `--memory-cap off`
 restores the old unbounded sizing. An `attach@` file skips the trie
 entirely: its full text rides uncompressed in every prompt.
 
 `--branch-stats` shows how each branch relates to the question. After
 every query turn, `/stats` lists the conversation and each attached file
-with two similarities to the question, the branch as a whole and its
+of at least three indexed sentences (a shorter one counts with the
+conversation) with two similarities to the question, the branch as a whole and its
 best single sentence, plus how many of the question's keywords and names
 appear in it. Prompts and selection do not change.
 
@@ -202,8 +206,8 @@ With several files attached, a question about one of them used to draw
 its memory block from all of them, and the block grew with every file
 added. By default (`--scope auto`) a turn keeps the attached files whose
 content as a whole is about the question or holds a strong match for it,
-or that carry the most of the question's names, plus the conversation,
-which is always searched. The other files stay out of that turn's
+or that carry the most of the question's names, at least one, plus the
+conversation, which is always searched. The other files stay out of that turn's
 selection, and the block is sized from the words inside the scope rather
 than the whole session, with a floor so a short file is still read.
 Nothing about the files changes: the next question is routed again from
@@ -394,7 +398,7 @@ Every turn is recorded in a per-conversation KV ledger under
 keys follow the cached-token convention (`input` = freshly prefilled
 sentences, `input_cached_tokens` = context re-selected from the previous
 turn, `output` = generated tokens) plus a per-token `tokens.npy` matrix.
-`/stats` shows the running totals. On `--backend vllm` every event also
+`/stats` shows the running totals. On `--backend vllm` and `vllm-serve` every event also
 records the engine's measured prefix-cache reuse (`apc_cached_tokens` /
 `apc_prompt_tokens`) - the positional ground truth next to the ledger's
 content-overlap split.
