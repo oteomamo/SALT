@@ -81,7 +81,8 @@ so it is the fastest way to find where a change belongs:
 │ │     sentences             sentences      sentences     sentences   │   │
 │ │                                                                    │   │
 │ │ each turn: branch scores set the scope, the files the question is  │   │
-│ │ about with the conversation always in, then ≤ budget across them   │   │
+│ │ about with the conversation always in, a date on the line holds    │   │
+│ │ the other days out, then ≤ budget across what is left (CELF)       │   │
 │ │ the untrie - the verbatim tail - sits OUTSIDE the trie, as the     │   │
 │ │ prompt's stable recent-history window                              │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
@@ -499,6 +500,55 @@ documents that share one. `/scope` names the files by hand,
 and `/stats` prints which files the last turn searched and keeps a
 census of the session's routing.
 
+## When a turn searches
+
+A question about what was said on a given day was answered from the
+whole history. Every row of the conversation carries the time it was
+filed, the moment it was said in a live session or the `timestamp` a
+scripted turn names, and nothing read the day off the question. Two
+things changed.
+
+A turn can search a window in time. Under `--when auto` the session
+reads a day, a month, a year or a span relative to the moment of
+asking off the question, `on 8 May 2023`, `in May`, `during 2023`,
+`yesterday`, `last week`, `the last two weeks`, `last Monday`, and
+holds the conversation rows filed outside that window out of the
+turn's candidacy, the way sentences still visible in the recent
+messages are held out. A day or a month without a year takes the
+conversation's own years, latest first. Attached files are never held
+out, since their rows are filed when they are attached and a date on
+the line says nothing about them, and a window that holds no
+conversation rows is not applied. The budget is not resized, so a day
+that fits inside it is handed over whole. Nothing about the decision
+persists: the next question is read again. `/when <time>` pins a
+window by hand, `/when auto` and `/when off` set the mode, and
+`/stats` and the ledger report the window a turn searched.
+
+What it is worth. Measured on eight conversations and 234 session
+summaries, each asked for as a summary of one day with the whole
+conversation in memory, the window is worth nine ROUGE-L points and
+raises the share of the day's events the answer carries from four
+percent to thirty, on every conversation, at a fifth of the prompt
+tokens and forty percent of the time. That is exactly what handing
+the day's own turns over by hand is worth: on a question that names
+its day, the rule leaves nothing on the table. Without the window the
+block held a quarter of the day's rows and three percent of the block
+belonged to that day, whatever else was tuned.
+
+A turn that asks for a summary can profile more themes. The trie's
+themes are the keywords above a frequency cutoff, and coverage spreads
+the budget across those themes, so a minor topic that never crossed
+the cutoff has no branch to be covered by. `--summary auto` recognizes
+a turn that asks for a summary by its wording, `summarize`, `recap`,
+`what did we discuss`, `catch me up`, or by `/summary next`, and
+selects that turn at a lower theme cutoff and a stronger discount, set
+by `--summary-themes` and `--summary-lam`, for that call only. Every
+other turn selects exactly as before. Measured on the same summaries,
+the knobs changed nothing, with the block drawn from the wrong day or
+from the right one, so the switch stays opt-in: what decided the
+answer was where the block was drawn from, not how it was spread, the
+third time that shape has appeared in this record.
+
 Where each stage lives:
 
 | Stage | Code |
@@ -514,6 +564,8 @@ Where each stage lives:
 | Background ingest worker (chat) | `salt/chat/ingest.py` |
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Scoped search (branch scores, the rule, `/scope`) | `salt/chat/scope.py`, `salt/engine/session_trie.py` |
+| Time windows (the parser, `/when`) | `salt/chat/when.py` |
+| Summary turns (the lexicon, `/summary`) | `salt/chat/summary.py`, `salt/engine/session_trie.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |

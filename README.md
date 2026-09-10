@@ -140,7 +140,8 @@ so it is the fastest way to find where a change belongs:
 │ │     sentences             sentences      sentences     sentences   │   │
 │ │                                                                    │   │
 │ │ each turn: branch scores set the scope, the files the question is  │   │
-│ │ about with the conversation always in, then ≤ budget across them   │   │
+│ │ about with the conversation always in, a date on the line holds    │   │
+│ │ the other days out, then ≤ budget across what is left (CELF)       │   │
 │ │ the untrie - the verbatim tail - sits OUTSIDE the trie, as the     │   │
 │ │ prompt's stable recent-history window                              │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
@@ -193,6 +194,8 @@ Where each stage lives:
 | Background ingest worker (chat) | `salt/chat/ingest.py` |
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
 | Scoped search (branch scores, the rule, `/scope`) | `salt/chat/scope.py`, `salt/engine/session_trie.py` |
+| Time windows (the parser, `/when`) | `salt/chat/when.py` |
+| Summary turns (the lexicon, `/summary`) | `salt/chat/summary.py`, `salt/engine/session_trie.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |
