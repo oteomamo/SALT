@@ -76,6 +76,7 @@ can be resumed here. The [MCP server](mcp.md) page has the setup.
 | `/doc <path>` | ingest a text or PDF file into the trie |
 | `/budget <pct>` | set the memory budget (`0.3` or `30`) |
 | `/scope` | which attached files a turn searches: `auto` lets the rule choose, `off` searches every file, `<file>[,<file>]` names them |
+| `/summary` | whether a turn that asks for a summary selects as one: `auto` reads the wording, `off` never does, `next` marks the next turn by hand |
 | `/stats` | session, attachments, compression, and GPU-memory stats |
 | `/roster` | list the models `--roster` names, `/roster probe` contacts them, `/roster probe --deep NAME` reports what one serves |
 | `/worker` | show each worker's connection, calls and mean latency |
@@ -274,6 +275,26 @@ rule and `/scope off` searches every file, as `--scope off` does for the
 whole session. An unknown name lists what is attached and changes
 nothing. A session without attachments is not routed and selects
 exactly as before.
+
+## Summary turns
+
+A question that asks for a summary wants breadth. The memory trie's
+themes are the keywords above a frequency cutoff, and coverage spreads
+the budget across those themes, so a minor topic that never crossed the
+cutoff has no branch to be covered by. `--summary auto` treats a turn
+that asks for a summary differently: that turn profiles themes at a
+lower cutoff, set by `--summary-themes`, and selects with a stronger
+discount, set by `--summary-lam`, so more topics get a branch and each
+branch gives up its sentences sooner. Every other turn selects exactly
+as before, and the session's own settings never change.
+
+The turn is recognized by its wording, `summarize`, `recap`, `what did
+we discuss`, `catch me up` and the like, or marked by hand. `/summary
+next` treats the next turn that selects from memory as a summary ask
+whatever it says, and `/summary auto` and `/summary off` set the mode
+for the session. `/stats` shows what a summary turn selected under and
+a census of how many turns were treated that way. The two knobs'
+defaults are a starting point rather than a measured optimum.
 
 ## How PDFs are cleaned
 

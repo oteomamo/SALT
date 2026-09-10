@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 2.11.0 - 2.11.115
+## 2.11.0 - 2.11.118
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -237,6 +237,13 @@ cover the tools, the roster and the limits.
   with its count overall and per category. `--turns-template` composes
   each message from an item's fields, so a raw dataset runs without a
   preprocessing pass.
+- **2.11.117 - 2.11.118** Summary turns. The compressor takes a theme
+  percentile and a coverage discount of its own for one call, and
+  `--summary auto` uses that on a turn that asks for a summary: more
+  keywords count as themes and a filling branch gives up its sentences
+  sooner, so the block spreads across more topics. Every other turn
+  selects as before. `/summary next` marks a turn by hand, and `/stats`
+  reports what a summary turn selected under.
 
 ## 2.10.0 - 2.10.123
 

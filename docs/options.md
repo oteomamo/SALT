@@ -99,6 +99,9 @@ Memory sizing:
 | `--scope off\|auto` | `auto` | `auto` searches only the attached files a question is about, plus the conversation, and sizes the block from the words in that scope, `off` searches every file |
 | `--scope-margin M` | `0.02` | under `--scope auto`, how far below the best file's whole-file similarity a file may sit and stay in scope |
 | `--scope-peak-margin M` | `0.10` | under `--scope auto`, how far below the best file's best-sentence similarity a file may sit and stay in scope |
+| `--summary off\|auto` | `off` | `auto` profiles more themes and spreads the budget across them on a turn that asks for a summary |
+| `--summary-themes P` | `0.6` | under `--summary auto`, the keyword-frequency percentile a summary turn profiles themes at, lower admits more |
+| `--summary-lam L` | `0.3` | under `--summary auto`, the coverage discount a summary turn selects with, lower spreads the budget across more branches |
 
 Behavior already on by default:
 

@@ -60,6 +60,7 @@ from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
 from salt.chat.runner import make_runner
 from salt.chat import scope as scope_module
+from salt.chat import summary as summary_module
 from salt.chat import scoring
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
 from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
@@ -166,6 +167,9 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /scope             which attached files a turn searches: /scope auto lets
                    the rule choose, /scope off searches every file, and
                    /scope <file>[,<file>] names them until the next /scope
+/summary           whether a turn that asks for a summary selects as one:
+                   /summary auto reads the wording, /summary off never
+                   does, /summary next marks the next turn by hand
 /stats             session, attachments, compression, and GPU memory stats
 /new [id]          start (or resume) another conversation
 /clear             wipe and restart the current conversation
@@ -173,7 +177,8 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 
 # what TAB offers: every command HELP lists, so the two cannot drift
 COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/offload",
-            "/offload!", "/agent", "/doc", "/budget", "/scope", "/stats", "/new",
+            "/offload!", "/agent", "/doc", "/budget", "/scope", "/summary",
+            "/stats", "/new",
             "/clear", "/exit"]
 
 
@@ -346,6 +351,10 @@ class ChatState:
         self.scope_names = None
         self.scope_margin = args.scope_margin
         self.scope_peak_margin = args.scope_peak_margin
+        self.summary_mode = self.summary_launch_mode = args.summary
+        self.summary_themes = args.summary_themes
+        self.summary_lam = args.summary_lam
+        self.summary_next = False
         self.tokens_per_word = TOKENS_PER_WORD_SEED
         # coverage-decay, shift-damping + near-dup knobs live here and
         # travel as per-call kwargs to compress()/add_turn(): SessionTrie
@@ -382,8 +391,10 @@ class ChatState:
         self.last_stats = None
         self.last_branch_scores = None
         self.last_scope = None
+        self.last_summary = None
         self.last_reply_raw = None
         self.scope_stats = scope_module.census()
+        self.summary_stats = summary_module.census()
         self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
@@ -498,9 +509,12 @@ class ChatState:
         self.last_stats = None
         self.last_branch_scores = None
         self.last_scope = None
+        self.last_summary = None
         self.last_reply_raw = None
         self.scope_stats = scope_module.census()
         self.scope_mode, self.scope_names = self.scope_launch_mode, None
+        self.summary_stats = summary_module.census()
+        self.summary_mode, self.summary_next = self.summary_launch_mode, False
         # ids and totals belong to the session, not to the process: a new
         # one starts from its own ledger or from nothing
         self.delegation_seq, self.delegation_stats = resume_delegations(
@@ -2077,6 +2091,10 @@ def build_stats(state):
         "scoped": state.last_scope,
         "scope_census": (state.scope_stats if state.scope_mode != "off"
                          else None),
+        "summary": state.last_summary,
+        "summary_census": (state.summary_stats
+                           if state.summary_mode != "off"
+                           or state.summary_stats["summary"] else None),
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -2221,6 +2239,10 @@ def print_stats(state, payload=None):
     for ln in scope_module.lines(d.get("scoped")):
         print(ln)
     for ln in scope_module.census_lines(d.get("scope_census")):
+        print(ln)
+    for ln in summary_module.lines(d.get("summary")):
+        print(ln)
+    for ln in summary_module.census_lines(d.get("summary_census")):
         print(ln)
     if d["signals"]:
         print(f"signals: {d['signals']['lines']} turns recorded "
@@ -2676,6 +2698,23 @@ def scope_command(state, rest):
             f"{', '.join(repr(n) for n in sorted(names))}")
 
 
+def summary_command(state, rest):
+    """`/summary` shows the setting. `/summary auto` reads the wording,
+    `/summary off` never does, and `/summary next` marks the next turn
+    that selects from memory as a summary ask whatever it says."""
+    if not rest:
+        marked = ", the next turn is marked" if state.summary_next else ""
+        return f"summary: {state.summary_mode}{marked}"
+    arg = rest[0].lower()
+    if arg in summary_module.MODES:
+        state.summary_mode = arg
+        return f"summary: {arg}"
+    if arg == "next":
+        state.summary_next = True
+        return "summary: the next turn selects as a summary ask"
+    return "Usage: /summary [auto|off|next]"
+
+
 def handle_command(line, state):
     """Dispatch a slash command. Returns False to exit the REPL."""
     parts = line.split()
@@ -2741,6 +2780,8 @@ def handle_command(line, state):
         print(f"Memory budget set to {val:.0%}.")
     elif cmd == "/scope":
         print(scope_command(state, rest))
+    elif cmd == "/summary":
+        print(summary_command(state, rest))
     elif cmd == "/stats":
         print_stats(state)
     elif cmd == "/new":
@@ -2965,8 +3006,17 @@ def scope_extra(state):
             "scope_words": rec["words"]}
 
 
+def summary_extra(state):
+    """The two values a summary turn selected under, for the ledger;
+    nothing on an ordinary turn, so the event keeps its shape."""
+    rec = state.last_summary
+    if not rec:
+        return {}
+    return {"summary_themes": rec["themes"], "summary_lam": rec["lam"]}
+
+
 def compress_kwargs(state, line, excl, switches, query_embedding=None,
-                    scope_sources=None):
+                    scope_sources=None, theme_percentile=None, lam=None):
     """Everything this turn asks the compressor for. Assembled in one
     place so what a turn selects under is a thing that can be read,
     decided about and pinned, rather than a call site."""
@@ -2991,6 +3041,8 @@ def compress_kwargs(state, line, excl, switches, query_embedding=None,
             "coverage_max_keys": switches["coverage_max_keys"],
             "query_embedding": query_embedding,
             "scope_sources": scope_sources,
+            "theme_percentile": theme_percentile,
+            "lam": lam,
             "defer_commit": True,
             "exclude_sent_idx": excl}
 
@@ -3024,7 +3076,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     # and a turn with nothing to select makes none
     state.last_overrides, state.last_audit = {}, ()
     state.turn_switches = None
-    state.last_branch_scores = state.last_scope = None
+    state.last_branch_scores = state.last_scope = state.last_summary = None
     if state.trie.n_sentences > 0:
         switches, state.last_overrides, state.last_audit = turn_switches(state)
         # what anything this turn does inside itself selects under. A
@@ -3038,9 +3090,14 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         scope_sources, scope_note = scope_module.decide(
             state.scope_mode, rows, state.scope_margin,
             state.scope_peak_margin, state.scope_names)
+        summary_on, summary_why = summary_module.decide(
+            state.summary_mode, line, state.summary_next)
+        state.summary_next = False
+        knobs = ((state.summary_themes, state.summary_lam) if summary_on
+                 else (None, None))
         comp = state.trie.compress(
             **compress_kwargs(state, line, excl, switches, q_vec,
-                              scope_sources))
+                              scope_sources, *knobs))
         selected_idx = comp["selected_sent_idx"]
         commit = comp.get("commit")
         state.last_stats = comp["stats"]
@@ -3048,6 +3105,10 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
             state.scope_mode, rows, scope_sources, scope_note, comp["stats"])
         if state.scope_mode != "off" and rows is not None:
             scope_module.count(state.scope_stats, state.last_scope)
+        state.last_summary = summary_module.record(summary_on, summary_why,
+                                                   comp["stats"])
+        if state.summary_mode != "off" or summary_on:
+            summary_module.count(state.summary_stats, state.last_summary)
         memory_block = format_memory_block(state.trie, selected_idx,
                                            state.turn_labels,
                                            state.conversation_map)
@@ -3137,6 +3198,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     extra.update(route_extra(state))
     extra.update(switch_extra(state))
     extra.update(scope_extra(state))
+    extra.update(summary_extra(state))
     try:
         state.kvtrace.record_turn(
             tokenizer=reply_tokenizer or state.runner.tokenizer,
@@ -3738,6 +3800,23 @@ def build_parser():
                    help="under --scope auto, how far below the best file's "
                         "whole-file similarity to the question a file may "
                         "sit and stay in scope (default: %(default)s)")
+    p.add_argument("--summary", default="off",
+                   choices=list(summary_module.MODES),
+                   help="whether a turn that asks for a summary selects as "
+                        "one: 'auto' profiles more themes and spreads the "
+                        "budget across them on such turns (see "
+                        "--summary-themes and --summary-lam), 'off' selects "
+                        "every turn the same way (default: off)")
+    p.add_argument("--summary-themes", type=float,
+                   default=summary_module.SUMMARY_THEMES,
+                   help="under --summary auto, the keyword-frequency "
+                        "percentile a summary turn profiles themes at; lower "
+                        "admits more themes (default: %(default)s)")
+    p.add_argument("--summary-lam", type=float,
+                   default=summary_module.SUMMARY_LAM,
+                   help="under --summary auto, the coverage discount a "
+                        "summary turn selects with; lower spreads the budget "
+                        "across more branches (default: %(default)s)")
     p.add_argument("--scope-peak-margin", type=float,
                    default=scope_module.SCOPE_PEAK_MARGIN,
                    help="under --scope auto, how far below the best file's "
@@ -4202,6 +4281,15 @@ def main(argv=None):
     if args.scope_margin < 0 or args.scope_peak_margin < 0:
         print("--scope-margin and --scope-peak-margin must be zero or "
               "more", file=sys.stderr)
+        return 1
+    if not (math.isfinite(args.summary_themes)
+            and 0 <= args.summary_themes < 1):
+        print("--summary-themes must be a percentile from 0 up to, not "
+              "including, 1", file=sys.stderr)
+        return 1
+    if not (math.isfinite(args.summary_lam) and 0 < args.summary_lam < 1):
+        print("--summary-lam must be strictly between 0 and 1",
+              file=sys.stderr)
         return 1
 
     try:
