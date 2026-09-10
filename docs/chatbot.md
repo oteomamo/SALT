@@ -141,8 +141,9 @@ item that follows it. Every session stays on disk and can be resumed by
 its id.
 
 A long run reports itself and survives interruptions. After every turn a
-line gives that turn's time, the elapsed time and an estimate of what is
-left. `--turns-timeout SECONDS` gives up on a turn whose server has sent
+line on the error stream gives that turn's time, the elapsed time and an
+estimate of what is left, so a captured transcript of the run stays
+clean. `--turns-timeout SECONDS` gives up on a turn whose server has sent
 nothing for that long and goes on to the next item, with the row noting
 the error, which needs `--backend vllm-serve` since an in-process backend
 cannot be interrupted mid-generation. `--turns-resume` keeps an existing

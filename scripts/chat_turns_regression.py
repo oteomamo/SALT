@@ -18,7 +18,8 @@ sessions kept under a temporary directory. Groups:
      to the session of the item after it and to no other, a repeated id
      never resumes another item's memory, and each session persists on
      disk under its own id.
-  D. LONG RUNS - every turn prints its time and an ETA, a failing turn
+  D. LONG RUNS - every turn prints its time and an ETA on the error
+     stream and never in the transcript, a failing turn
      writes its row with the error and the run goes on, --turns-resume
      keeps the file, skips the items it already answers, retries a
      failed one and never skips a document, and --turns-timeout sets
@@ -37,7 +38,7 @@ import json
 import shutil
 import sys
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -207,15 +208,16 @@ def check_long_runs(tmp, tok, mdl, device):
         turns = cli.load_turns(write_items(root, ITEMS))
         # a failing second turn: its row carries the error, the run goes on
         state = make_state(root, tok, mdl, device, fail_on=2)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        buf, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err):
             cli.run_turns(state, turns, str(out))
         rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
         assert [r["answer"] is None for r in rows] == [False, True, False], rows
         assert rows[1]["error"].startswith("RuntimeError: the server went quiet"), rows[1]
         assert "error" not in rows[0] and "error" not in rows[2], rows
-        text = buf.getvalue()
+        text = err.getvalue()
         assert text.count("ETA") == 3 and "elapsed" in text, text
+        assert "ETA" not in buf.getvalue(), "progress leaked into the transcript"
         state.trie.save()
         # resume: the answered items are skipped, the failed one runs again
         state = make_state(root, tok, mdl, device)

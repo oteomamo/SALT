@@ -3433,8 +3433,10 @@ def run_turns(state, turns, out_path=None, mode="conversation",
             ran += 1
             took, elapsed = time.monotonic() - t0, time.monotonic() - started
             eta = elapsed / ran * (len(turns) - i - 1)
+            # bookkeeping goes to the error stream, so a captured transcript
+            # of the run reads exactly as it did before and stays comparable
             print(f"[turn {i + 1}/{len(turns)} took {clock(took)}, elapsed "
-                  f"{clock(elapsed)}, ETA {clock(eta)}]")
+                  f"{clock(elapsed)}, ETA {clock(eta)}]", file=sys.stderr)
             if out is not None:
                 row = {"id": item.id, "turn": i, "question": item.text,
                        "answer": answer}
