@@ -347,12 +347,11 @@ SALT is a Main Conference paper at EMNLP 2026. If you find this project
 useful for your research, please consider citing it:
 
 ```bibtex
-@inproceedings{mamo2026salt,
-      title={{SALT}: Salience-Aware Lexical Trie for Long-Context Compression},
-      author={Oteo Mamo and Hyunjin Yi and Joydhriti Choudhury and Shangqian Gao and Weikuan Yu},
-      booktitle={The 2026 Conference on Empirical Methods in Natural Language Processing},
-      year={2026},
-      url={https://openreview.net/forum?id=UTJqOhkSqi}
+@article{mamo2026salt,
+  title={SALT: Salience-Aware Lexical Trie for Long-Context Compression},
+  author={Mamo, Oteo and Yi, Hyunjin and Choudhury, Joydhriti and Gao, Shangqian and Yu, Weikuan},
+  journal={arXiv preprint arXiv:2607.17486},
+  year={2026}
 }
 ```
 
