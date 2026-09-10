@@ -66,6 +66,7 @@ deterministic. The table it wraps, for reference:
 | Branch scores and scoped search (the branch seams of `salt/engine/session_trie.py`) | `python scripts/chat_scope_regression.py` |
 | Scripted runs (`--turns` and its modes) | `python scripts/chat_turns_regression.py` |
 | The per-call theme and discount overrides of the session trie's compressor | `python scripts/chat_summary_regression.py` |
+| The time a turn searches (`salt/chat/when.py`) | `python scripts/chat_when_regression.py` |
 | The agent layer (`salt/agents/`, `--roster`, `/offload`, `@NAME`, `/agent`, `--switch-agent`) | `python scripts/chat_agents_regression.py` |
 | The MCP server (`salt/mcp/`, `salt-mcp`) | `python scripts/chat_mcp_regression.py` |
 | The per-turn work the session trie carries forward | `python scripts/chat_incremental_regression.py` |
