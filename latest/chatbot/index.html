@@ -1735,6 +1735,18 @@ cannot be interrupted mid-generation. <code>--turns-resume</code> keeps an exist
 <code>--turns-out</code> file and skips every item it already holds an answer for, so
 a run that was stopped continues where it left off, and an item that
 failed runs again.</p>
+<p>A run scores itself when its items carry a reference answer. An item's
+<code>gold</code>, <code>answer</code>, <code>solution</code> or <code>expected</code> field is the reference, or
+name the field with <code>--turns-gold-field KEY</code>. The row then carries
+<code>gold</code>, a <code>correct</code> verdict, the <code>match</code> rule that decided it and the
+token <code>f1</code> against the reference. The rules are conservative and run in
+order: the whole answer equals the reference, the answer's last line
+equals it once a label like <code>Answer:</code> is removed, or the reference
+appears whole inside the answer. The comparison ignores case,
+punctuation, markup and articles, and a list of references accepts any
+of them. When the run ends, a line on the error stream gives the count
+correct overall and per <code>category</code> when the items name one, counting
+the latest row of every item, so a retried item counts once.</p>
 <p>An object item can also carry a <code>timestamp</code>, either epoch seconds or an
 ISO 8601 string like <code>2026-03-14T09:30</code>. The exchange is then filed in
 memory at that time instead of the moment of the replay, so a
