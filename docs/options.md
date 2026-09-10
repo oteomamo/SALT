@@ -54,6 +54,7 @@ Session:
 | `--turns FILE` | none | replay a JSON or JSONL file of user turns into one session |
 | `--turns-field KEY` | auto | which key holds the message in `--turns` items |
 | `--turns-out FILE` | none | append each `--turns` answer as JSONL |
+| `--turns-mode conversation\|independent` | `conversation` | one session for all items, or a fresh session per item so unrelated items never see each other's memory |
 
 Agents:
 

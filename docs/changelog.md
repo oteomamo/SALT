@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 2.11.0 - 2.11.108
+## 2.11.0 - 2.11.109
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -220,6 +220,11 @@ cover the tools, the roster and the limits.
   files now searches, for each question, only the files the question is
   about plus the conversation. `--scope off` searches every file as
   before.
+- **2.11.109** `--turns-mode independent`. A scripted run of unrelated
+  items, a set of puzzles for instance, can give each item a fresh
+  session of its own so no item sees another's memory, with each output
+  row naming the session it ran in. The default, `conversation`, is the
+  one session the runs always used.
 
 ## 2.10.0 - 2.10.123
 

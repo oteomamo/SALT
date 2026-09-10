@@ -27,6 +27,9 @@ plain install stays green.
   trie carries forward instead of redoing.
 - `chat_tail_regression.py` covers tail-aware selection
   (`--no-tail-exclude`).
+- `chat_turns_regression.py` covers scripted runs: `--turns-mode`
+  conversation against independent, the sessions each item runs in, and
+  the rows `--turns-out` writes.
 - `chat_scope_regression.py` covers the branch scores the session trie
   reports for a query, the `--branch-stats` view of them, the
   query-embedding pass-through of its compressor, the scope its

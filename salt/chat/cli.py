@@ -3308,15 +3308,48 @@ def load_turns(path, field=None):
     return turns
 
 
-def run_turns(state, turns, out_path=None):
+TURNS_MODES = ("conversation", "independent")
+
+
+def item_session_id(base, label, taken):
+    """The session an independent item runs in: the launch id plus the
+    item's own, made safe for a directory name, and made unique when a
+    file repeats an id so no item ever resumes another's memory."""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(label)).strip("._-") or "item"
+    cid = f"{base}-{safe}"
+    n = 1
+    while cid in taken:
+        n += 1
+        cid = f"{base}-{safe}-{n}"
+    taken.add(cid)
+    return cid
+
+
+def run_turns(state, turns, out_path=None, mode="conversation"):
     """Feed a scripted list of user turns through the chat path one after
-    another, so SALT's memory builds across them exactly as in a live
-    session. Every backend works, including --backend vllm-serve. With
-    out_path, each answer is appended to a JSONL file."""
+    another. Under `conversation` (the default) they enter the same
+    session, so SALT's memory builds across them exactly as in a live
+    session. Under `independent` every item that is not a document runs
+    in a fresh session of its own, named after the launch id and the
+    item's id, and a document is attached to the session the item after
+    it runs in, so unrelated items never see each other's memory. Every
+    backend works, including --backend vllm-serve. With out_path, each
+    answer is appended to a JSONL file."""
+    if mode not in TURNS_MODES:
+        raise ValueError(f"unknown --turns-mode {mode!r}")
     out = open(out_path, "w", encoding="utf-8") if out_path else None
+    base = state.trie.conversation_id
+    taken, fresh_needed = set(), True
     try:
         for i, item in enumerate(turns):
             label = item.id if item.id is not None else i
+            if mode == "independent" and fresh_needed:
+                cid = item_session_id(base, label, taken)
+                state.new_trie(cid)
+                print(f"\n[session {cid}]")
+                fresh_needed = False
+            if mode == "independent" and item.kind != "doc":
+                fresh_needed = True
             print(f"\n=== turn {i + 1}/{len(turns)} [{label}] ===")
             print(f"{TURN_PROMPTS[item.kind]} {item.text}")
             report_ingest_failures(state.ingest.drain())
@@ -3350,6 +3383,8 @@ def run_turns(state, turns, out_path=None):
             if out is not None:
                 row = {"id": item.id, "turn": i, "question": item.text,
                        "answer": answer}
+                if mode == "independent":
+                    row["conversation"] = state.trie.conversation_id
                 if item.kind != "chat":
                     row["kind"] = item.kind
                 # a plain line under --agent may or may not have been
@@ -3870,7 +3905,16 @@ def build_parser():
     p.add_argument("--turns-out", metavar="FILE", default=None,
                    help="append each --turns answer to this JSONL file as "
                         "{id, turn, question, answer}, plus {kind, status, "
-                        "worker} on a delegated one")
+                        "worker} on a delegated one and {conversation} "
+                        "under --turns-mode independent")
+    p.add_argument("--turns-mode", default="conversation",
+                   choices=list(TURNS_MODES),
+                   help="how --turns items relate: 'conversation' feeds "
+                        "them into one session so memory builds across "
+                        "them, 'independent' runs each item in a fresh "
+                        "session of its own (a document is attached to the "
+                        "item after it) so unrelated items never see each "
+                        "other's memory (default: conversation)")
     return p
 
 
@@ -4183,7 +4227,7 @@ def main(argv=None):
 
     try:
         if turns is not None:
-            run_turns(state, turns, args.turns_out)
+            run_turns(state, turns, args.turns_out, args.turns_mode)
         else:
             repl(state)
     finally:

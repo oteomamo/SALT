@@ -131,6 +131,15 @@ turn prints its id and the model's reply. Add `--turns-out results.jsonl`
 to also append `{id, turn, question, answer}` per turn, so the run can be
 reviewed or scored afterward.
 
+`--turns-mode` says how the items relate. The default, `conversation`,
+feeds them into one session so the memory builds across them. For a file
+of unrelated items, such as a set of puzzles, `--turns-mode independent`
+runs each item in a fresh session named after the launch id and the item's
+id, so no item sees another's memory, and each row of `--turns-out` names
+the session it ran in. A document item is attached to the session of the
+item that follows it. Every session stays on disk and can be resumed by
+its id.
+
 An object item can also carry a `timestamp`, either epoch seconds or an
 ISO 8601 string like `2026-03-14T09:30`. The exchange is then filed in
 memory at that time instead of the moment of the replay, so a
