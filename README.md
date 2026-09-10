@@ -144,7 +144,7 @@ so it is the fastest way to find where a change belongs:
 │ │                  Prompt layout (KV-cache shaped)                   │   │
 │ │ [system: instructions · file inventory · attach@ full documents]   │   │
 │ │ → [tail: recent exchanges - append-only, block-wise compaction]    │   │
-│ │ → [newest user message: SALT memory (≈20% selection) + question]   │   │
+│ │ → [newest user message: SALT memory (≤20% of scope) + question]    │   │
 │ │ stable prefix = reusable KV ──── fresh suffix = per-turn prefill   │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
@@ -187,6 +187,7 @@ Where each stage lives:
 | Chat text handling (verbatim storage, short turns) | `salt/engine/chat_text.py`, `salt/chat/shortturn.py` |
 | Background ingest worker (chat) | `salt/chat/ingest.py` |
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
+| Scoped search (branch scores, the rule, `/scope`) | `salt/chat/scope.py`, `salt/engine/session_trie.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |

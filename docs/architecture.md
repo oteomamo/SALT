@@ -88,7 +88,7 @@ so it is the fastest way to find where a change belongs:
 │ │                  Prompt layout (KV-cache shaped)                   │   │
 │ │ [system: instructions · file inventory · attach@ full documents]   │   │
 │ │ → [tail: recent exchanges - append-only, block-wise compaction]    │   │
-│ │ → [newest user message: SALT memory (≈20% selection) + question]   │   │
+│ │ → [newest user message: SALT memory (≤20% of scope) + question]    │   │
 │ │ stable prefix = reusable KV ──── fresh suffix = per-turn prefill   │   │
 │ └────────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
