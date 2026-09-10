@@ -62,7 +62,7 @@ deterministic. The table it wraps, for reference:
 | Cross-turn coverage keys (`salt/engine/session_trie.py`, `salt/engine/celf.py`) | `python scripts/chat_keystab_regression.py` |
 | The near-duplicate gate (`--dedup-cos` paths) | `python scripts/chat_dedup_regression.py` |
 | The session cap (`--max-sentences` paths) | `python scripts/chat_evict_regression.py` |
-| Tail exclusion (`--tail-exclude` paths) | `python scripts/chat_tail_regression.py` |
+| Tail exclusion (`--no-tail-exclude` paths) | `python scripts/chat_tail_regression.py` |
 | Branch scores and scoped search (the branch seams of `salt/engine/session_trie.py`) | `python scripts/chat_scope_regression.py` |
 | The agent layer (`salt/agents/`, `--roster`, `/offload`, `@NAME`, `/agent`, `--switch-agent`) | `python scripts/chat_agents_regression.py` |
 | The MCP server (`salt/mcp/`, `salt-mcp`) | `python scripts/chat_mcp_regression.py` |

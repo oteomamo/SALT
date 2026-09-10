@@ -26,7 +26,7 @@ plain install stays green.
 - `chat_incremental_regression.py` covers the per-turn work the session
   trie carries forward instead of redoing.
 - `chat_tail_regression.py` covers tail-aware selection
-  (`--tail-exclude`).
+  (`--no-tail-exclude`).
 - `chat_scope_regression.py` covers the branch scores the session trie
   reports for a query, the `--branch-stats` view of them, the
   query-embedding pass-through of its compressor, the scope its
