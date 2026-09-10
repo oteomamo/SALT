@@ -449,6 +449,51 @@ And when everything alive is still on screen, early in a session, the
 skip stands down rather than hand the model an empty memory block.
 `--no-tail-exclude` restores the old overlapping selection.
 
+## Where a turn searches
+
+Every attached file is its own branch of the memory trie, so a session
+with several files holds several branches beside the conversation.
+Selection used to treat them as one corpus: a question about one file
+drew its block from every file, and the block grew with each file
+added, until a huge document or a long session pushed it against the
+model's window. Two things changed.
+
+The block has a ceiling. The default memory cap fits the block to the
+space the window has left and never lets it pass 4096 tokens, whatever
+the session's size. Measured over chat histories of 70 to 100 thousand
+words, a window-sized block bought no accuracy over the ceiling for
+four times the seconds per turn, and on the largest histories it
+answered worse: it held the evidence more often and used it less well.
+`--memory-cap window` keeps the old window-only fit.
+
+A turn searches only the branches it is about. Before selecting, the
+session scores every branch against the question: the similarity of
+the question to the branch as a whole and to its best single sentence,
+and how many of the question's keywords and names the branch contains,
+all from the embeddings and keywords the session already holds, at one
+encoder call per turn. A file stays in scope when it sits within a
+small margin of the best file on either similarity, or carries the
+most of the question's names, and the conversation is always in. The
+other files leave that turn's candidacy the way sentences already
+visible in the recent messages do, and the budget fraction is taken of
+the words inside the scope, with a floor so a short file is still
+read. The theme map, the keyword order and the remembered discounts
+still describe the whole session, so the trie keeps its shape, and
+nothing about the decision persists: the next question is routed
+again.
+
+What it is worth. Measured at a fixed block size on ten conversations
+attached as files, drawing the block from the right branch is worth
+six to eight F1 points on the conversation benchmark when the branch
+is named by hand, and the rule earns about half of that on its own,
+with recall up, seconds down and the right branch kept on every
+question. On sets of same-domain papers the rule keeps nearly every
+file and answers as before: the signals separate distinct topics, not
+documents that share one. `/scope` names the files by hand,
+`--scope off` searches everything, `--branch-stats` shows the scores,
+and `/stats` prints which files the last turn searched and keeps a
+census of the session's routing.
+
 Where each stage lives:
 
 | Stage | Code |
@@ -463,6 +508,7 @@ Where each stage lives:
 | Chat text handling (verbatim storage, short turns) | `salt/engine/chat_text.py`, `salt/chat/shortturn.py` |
 | Background ingest worker (chat) | `salt/chat/ingest.py` |
 | Document ingest (PDF/text cleanup, `salt@`, `--doc`) | `salt/chat/pdfio.py` |
+| Scoped search (branch scores, the rule, `/scope`) | `salt/chat/scope.py`, `salt/engine/session_trie.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |
