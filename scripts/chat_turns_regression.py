@@ -24,6 +24,12 @@ sessions kept under a temporary directory. Groups:
      keeps the file, skips the items it already answers, retries a
      failed one and never skips a document, and --turns-timeout sets
      the served client's stall timeout or says it does not apply.
+  E. RICHER ROWS - every row carries the turn's seconds, the prompt
+     tokens and the engine stats as the runner left them for that turn
+     and never a previous one, a thinking model's reasoning lands under
+     `think` while the answer holds only what it said and memory holds
+     the answer alone, and an item's other fields ride along under
+     `item` while a bare string item carries none.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes about a minute.
@@ -50,6 +56,8 @@ if not __debug__:
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 BASE = "turns_base"
+ROW_KEYS = {"id", "turn", "question", "answer", "seconds", "prompt_tokens",
+            "engine"}
 ITEMS = [
     {"id": "zeppelin", "puzzle": "The zeppelin mooring mast in Lakehurst "
                                   "needs a new hydrogen manifold gasket. "
@@ -68,7 +76,7 @@ DOC_TEXT = ("The garden irrigation system uses a drip line on each "
 class _FakeRunner:
     kind = "fake"
 
-    def __init__(self, tokenizer, fail_on=None):
+    def __init__(self, tokenizer, fail_on=None, replies=None):
         self.tokenizer = tokenizer
         self.alias = "fake"
         self.cfg = {"alias": "fake", "hf_id": "test/fake", "path": "-"}
@@ -77,6 +85,7 @@ class _FakeRunner:
         self.last_engine_stats = None
         self.prompts = []
         self.fail_on = fail_on
+        self.replies = replies
 
     def input_budget(self, max_new_tokens=None):
         return self.max_input_len
@@ -85,20 +94,26 @@ class _FakeRunner:
         self.prompts.append(json.loads(json.dumps(messages)))
         if self.fail_on == len(self.prompts):
             raise RuntimeError("the server went quiet")
+        self.last_prompt_tokens = 7 * len(self.prompts)
+        self.last_engine_stats = {"engine_backend": "fake"}
+        if self.replies:
+            yield self.replies[(len(self.prompts) - 1) % len(self.replies)]
+            return
         yield f"noted point {len(self.prompts)}."
 
     def unload(self):
         pass
 
 
-def make_state(tmp, tok, mdl, device, flags=(), fail_on=None):
+def make_state(tmp, tok, mdl, device, flags=(), fail_on=None, replies=None):
     from salt.chat import cli
     args = cli.build_parser().parse_args(
         ["--device", device, "--sync-ingest", "--conversation-id", BASE,
          *flags])
     trie = SessionTrie(BASE, cache_dir=tmp, model_name=BGE_MODEL,
                        budget_pct_default=args.budget_pct)
-    return cli.ChatState(args, tok, mdl, _FakeRunner(tok, fail_on), trie)
+    return cli.ChatState(args, tok, mdl, _FakeRunner(tok, fail_on, replies),
+                         trie)
 
 
 def write_items(tmp, items, name="turns.json"):
@@ -148,7 +163,7 @@ def run(tmp, tok, mdl, device, items, mode="conversation", label="run"):
 
 def check_conversation(tmp, tok, mdl, device):
     state, rows, root = run(tmp, tok, mdl, device, ITEMS, label="conv")
-    assert [set(r) for r in rows] == [{"id", "turn", "question", "answer"}] * 3, rows
+    assert [set(r) for r in rows] == [ROW_KEYS] * 3, rows
     assert state.trie.conversation_id == BASE
     assert state.trie.n_turns == 6, state.trie.n_turns
     third = prompt_text(state.runner.prompts[2])
@@ -166,8 +181,7 @@ def check_independent(tmp, tok, mdl, device):
                             label="indep")
     assert [r["conversation"] for r in rows] == [
         f"{BASE}-zeppelin", f"{BASE}-sourdough_loaf_2", f"{BASE}-zeppelin-2"], rows
-    assert all(set(r) == {"id", "turn", "question", "answer", "conversation"}
-               for r in rows), rows
+    assert all(set(r) == ROW_KEYS | {"conversation"} for r in rows), rows
     for msgs in state.runner.prompts[1:]:
         text = prompt_text(msgs)
         assert "hydrogen manifold gasket" not in text, (
@@ -272,6 +286,63 @@ def check_long_runs(tmp, tok, mdl, device):
           "resume without an output file")
 
 
+def check_richer_rows(tmp, tok, mdl, device):
+    from salt.agents import protocol
+    from salt.chat import cli
+    assert protocol.think_text("<think>\nplan a\n</think>\nfinal") == "plan a"
+    assert protocol.think_text("no reasoning here") == ""
+    assert protocol.think_text("<think>a<think>b</think>c</think>d") == "abc"
+    assert protocol.think_text("<think>ran out of room") == "ran out of room"
+    assert protocol.reply_text("<think>\nplan a\n</think>\nfinal") == "final"
+    root = tmp / "rich"
+    root.mkdir()
+    sessions, cli.SESSIONS_DIR = cli.SESSIONS_DIR, root
+    try:
+        items = [{"id": "p1", "category": 256, "split": "dev",
+                  "puzzle": "Which gasket suits a hydrogen manifold?"},
+                 "A bare question about sourdough hydration."]
+        replies = ["<think>\nnitrile resists hydrogen embrittlement better than "
+                   "the other elastomers on the list\n</think>\nA nitrile gasket "
+                   "suits a hydrogen manifold on a mooring mast.",
+                   "Seventy percent hydration suits a sourdough loaf like that."]
+        state = make_state(root, tok, mdl, device, replies=replies)
+        out = root / "out.jsonl"
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            cli.run_turns(state, cli.load_turns(write_items(root, items)), str(out))
+        rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
+        first, second = rows
+        assert set(first) == ROW_KEYS | {"think", "item"}, first
+        assert set(second) == ROW_KEYS, second
+        assert first["answer"] == ("A nitrile gasket suits a hydrogen manifold "
+                                   "on a mooring mast."), first
+        assert first["think"] == ("nitrile resists hydrogen embrittlement better "
+                                  "than the other elastomers on the list"), first
+        assert first["item"] == {"category": 256, "split": "dev"}, first
+        assert first["prompt_tokens"] == 7 and second["prompt_tokens"] == 14, rows
+        assert first["engine"] == {"engine_backend": "fake"} and first["seconds"] >= 0, first
+        assert "embrittlement" not in " ".join(state.trie.texts), (
+            "the reasoning reached memory")
+        assert any("A nitrile gasket suits" in t for t in state.trie.texts), state.trie.texts
+        assert all("nitrile resists" not in m["content"] for m in state.tail), state.tail
+        # a document row reports no reply stats from an earlier turn
+        doc = root / "notes.txt"
+        doc.write_text(DOC_TEXT, encoding="utf-8")
+        items = [{"id": "q", "puzzle": "What opens the drip line?"}, {"id": "d", "doc": str(doc)}]
+        state = make_state(root, tok, mdl, device)
+        out2 = root / "out2.jsonl"
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            cli.run_turns(state, cli.load_turns(write_items(root, items, "t2.json")), str(out2))
+        rows = [json.loads(l) for l in out2.read_text(encoding="utf-8").splitlines()]
+        assert rows[0]["prompt_tokens"] == 7 and rows[1]["prompt_tokens"] is None, rows
+        assert rows[1]["engine"] is None and "think" not in rows[1], rows[1]
+    finally:
+        cli.SESSIONS_DIR = sessions
+    print("E. richer rows: seconds, prompt tokens and engine stats per turn "
+          "and never a previous turn's, reasoning under think with the "
+          "answer and memory holding only what was said, and an item's "
+          "other fields under item")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -285,6 +356,7 @@ def main():
         check_conversation(tmp, tok, mdl, args.device)
         check_independent(tmp, tok, mdl, args.device)
         check_long_runs(tmp, tok, mdl, args.device)
+        check_richer_rows(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

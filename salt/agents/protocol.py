@@ -192,6 +192,36 @@ def strip_think(text, reasoning_content=None):
     return "".join(out).strip()
 
 
+def think_text(text):
+    """What strip_think removes: the reasoning, in order, tags gone.
+    Empty when the reply carried none. Cut by the same counting walk,
+    so the two halves of a reply are exactly complementary."""
+    if not text:
+        return ""
+    thought = []
+    while True:
+        rest = _template_opened(text)
+        if rest is None:
+            break
+        thought.append(_THINK_CLOSE.sub("", text[:len(text) - len(rest)]))
+        text = rest
+    depth, i = 0, 0
+    while i < len(text):
+        opened = _THINK_OPEN.match(text, i)
+        closed = _THINK_CLOSE.match(text, i)
+        if opened:
+            depth += 1
+            i = opened.end()
+        elif closed:
+            depth = max(0, depth - 1)
+            i = closed.end()
+        else:
+            if depth > 0:
+                thought.append(text[i])
+            i += 1
+    return "".join(thought).strip()
+
+
 def reply_text(text, reasoning_content=None):
     """What a model said, as opposed to what it thought. One place, so
     a reply on its way into memory and a reply on its way into the

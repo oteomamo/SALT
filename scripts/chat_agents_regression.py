@@ -2524,7 +2524,8 @@ def check_scripted_offload(tmp, tok, mdl):
             assert len(rows) == 5, rows
             chat = [r for r in rows if "kind" not in r]
             assert [r["id"] for r in chat] == ["c1", "c2"], chat
-            assert set(chat[0]) == {"id", "turn", "question", "answer"}, (
+            assert set(chat[0]) == {"id", "turn", "question", "answer",
+                                    "seconds", "prompt_tokens", "engine"}, (
                 f"a chat row changed shape: {sorted(chat[0])}")
             assert chat[0]["answer"] == REPLIES[0], chat[0]
             done = [r for r in rows if r.get("kind") == "offload"]

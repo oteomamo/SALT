@@ -380,6 +380,7 @@ class ChatState:
         self.last_stats = None
         self.last_branch_scores = None
         self.last_scope = None
+        self.last_reply_raw = None
         self.scope_stats = scope_module.census()
         self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
@@ -495,6 +496,7 @@ class ChatState:
         self.last_stats = None
         self.last_branch_scores = None
         self.last_scope = None
+        self.last_reply_raw = None
         self.scope_stats = scope_module.census()
         self.scope_mode, self.scope_names = self.scope_launch_mode, None
         # ids and totals belong to the session, not to the process: a new
@@ -3120,7 +3122,9 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     # cut a delegated answer gets, made here because a reasoning model
     # can answer a turn directly: through @NAME, or as the orchestrator
     # writing an /agent turn up
-    reply = protocol.reply_text("".join(pieces))
+    raw = "".join(pieces)
+    state.last_reply_raw = raw
+    reply = protocol.reply_text(raw)
     # no drain here (it would put a big paste's leftover encode back on
     # the prompt path): record_turn reads only pre-turn rows, and
     # appends never move them
@@ -3171,8 +3175,8 @@ _OFFLOAD_KEYS = ("task", "target", "ingest")
 # what one line of a scripted run is. `kind` says which of the four,
 # because a run is read long after it was written and "it has an offload
 # key" is not something a reader should have to work out
-ScriptedTurn = namedtuple("ScriptedTurn", "id text offload kind ts",
-                          defaults=(None,))
+ScriptedTurn = namedtuple("ScriptedTurn", "id text offload kind ts fields",
+                          defaults=(None, None))
 TURN_KINDS = ("chat", "offload", "agent", "doc")
 
 
@@ -3203,19 +3207,26 @@ def _turn_text(item, field, i):
         return item
     if not isinstance(item, dict):
         raise ValueError(f"turn {i} is neither a string nor an object")
+    if field is not None and field not in item:
+        raise ValueError(f"turn {i} has no field {field!r}")
+    key = _turn_text_key(item, field)
+    if key is None:
+        raise ValueError(
+            f"turn {i}: no obvious message text - pass --turns-field with "
+            f"the key that holds it")
+    return str(item[key])
+
+
+def _turn_text_key(item, field):
+    """The key of an object item that holds its message: the explicit
+    field, else the first common key, else its lone string field."""
     if field is not None:
-        if field not in item:
-            raise ValueError(f"turn {i} has no field {field!r}")
-        return str(item[field])
+        return field
     for k in _TURN_TEXT_KEYS:
         if isinstance(item.get(k), str):
-            return item[k]
+            return k
     strings = [k for k, v in item.items() if isinstance(v, str) and k != "id"]
-    if len(strings) == 1:
-        return item[strings[0]]
-    raise ValueError(
-        f"turn {i}: no obvious message text - pass --turns-field with the "
-        f"key that holds it")
+    return strings[0] if len(strings) == 1 else None
 
 
 def _turn_offload(item, i):
@@ -3304,7 +3315,12 @@ def load_turns(path, field=None):
         if ts is not None and kind != "chat":
             raise ValueError(f"turn {i}: timestamp belongs on a plain "
                              f"chat turn, not a {kind} line")
-        turns.append(ScriptedTurn(turn_id, text, spec, kind, ts))
+        fields = None
+        if isinstance(item, dict):
+            spent = {"id", "timestamp", kind if kind != "chat"
+                     else _turn_text_key(item, field)}
+            fields = {k: v for k, v in item.items() if k not in spent} or None
+        turns.append(ScriptedTurn(turn_id, text, spec, kind, ts, fields))
     return turns
 
 
@@ -3392,6 +3408,10 @@ def run_turns(state, turns, out_path=None, mode="conversation",
                     fresh_needed = True
                 continue
             t0 = time.monotonic()
+            state.last_reply_raw = None
+            for attr in ("last_prompt_tokens", "last_engine_stats"):
+                if hasattr(state.runner, attr):
+                    setattr(state.runner, attr, None)
             if mode == "independent" and fresh_needed:
                 cid = item_session_id(base, label, taken)
                 state.new_trie(cid)
@@ -3439,7 +3459,16 @@ def run_turns(state, turns, out_path=None, mode="conversation",
                   f"{clock(elapsed)}, ETA {clock(eta)}]", file=sys.stderr)
             if out is not None:
                 row = {"id": item.id, "turn": i, "question": item.text,
-                       "answer": answer}
+                       "answer": answer, "seconds": round(took, 3),
+                       "prompt_tokens": getattr(state.runner,
+                                                "last_prompt_tokens", None),
+                       "engine": getattr(state.runner, "last_engine_stats",
+                                         None)}
+                thought = protocol.think_text(state.last_reply_raw or "")
+                if thought:
+                    row["think"] = thought
+                if item.fields:
+                    row["item"] = item.fields
                 if error is not None:
                     row["error"] = error
                 if mode == "independent":
@@ -3963,7 +3992,10 @@ def build_parser():
                         "user message (default: auto-detect)")
     p.add_argument("--turns-out", metavar="FILE", default=None,
                    help="append each --turns answer to this JSONL file as "
-                        "{id, turn, question, answer}, plus {kind, status, "
+                        "{id, turn, question, answer, seconds, "
+                        "prompt_tokens, engine}, plus {think} when the "
+                        "model reasoned first, {item} for the item's other "
+                        "fields, {error} on a failed turn, {kind, status, "
                         "worker} on a delegated one and {conversation} "
                         "under --turns-mode independent")
     p.add_argument("--turns-mode", default="conversation",

@@ -128,8 +128,14 @@ saltChat --model QwQ-32B --backend vllm-serve --turns puzzles.json
 
 Every backend works, so the same file can drive a persistent server. Each
 turn prints its id and the model's reply. Add `--turns-out results.jsonl`
-to also append `{id, turn, question, answer}` per turn, so the run can be
-reviewed or scored afterward.
+to also append one row per turn, so the run can be reviewed or scored
+afterward. A row carries the id, the turn number, the question and the
+answer, the seconds the turn took, the prompt tokens the model saw and,
+on a served backend, the engine's prefix-cache counts. When a thinking
+model reasoned first, its reasoning lands under `think` and the answer
+holds only what it said, which is also all that memory keeps. An item's
+other fields, a dataset's category or split for instance, ride along
+under `item`.
 
 `--turns-mode` says how the items relate. The default, `conversation`,
 feeds them into one session so the memory builds across them. For a file
