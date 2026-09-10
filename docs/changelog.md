@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 2.11.0 - 2.11.114
+## 2.11.0 - 2.11.115
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -220,7 +220,7 @@ cover the tools, the roster and the limits.
   files now searches, for each question, only the files the question is
   about plus the conversation. `--scope off` searches every file as
   before.
-- **2.11.109 - 2.11.114** Scripted runs that scale. `--turns-mode
+- **2.11.109 - 2.11.115** Scripted runs that scale. `--turns-mode
   independent` gives each item of a scripted run a fresh session of its
   own so no item sees another's memory, with each output row naming the
   session it ran in, while the default, `conversation`, is the one
@@ -234,7 +234,9 @@ cover the tools, the roster and the limits.
   item that carries a reference answer is scored, under the field
   `--turns-gold-field` names or a common one: the row gains `gold`,
   `correct`, the rule that decided it and a token F1, and the run ends
-  with its count overall and per category.
+  with its count overall and per category. `--turns-template` composes
+  each message from an item's fields, so a raw dataset runs without a
+  preprocessing pass.
 
 ## 2.10.0 - 2.10.123
 

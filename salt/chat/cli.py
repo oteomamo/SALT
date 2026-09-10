@@ -27,6 +27,7 @@ import math
 import os
 import re
 import shutil
+import string
 import sys
 import time
 from collections import Counter, namedtuple
@@ -3287,6 +3288,37 @@ def _turn_gold(item, gold_field):
     return None, None
 
 
+def template_fields(template):
+    """The item keys a --turns-template names, in order of first use.
+    Refused when the template does not parse or names none."""
+    try:
+        parsed = list(string.Formatter().parse(template))
+    except ValueError as exc:
+        raise ValueError(f"template does not parse: {exc}")
+    names = []
+    for _, field, _, _ in parsed:
+        if field is None:
+            continue
+        key = re.split(r"[.\[]", field, 1)[0]
+        if not key:
+            raise ValueError("template has an unnamed {} slot; name the "
+                             "item's field")
+        if key not in names:
+            names.append(key)
+    if not names:
+        raise ValueError("template names no item field")
+    return names
+
+
+def render_turn(template, item, i):
+    """The message a template composes from an object item's fields."""
+    try:
+        return template.format_map(item)
+    except (KeyError, IndexError, AttributeError) as exc:
+        raise ValueError(f"turn {i}: the template needs {exc} and the item "
+                         f"lacks it")
+
+
 def _turn_named(item, key, i):
     """The text an item's named key carries, or None when it has no such
     key. Refused when the key is there and holds nothing usable, since a
@@ -3299,15 +3331,20 @@ def _turn_named(item, key, i):
     return text.strip()
 
 
-def load_turns(path, field=None, gold_field=None):
+def load_turns(path, field=None, gold_field=None, template=None):
     """Read a --turns file into an ordered list of scripted items.
 
     Four kinds of line, and a run mixes them freely: a turn for the chat
     model, a task for one worker, a turn the orchestrator plans out, and
     a document to attach before any of it. The last two are what make a
-    whole session scriptable rather than only its conversation.
+    whole session scriptable rather than only its conversation. With a
+    template, a chat line's message is composed from the item's fields.
     """
     items = _parse_turns_file(Path(path).read_text(encoding="utf-8"))
+    composed = None
+    if template is not None:
+        template = template.replace("\\n", "\n").replace("\\t", "\t")
+        composed = template_fields(template)
     turns = []
     for i, item in enumerate(items):
         turn_id = item.get("id") if isinstance(item, dict) else None
@@ -3323,6 +3360,8 @@ def load_turns(path, field=None, gold_field=None):
             text, kind = agent, "agent"
         elif doc is not None:
             text, kind = doc, "doc"
+        elif template is not None and isinstance(item, dict):
+            text, kind = render_turn(template, item, i), "chat"
         else:
             text, kind = _turn_text(item, field, i), "chat"
         ts = _turn_ts(item, i)
@@ -3331,13 +3370,17 @@ def load_turns(path, field=None, gold_field=None):
                              f"chat turn, not a {kind} line")
         fields = gold = None
         if isinstance(item, dict):
-            text_key = (_turn_text_key(item, field) if kind == "chat"
-                        else kind)
+            if kind != "chat":
+                on_text = {kind}
+            elif composed is not None:
+                on_text = set(composed)
+            else:
+                on_text = {_turn_text_key(item, field)}
             gold_key, gold = ((None, None) if kind == "doc"
                               else _turn_gold(item, gold_field))
-            if gold_key == text_key:
+            if gold_key in on_text:
                 gold_key = gold = None
-            spent = {"id", "timestamp", text_key, gold_key}
+            spent = {"id", "timestamp", gold_key} | on_text
             fields = {k: v for k, v in item.items() if k not in spent} or None
         turns.append(ScriptedTurn(turn_id, text, spec, kind, ts, fields,
                                   gold))
@@ -4065,6 +4108,11 @@ def build_parser():
                         "items (default: gold, answer, solution or expected "
                         "when one is there); a row is then scored and the "
                         "run ends with its count on the error stream")
+    p.add_argument("--turns-template", metavar="TEXT", default=None,
+                   help="compose each --turns message from an item's "
+                        "fields, as in 'Solve: {puzzle}\\nAnswer:' (\\n is "
+                        "a line break); a bare string item is used as it "
+                        "is, and this and --turns-field exclude each other")
     return p
 
 
@@ -4263,9 +4311,14 @@ def main(argv=None):
     # before the model is loaded
     turns = None
     if args.turns:
+        if args.turns_template and args.turns_field:
+            print("--turns-template composes the message from an item's "
+                  "fields and --turns-field names the field that holds "
+                  "it: pass one of them", file=sys.stderr)
+            return 1
         try:
             turns = load_turns(args.turns, args.turns_field,
-                               args.turns_gold_field)
+                               args.turns_gold_field, args.turns_template)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"--turns: {exc}", file=sys.stderr)
             return 1

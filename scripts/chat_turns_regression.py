@@ -38,6 +38,15 @@ sessions kept under a temporary directory. Groups:
      an explicit field wins over a common key, a failed turn scores
      wrong and its retry replaces it in the count, and the run ends with
      the count overall and per category on the error stream.
+  G. TEMPLATING - a template's fields are read in order of first use
+     and one that does not parse or names no field is refused, a chat
+     item's message is composed from its fields with \\n as a line
+     break while a bare string, a document, an offload and an agent
+     line stay as they are, a field the template used never repeats
+     under `item` and is never the reference, an item lacking a field
+     the template names stops the load, the composed message is what
+     the model sees and what the row says, and the launch refuses the
+     template beside --turns-field.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes about a minute.
@@ -443,6 +452,71 @@ def check_scoring(tmp, tok, mdl, device):
           "overall and per category on the error stream")
 
 
+def check_templating(tmp, tok, mdl, device):
+    from salt.chat import cli
+    assert cli.template_fields("Solve: {puzzle}\nAnswer:") == ["puzzle"]
+    assert cli.template_fields("{a} and {b} and {a}") == ["a", "b"]
+    for bad in ("no field here", "{}", "{unclosed"):
+        try:
+            cli.template_fields(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"template {bad!r} was accepted")
+    root = tmp / "template"
+    root.mkdir()
+    doc = root / "notes.txt"
+    doc.write_text(DOC_TEXT, encoding="utf-8")
+    items = [{"id": "p1", "puzzle": "Which gasket suits hydrogen?",
+              "category": "128", "answer": "nitrile"},
+             "Plain words stay as they are.",
+             {"id": "d", "doc": str(doc)},
+             {"id": "o", "offload": "size the bank"},
+             {"id": "g", "agent": "plan the bank"}]
+    template = "Solve: {puzzle}\\nAnswer:"
+    turns = cli.load_turns(write_items(root, items), template=template)
+    assert turns[0].text == "Solve: Which gasket suits hydrogen?\nAnswer:", turns[0]
+    assert turns[0].fields == {"category": "128"} and turns[0].gold == "nitrile", turns[0]
+    assert turns[1].text == "Plain words stay as they are." and turns[1].kind == "chat"
+    assert [t.kind for t in turns[2:]] == ["doc", "offload", "agent"], turns[2:]
+    assert turns[2].text == str(doc) and turns[3].text == "size the bank", turns[2:]
+    assert turns[4].text == "plan the bank" and all(t.fields is None for t in turns[1:])
+    turns = cli.load_turns(write_items(root, items[:1], "t2.json"),
+                           template="{puzzle} ({answer})")
+    assert turns[0].gold is None and turns[0].fields == {"category": "128"}, turns[0]
+    try:
+        cli.load_turns(write_items(root, items[:1], "t3.json"), template="{riddle}")
+    except ValueError as exc:
+        assert "riddle" in str(exc), exc
+    else:
+        raise AssertionError("a template naming a missing field loaded")
+    assert cli.build_parser().parse_args([]).turns_template is None
+    assert cli.main(["--turns", str(root / "turns.json"), "--turns-template",
+                     template, "--turns-field", "puzzle"]) == 1
+    sessions, cli.SESSIONS_DIR = cli.SESSIONS_DIR, root
+    try:
+        state = make_state(root, tok, mdl, device)
+        out = root / "out.jsonl"
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            cli.run_turns(state, cli.load_turns(write_items(root, items[:2], "t4.json"),
+                                                template=template), str(out))
+        rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
+        assert rows[0]["question"] == "Solve: Which gasket suits hydrogen?\nAnswer:", rows[0]
+        assert rows[0]["item"] == {"category": "128"} and rows[0]["gold"] == "nitrile", rows[0]
+        assert rows[1]["question"] == "Plain words stay as they are.", rows[1]
+        assert state.runner.prompts[0][-1]["content"] == (
+            "Solve: Which gasket suits hydrogen?\nAnswer:"), state.runner.prompts[0][-1]
+    finally:
+        cli.SESSIONS_DIR = sessions
+    print("G. templating: a template's fields are read in order and a bad one "
+          "is refused, a chat item's message is composed from its fields "
+          "while strings, documents, offloads and agent lines stay as they "
+          "are, a used field never repeats under item and is never the "
+          "reference, a missing field stops the load, the composed message "
+          "reaches the model and the row, and the launch refuses the "
+          "template beside --turns-field")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -458,6 +532,7 @@ def main():
         check_long_runs(tmp, tok, mdl, args.device)
         check_richer_rows(tmp, tok, mdl, args.device)
         check_scoring(tmp, tok, mdl, args.device)
+        check_templating(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

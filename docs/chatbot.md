@@ -170,6 +170,16 @@ of them. When the run ends, a line on the error stream gives the count
 correct overall and per `category` when the items name one, counting
 the latest row of every item, so a retried item counts once.
 
+A raw dataset runs without a preprocessing pass. `--turns-template`
+composes each message from an item's fields, so
+`--turns-template 'Solve: {puzzle}\nAnswer:'` wraps every puzzle the same
+way, with `\n` standing for a line break. The fields are the item's keys,
+a bare string item is used as it is, and an item that lacks a field the
+template names stops the run before the model loads. The row's `question`
+is the message as composed, a field the template used never repeats under
+`item` and is never the reference, and the template and `--turns-field`
+exclude each other.
+
 An object item can also carry a `timestamp`, either epoch seconds or an
 ISO 8601 string like `2026-03-14T09:30`. The exchange is then filed in
 memory at that time instead of the moment of the replay, so a
