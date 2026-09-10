@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-211118" class="md-nav__link">
+  <a href="#2110-211121" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.118
+        2.11.0 - 2.11.121
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-211118" class="md-nav__link">
+  <a href="#2110-211121" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.118
+        2.11.0 - 2.11.121
       
     </span>
   </a>
@@ -1456,7 +1456,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="2110-211118">2.11.0 - 2.11.118</h2>
+<h2 id="2110-211121">2.11.0 - 2.11.121</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1694,6 +1694,13 @@ cover the tools, the roster and the limits.</p>
   sooner, so the block spreads across more topics. Every other turn
   selects as before. <code>/summary next</code> marks a turn by hand, and <code>/stats</code>
   reports what a summary turn selected under.</li>
+<li><strong>2.11.120 - 2.11.121</strong> Time windows. A question about what was said
+  on a given day was answered from the whole history. <code>--when auto</code>
+  reads a day, a month, a year or a span such as <code>last week</code> off the
+  question and holds the conversation rows filed outside it out of
+  that turn's selection, files never, so a day that fits the budget is
+  handed over whole. <code>/when &lt;time&gt;</code> pins a window by hand, and <code>/stats</code>
+  and the ledger report the window a turn searched.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
