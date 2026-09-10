@@ -973,10 +973,19 @@ def check_call_timeout(tok_path):
         encoding="utf-8")
     assert "timeout=(5, self.read_timeout)" in runner_src, (
         "the serve client no longer passes its read timeout to the request")
+    # the chat model's own client passes no read timeout unless the
+    # operator asks for one under --turns-timeout, so the only place the
+    # chat layer may touch it is the scripted runner, and the launch
+    # default asks for none
+    import inspect
     cli_src = (REPO / "salt" / "chat" / "cli.py").read_text(encoding="utf-8")
-    assert "read_timeout" not in cli_src, (
-        "the chat model's own client now passes a read timeout, so a slow "
-        "reply from the model the session depends on can be cut off")
+    inside = inspect.getsource(cli.run_turns).count("read_timeout")
+    assert inside and cli_src.count("read_timeout") == inside, (
+        "the chat model's own client now passes a read timeout outside the "
+        "scripted runner, so a slow reply from the model the session "
+        "depends on can be cut off")
+    assert cli.build_parser().parse_args([]).turns_timeout is None, (
+        "a scripted run times out its turns by default")
 
     import requests
     assert is_read_timeout(requests.exceptions.ReadTimeout("x"))
