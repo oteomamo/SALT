@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-211115" class="md-nav__link">
+  <a href="#2110-211118" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.115
+        2.11.0 - 2.11.118
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-211115" class="md-nav__link">
+  <a href="#2110-211118" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.115
+        2.11.0 - 2.11.118
       
     </span>
   </a>
@@ -1456,7 +1456,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="2110-211115">2.11.0 - 2.11.115</h2>
+<h2 id="2110-211118">2.11.0 - 2.11.118</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1687,6 +1687,13 @@ cover the tools, the roster and the limits.</p>
   with its count overall and per category. <code>--turns-template</code> composes
   each message from an item's fields, so a raw dataset runs without a
   preprocessing pass.</li>
+<li><strong>2.11.117 - 2.11.118</strong> Summary turns. The compressor takes a theme
+  percentile and a coverage discount of its own for one call, and
+  <code>--summary auto</code> uses that on a turn that asks for a summary: more
+  keywords count as themes and a filling branch gives up its sentences
+  sooner, so the block spreads across more topics. Every other turn
+  selects as before. <code>/summary next</code> marks a turn by hand, and <code>/stats</code>
+  reports what a summary turn selected under.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name

@@ -752,6 +752,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#summary-turns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary turns
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-pdfs-are-cleaned" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1432,6 +1443,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#summary-turns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary turns
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-pdfs-are-cleaned" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1629,6 +1651,10 @@ can be resumed here. The <a href="../mcp/">MCP server</a> page has the setup.</p
 <tr>
 <td><code>/scope</code></td>
 <td>which attached files a turn searches: <code>auto</code> lets the rule choose, <code>off</code> searches every file, <code>&lt;file&gt;[,&lt;file&gt;]</code> names them</td>
+</tr>
+<tr>
+<td><code>/summary</code></td>
+<td>whether a turn that asks for a summary selects as one: <code>auto</code> reads the wording, <code>off</code> never does, <code>next</code> marks the next turn by hand</td>
 </tr>
 <tr>
 <td><code>/stats</code></td>
@@ -1836,6 +1862,23 @@ rule and <code>/scope off</code> searches every file, as <code>--scope off</code
 whole session. An unknown name lists what is attached and changes
 nothing. A session without attachments is not routed and selects
 exactly as before.</p>
+<h2 id="summary-turns">Summary turns</h2>
+<p>A question that asks for a summary wants breadth. The memory trie's
+themes are the keywords above a frequency cutoff, and coverage spreads
+the budget across those themes, so a minor topic that never crossed the
+cutoff has no branch to be covered by. <code>--summary auto</code> treats a turn
+that asks for a summary differently: that turn profiles themes at a
+lower cutoff, set by <code>--summary-themes</code>, and selects with a stronger
+discount, set by <code>--summary-lam</code>, so more topics get a branch and each
+branch gives up its sentences sooner. Every other turn selects exactly
+as before, and the session's own settings never change.</p>
+<p>The turn is recognized by its wording, <code>summarize</code>, <code>recap</code>, <code>what did
+we discuss</code>, <code>catch me up</code> and the like, or marked by hand. <code>/summary
+next</code> treats the next turn that selects from memory as a summary ask
+whatever it says, and <code>/summary auto</code> and <code>/summary off</code> set the mode
+for the session. <code>/stats</code> shows what a summary turn selected under and
+a census of how many turns were treated that way. The two knobs'
+defaults are a starting point rather than a measured optimum.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole and cleaned into proper sentences before
 they reach the trie: headers, footers and reference lists go, broken

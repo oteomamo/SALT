@@ -1654,6 +1654,21 @@ real session before it is trusted.</p>
 <td><code>0.10</code></td>
 <td>under <code>--scope auto</code>, how far below the best file's best-sentence similarity a file may sit and stay in scope</td>
 </tr>
+<tr>
+<td><code>--summary off\|auto</code></td>
+<td><code>off</code></td>
+<td><code>auto</code> profiles more themes and spreads the budget across them on a turn that asks for a summary</td>
+</tr>
+<tr>
+<td><code>--summary-themes P</code></td>
+<td><code>0.6</code></td>
+<td>under <code>--summary auto</code>, the keyword-frequency percentile a summary turn profiles themes at, lower admits more</td>
+</tr>
+<tr>
+<td><code>--summary-lam L</code></td>
+<td><code>0.3</code></td>
+<td>under <code>--summary auto</code>, the coverage discount a summary turn selects with, lower spreads the budget across more branches</td>
+</tr>
 </tbody>
 </table>
 <p>Behavior already on by default:</p>
