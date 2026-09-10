@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21195" class="md-nav__link">
+  <a href="#2110-21197" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.95
+        2.11.0 - 2.11.97
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-21195" class="md-nav__link">
+  <a href="#2110-21197" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.95
+        2.11.0 - 2.11.97
       
     </span>
   </a>
@@ -1454,7 +1454,7 @@
 <h1 id="changelog">📄 Changelog</h1>
 <p>What each version added. Versions match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>.</p>
-<h2 id="2110-21195">2.11.0 - 2.11.95</h2>
+<h2 id="2110-21197">2.11.0 - 2.11.97</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1663,7 +1663,10 @@ cover the tools, the roster and the limits.</p>
   question is about plus the conversation, sizing the block from the
   words in that scope with a floor for short files, <code>/scope</code> names the
   files by hand, and <code>/stats</code> keeps a census of the session's routing.
-  Off by default, and a session without attachments selects exactly as
+  A session without attachments selects exactly as before.</li>
+<li><strong>2.11.97</strong> <code>--scope auto</code> by default. A session with several attached
+  files now searches, for each question, only the files the question is
+  about plus the conversation. <code>--scope off</code> searches every file as
   before.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
