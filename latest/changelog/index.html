@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-211114" class="md-nav__link">
+  <a href="#2110-211115" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.114
+        2.11.0 - 2.11.115
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-211114" class="md-nav__link">
+  <a href="#2110-211115" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.114
+        2.11.0 - 2.11.115
       
     </span>
   </a>
@@ -1456,7 +1456,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="2110-211114">2.11.0 - 2.11.114</h2>
+<h2 id="2110-211115">2.11.0 - 2.11.115</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1670,7 +1670,7 @@ cover the tools, the roster and the limits.</p>
   files now searches, for each question, only the files the question is
   about plus the conversation. <code>--scope off</code> searches every file as
   before.</li>
-<li><strong>2.11.109 - 2.11.114</strong> Scripted runs that scale. <code>--turns-mode
+<li><strong>2.11.109 - 2.11.115</strong> Scripted runs that scale. <code>--turns-mode
   independent</code> gives each item of a scripted run a fresh session of its
   own so no item sees another's memory, with each output row naming the
   session it ran in, while the default, <code>conversation</code>, is the one
@@ -1684,7 +1684,9 @@ cover the tools, the roster and the limits.</p>
   item that carries a reference answer is scored, under the field
   <code>--turns-gold-field</code> names or a common one: the row gains <code>gold</code>,
   <code>correct</code>, the rule that decided it and a token F1, and the run ends
-  with its count overall and per category.</li>
+  with its count overall and per category. <code>--turns-template</code> composes
+  each message from an item's fields, so a raw dataset runs without a
+  preprocessing pass.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
