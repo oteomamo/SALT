@@ -77,6 +77,7 @@ can be resumed here. The [MCP server](mcp.md) page has the setup.
 | `/budget <pct>` | set the memory budget (`0.3` or `30`) |
 | `/scope` | which attached files a turn searches: `auto` lets the rule choose, `off` searches every file, `<file>[,<file>]` names them |
 | `/summary` | whether a turn that asks for a summary selects as one: `auto` reads the wording, `off` never does, `next` marks the next turn by hand |
+| `/when` | which time a turn searches: `auto` reads a day, month, year or span off the question, `off` searches every row, `<time>` pins a window until the next `/when` |
 | `/stats` | session, attachments, compression, and GPU-memory stats |
 | `/roster` | list the models `--roster` names, `/roster probe` contacts them, `/roster probe --deep NAME` reports what one serves |
 | `/worker` | show each worker's connection, calls and mean latency |
@@ -295,6 +296,30 @@ whatever it says, and `/summary auto` and `/summary off` set the mode
 for the session. `/stats` shows what a summary turn selected under and
 a census of how many turns were treated that way. The two knobs'
 defaults are a starting point rather than a measured optimum.
+
+## When a turn searches
+
+A question about what was said on a given day is answered from the
+whole history unless something holds the other days out. `--when auto`
+reads the time off the question, a day (`on 8 May 2023`, `May 8`,
+`2023-05-08`), a month (`in May`, `May 2023`), a year (`during 2023`)
+or a span relative to the moment of asking (`yesterday`, `three days
+ago`, `last week`, `the last two weeks`, `last month`, `last Monday`),
+and holds the conversation rows filed outside that window out of the
+turn's selection. A day or a month without a year takes the
+conversation's own years, latest first. Attached files are never held
+out, since their rows are filed when they are attached and a date on
+the line says nothing about them, and a window that holds no
+conversation rows is not applied. The budget is not resized, so a day
+that fits inside it is handed over whole.
+
+`/when auto` and `/when off` set the mode for the session, and `/when
+<time>` pins a window, `/when last week` for instance, for every turn
+until the next `/when`. `/stats` shows the window a turn searched, how
+many rows it held in and out, and a census of how the session's turns
+came out. The ledger carries the window's label and the rows held out
+on such turns. A scripted turn's `timestamp` is the moment of asking
+for its relative spans.
 
 ## How PDFs are cleaned
 

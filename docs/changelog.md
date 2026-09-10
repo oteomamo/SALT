@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 2.11.0 - 2.11.118
+## 2.11.0 - 2.11.121
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -244,6 +244,13 @@ cover the tools, the roster and the limits.
   sooner, so the block spreads across more topics. Every other turn
   selects as before. `/summary next` marks a turn by hand, and `/stats`
   reports what a summary turn selected under.
+- **2.11.120 - 2.11.121** Time windows. A question about what was said
+  on a given day was answered from the whole history. `--when auto`
+  reads a day, a month, a year or a span such as `last week` off the
+  question and holds the conversation rows filed outside it out of
+  that turn's selection, files never, so a day that fits the budget is
+  handed over whole. `/when <time>` pins a window by hand, and `/stats`
+  and the ledger report the window a turn searched.
 
 ## 2.10.0 - 2.10.123
 

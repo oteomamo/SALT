@@ -102,6 +102,7 @@ Memory sizing:
 | `--summary off\|auto` | `off` | `auto` profiles more themes and spreads the budget across them on a turn that asks for a summary |
 | `--summary-themes P` | `0.6` | under `--summary auto`, the keyword-frequency percentile a summary turn profiles themes at, lower admits more |
 | `--summary-lam L` | `0.3` | under `--summary auto`, the coverage discount a summary turn selects with, lower spreads the budget across more branches |
+| `--when off\|auto` | `off` | `auto` reads a day, month, year or span off the question and holds the conversation rows filed outside it out of that turn's selection |
 
 Behavior already on by default:
 

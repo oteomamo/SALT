@@ -18,14 +18,31 @@ the conversation rows a window holds out. Groups:
      reported as not applied; the mode and a pinned window are
      honored; the record and the census carry the asserted keys and
      print as promised.
+  C. THE FLAG - real sessions through the chat turn against a fake
+     runner: --when auto against off on an undated line is
+     byte-identical (prompts, stats, no record, no ledger fields); a
+     dated line under auto holds the other days out so the block holds
+     that day's rows and the attached file's, records the window and
+     carries it into the ledger; a time with no rows selects as off
+     does and says so; under off a dated line selects as before.
+  D. THE COMMAND AND THE CENSUS - /when shows, sets and pins; a pinned
+     window holds out under off and clears on a mode; a time that does
+     not read is refused; the census counts every turn looked at; and
+     /stats prints the window and the census.
 
-No encoder needed; the run takes seconds.
+Groups A and B need no encoder; C and D need the BGE encoder
+(downloaded to the HF cache on first use). CPU is the default device;
+the run takes about a minute.
 
 Usage:
-    python scripts/chat_when_regression.py
+    python scripts/chat_when_regression.py [--device cpu]
 """
 
+import argparse
+import io
+import json
 import sys
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -178,13 +195,200 @@ def check_rows(tmp):
           "as promised")
 
 
+BGE_MODEL = "BAAI/bge-small-en-v1.5"
+MAY8 = datetime(2023, 5, 8, 13, 56).timestamp()
+MAY25 = datetime(2023, 5, 25, 13, 14).timestamp()
+DAY_ONE = [
+    ("Caroline: I went to the LGBTQ support group for the first time.",
+     "Melanie: That sounds like the group helped you feel accepted."),
+    ("Caroline: I want to study counseling and work in mental health.",
+     "Melanie: Counseling suits your empathy and your patience."),
+    ("Caroline: The transgender stories at the group were inspiring.",
+     "Melanie: Hearing those stories takes real courage."),
+]
+DAY_TWO = [
+    ("Caroline: The camping trip to the lake is booked for July.",
+     "Melanie: Bring the good tent and the camp stove."),
+    ("Caroline: The kayak rental at the lake costs forty dollars.",
+     "Melanie: Forty dollars for a kayak day is fair."),
+    ("Caroline: We should pack the bear canister for the lake.",
+     "Melanie: The bear canister goes in the tent vestibule."),
+]
+DOC_NAME = "orchard.txt"
+DOC_TEXT = ("The orchard holds forty apple trees and twelve pear trees on "
+            "the south slope. Apple trees are pruned in late winter before "
+            "the buds swell. Pear trees tolerate wetter ground than apple "
+            "trees do. The orchard's drip line runs from the pond pump.")
+UNDATED = "Which tent did Melanie recommend?"
+DATED = "What did Caroline and Melanie talk about on 8 May 2023?"
+
+
+class _FakeRunner:
+    kind = "fake"
+
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.alias = "fake"
+        self.cfg = {"alias": "fake", "hf_id": "test/fake", "path": "-"}
+        self.max_input_len = 4096
+        self.last_prompt_tokens = None
+        self.last_engine_stats = None
+        self.prompts = []
+
+    def input_budget(self, max_new_tokens=None):
+        return self.max_input_len
+
+    def stream_chat(self, messages, **overrides):
+        self.prompts.append(json.loads(json.dumps(messages)))
+        yield "Noted, and here is what I make of it."
+
+
+def chat_session(root, tok, mdl, device, flags):
+    from salt.chat import cli
+    # a budget that spans the whole session, so what a window holds out
+    # is the only reason a row is missing from the block
+    args = cli.build_parser().parse_args(
+        ["--device", device, "--sync-ingest", "--budget-pct", "0.9", *flags])
+    trie = SessionTrie("when_flag", cache_dir=root, model_name=BGE_MODEL,
+                       budget_pct_default=args.budget_pct)
+    for pairs, t0 in ((DAY_ONE, MAY8), (DAY_TWO, MAY25)):
+        for i, (user, assistant) in enumerate(pairs):
+            trie.add_turn(user, "user", tokenizer=tok, model=mdl, device=device,
+                          save=False, filed_at=t0 + 60 * i)
+            trie.add_turn(assistant, "assistant", tokenizer=tok, model=mdl,
+                          device=device, save=False, filed_at=t0 + 60 * i + 30)
+    trie.add_turn(DOC_TEXT, "user", tokenizer=tok, model=mdl, device=device,
+                  source=DOC_NAME, save=False)
+    return cli.ChatState(args, tok, mdl, _FakeRunner(tok), trie)
+
+
+def turn(state, line):
+    from salt.chat import cli
+    with redirect_stdout(io.StringIO()):
+        cli.chat_turn(state, line)
+    stats = {k: v for k, v in (state.last_stats or {}).items()
+             if not any(t in k for t in ("time", "elapsed", "seconds"))}
+    return state.runner.prompts[-1], stats
+
+
+def block_of(prompt):
+    return prompt[-1]["content"]
+
+
+def ledger_keys(state):
+    from salt.chat import cli
+    return set(cli.build_stats(state)["kv"]["last_event"] or {})
+
+
+def stats_text(state):
+    from salt.chat import cli
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.print_stats(state)
+    return buf.getvalue().splitlines()
+
+
+def check_flag(tmp, tok, mdl, device):
+    from salt.chat import cli
+    off = chat_session(tmp / "c_off", tok, mdl, device, ["--when", "off"])
+    on = chat_session(tmp / "c_on", tok, mdl, device, ["--when", "auto"])
+    p_off, s_off = turn(off, UNDATED)
+    p_on, s_on = turn(on, UNDATED)
+    assert p_off == p_on and s_off == s_on
+    assert on.last_when is None and off.last_when is None
+    assert not any(k.startswith("when_") for k in ledger_keys(on))
+    p_off, s_off = turn(off, DATED)
+    assert off.last_when is None
+    assert "tent" in block_of(p_off) and "support group" in block_of(p_off), (
+        "under off the block should span both days")
+    n_before = on.trie.n_sentences
+    p_on, s_on = turn(on, DATED)
+    rec = on.last_when
+    assert rec is not None and tuple(rec) == W.RECORD_KEYS, rec
+    assert (rec["mode"], rec["label"], rec["note"]) == ("auto", "8 May 2023", None), rec
+    # day two's six rows plus whatever the session's own earlier turns
+    # filed, all of it outside 8 May 2023
+    assert rec["rows_in"] == 6 and rec["rows_out"] == 6 + (n_before - 16), rec
+    block = block_of(p_on)
+    assert "support group" in block and "counseling" in block, block
+    assert "tent" not in block and "kayak" not in block and "bear" not in block, block
+    assert "orchard" in block, "the file's rows were held out"
+    assert s_on["excluded_sent"] >= 6, s_on
+    assert ledger_keys(on) >= {"when_label", "when_rows_out"}, ledger_keys(on)
+    p_empty, s_empty = turn(on, "What did they talk about on 9 May 2023?")
+    assert on.last_when["note"] == W.EMPTY and on.last_when["label"] == "9 May 2023"
+    p_same, _ = turn(off, "What did they talk about on 9 May 2023?")
+    assert block_of(p_empty) == block_of(p_same), "an empty window changed the block"
+    assert not any(k.startswith("when_") for k in ledger_keys(on))
+    assert cli.build_parser().parse_args([]).when == "off"
+    print("C. flag: --when auto is byte-identical to off on an undated line, "
+          "a dated line under auto holds the other day out and keeps the "
+          "file, records the window and ledgers it, a time with no rows "
+          "selects as off and says so, and under off a dated line selects "
+          "as before")
+
+
+def check_command_census(tmp, tok, mdl, device):
+    from salt.chat import cli
+    st = chat_session(tmp / "d", tok, mdl, device, ["--when", "off"])
+    assert cli.when_command(st, []) == "time window: off"
+    assert cli.build_stats(st)["when_census"] is None
+    assert cli.when_command(st, ["nonsense", "words"]).startswith("Could not read a time")
+    assert cli.when_command(st, ["25", "May", "2023"]) == (
+        "time window: pinned, 25 May 2023 until the next /when")
+    assert cli.when_command(st, []) == "time window: pinned, 25 May 2023"
+    p, _ = turn(st, UNDATED)
+    assert st.last_when["mode"] == W.PINNED and st.last_when["rows_out"] == 6
+    assert "tent" in block_of(p) and "support group" not in block_of(p), block_of(p)
+    assert cli.when_command(st, ["auto"]) == "time window: auto"
+    assert st.when_pinned is None
+    turn(st, UNDATED)
+    assert st.last_when is None
+    turn(st, DATED)
+    turn(st, "and on 9 May 2023?")
+    c = st.when_stats
+    assert tuple(c) == W.CENSUS_KEYS and c == {"asked": 4, "windowed": 1,
+                                               "pinned": 1, "plain": 1,
+                                               "empty": 1}, c
+    assert cli.build_stats(st)["when_census"] == c
+    n_before = st.trie.n_sentences
+    turn(st, DATED)
+    text = stats_text(st)
+    held = st.last_when["rows_out"]
+    assert held == 6 + (n_before - 16), (held, n_before)
+    assert any(ln.startswith(f"time window (auto): 8 May 2023, 6 conversation rows "
+                             f"in, {held} held out") for ln in text), text
+    assert any(ln.startswith("time census: 5 turns looked at, 2 windowed by the rule, "
+                             "1 pinned by hand, 1 naming no time, 1 with no rows")
+               for ln in text), text
+    assert cli.when_command(st, ["off"]) == "time window: off"
+    turn(st, DATED)
+    assert st.last_when is None and st.when_stats["asked"] == 5
+    assert cli.build_stats(st)["when_census"] == st.when_stats
+    assert "/when" in cli.COMMANDS and "/when" in cli.HELP
+    print("D. command and census: /when shows, sets and pins, a pinned window "
+          "holds out under off and clears on a mode, an unreadable time is "
+          "refused, the census counts what was looked at, and /stats prints "
+          "the window and the census")
+
+
 def main():
     import shutil
     import tempfile
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--device", default="cpu")
+    args = ap.parse_args()
     tmp = Path(tempfile.mkdtemp(prefix="salt_when_"))
     try:
         check_parser()
         check_rows(tmp)
+        from transformers import AutoModel, AutoTokenizer
+        print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
+        tok = AutoTokenizer.from_pretrained(BGE_MODEL)
+        mdl = AutoModel.from_pretrained(BGE_MODEL, output_attentions=True).eval()
+        mdl.to(args.device)
+        check_flag(tmp, tok, mdl, args.device)
+        check_command_census(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")

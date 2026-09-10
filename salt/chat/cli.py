@@ -61,6 +61,7 @@ from salt.chat.registry import (RegistryError, list_models, register_model,
 from salt.chat.runner import make_runner
 from salt.chat import scope as scope_module
 from salt.chat import summary as summary_module
+from salt.chat import when as when_module
 from salt.chat import scoring
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
 from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
@@ -170,6 +171,9 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /summary           whether a turn that asks for a summary selects as one:
                    /summary auto reads the wording, /summary off never
                    does, /summary next marks the next turn by hand
+/when              which time a turn searches: /when auto reads a day,
+                   month, year or span off the question, /when off
+                   searches every row, /when <time> pins a window
 /stats             session, attachments, compression, and GPU memory stats
 /new [id]          start (or resume) another conversation
 /clear             wipe and restart the current conversation
@@ -178,7 +182,7 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 # what TAB offers: every command HELP lists, so the two cannot drift
 COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/offload",
             "/offload!", "/agent", "/doc", "/budget", "/scope", "/summary",
-            "/stats", "/new",
+            "/when", "/stats", "/new",
             "/clear", "/exit"]
 
 
@@ -355,6 +359,8 @@ class ChatState:
         self.summary_themes = args.summary_themes
         self.summary_lam = args.summary_lam
         self.summary_next = False
+        self.when_mode = self.when_launch_mode = args.when
+        self.when_pinned = None
         self.tokens_per_word = TOKENS_PER_WORD_SEED
         # coverage-decay, shift-damping + near-dup knobs live here and
         # travel as per-call kwargs to compress()/add_turn(): SessionTrie
@@ -392,9 +398,11 @@ class ChatState:
         self.last_branch_scores = None
         self.last_scope = None
         self.last_summary = None
+        self.last_when = None
         self.last_reply_raw = None
         self.scope_stats = scope_module.census()
         self.summary_stats = summary_module.census()
+        self.when_stats = when_module.census()
         self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
@@ -515,6 +523,9 @@ class ChatState:
         self.scope_mode, self.scope_names = self.scope_launch_mode, None
         self.summary_stats = summary_module.census()
         self.summary_mode, self.summary_next = self.summary_launch_mode, False
+        self.last_when = None
+        self.when_stats = when_module.census()
+        self.when_mode, self.when_pinned = self.when_launch_mode, None
         # ids and totals belong to the session, not to the process: a new
         # one starts from its own ledger or from nothing
         self.delegation_seq, self.delegation_stats = resume_delegations(
@@ -2095,6 +2106,9 @@ def build_stats(state):
         "summary_census": (state.summary_stats
                            if state.summary_mode != "off"
                            or state.summary_stats["summary"] else None),
+        "when": state.last_when,
+        "when_census": (state.when_stats if state.when_mode != "off"
+                        or state.when_stats["asked"] else None),
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -2243,6 +2257,10 @@ def print_stats(state, payload=None):
     for ln in summary_module.lines(d.get("summary")):
         print(ln)
     for ln in summary_module.census_lines(d.get("summary_census")):
+        print(ln)
+    for ln in when_module.lines(d.get("when")):
+        print(ln)
+    for ln in when_module.census_lines(d.get("when_census")):
         print(ln)
     if d["signals"]:
         print(f"signals: {d['signals']['lines']} turns recorded "
@@ -2715,6 +2733,33 @@ def summary_command(state, rest):
     return "Usage: /summary [auto|off|next]"
 
 
+def when_command(state, rest):
+    """`/when` shows the setting. `/when auto` reads the time off each
+    question, `/when off` searches every row, and `/when <time>` pins a
+    window, a day, a month, a year or a span such as "last week", for
+    every turn until the next /when."""
+    if not rest:
+        if state.when_pinned is not None:
+            return f"time window: pinned, {pinned_label(state)}"
+        return f"time window: {state.when_mode}"
+    arg = " ".join(rest)
+    if arg.lower() in when_module.MODES:
+        state.when_mode, state.when_pinned = arg.lower(), None
+        return f"time window: {state.when_mode}"
+    spec = when_module.parse(arg, time.time())
+    if spec is None:
+        return (f"Could not read a time in {arg!r}: say a day, a month, a "
+                f"year, or a span such as 'last week'. Time window unchanged.")
+    state.when_pinned = spec
+    return f"time window: pinned, {pinned_label(state)} until the next /when"
+
+
+def pinned_label(state):
+    years = when_module.years_of(state.trie) or [time.localtime().tm_year]
+    w = when_module.window(state.when_pinned, years[0])
+    return w[2] if w else "a day that year lacks"
+
+
 def handle_command(line, state):
     """Dispatch a slash command. Returns False to exit the REPL."""
     parts = line.split()
@@ -2782,6 +2827,8 @@ def handle_command(line, state):
         print(scope_command(state, rest))
     elif cmd == "/summary":
         print(summary_command(state, rest))
+    elif cmd == "/when":
+        print(when_command(state, rest))
     elif cmd == "/stats":
         print_stats(state)
     elif cmd == "/new":
@@ -3015,6 +3062,15 @@ def summary_extra(state):
     return {"summary_themes": rec["themes"], "summary_lam": rec["lam"]}
 
 
+def when_extra(state):
+    """The window a turn searched, for the ledger; nothing on a turn
+    without one, so the event keeps its shape."""
+    rec = state.last_when
+    if not rec or rec["note"]:
+        return {}
+    return {"when_label": rec["label"], "when_rows_out": rec["rows_out"]}
+
+
 def compress_kwargs(state, line, excl, switches, query_embedding=None,
                     scope_sources=None, theme_percentile=None, lam=None):
     """Everything this turn asks the compressor for. Assembled in one
@@ -3077,6 +3133,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     state.last_overrides, state.last_audit = {}, ()
     state.turn_switches = None
     state.last_branch_scores = state.last_scope = state.last_summary = None
+    state.last_when = None
     if state.trie.n_sentences > 0:
         switches, state.last_overrides, state.last_audit = turn_switches(state)
         # what anything this turn does inside itself selects under. A
@@ -3085,6 +3142,15 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         state.turn_switches = switches
         excl = (tail_resident_sent_idx(state.trie, state.tail)
                 if switches["tail_exclude"] else None)
+        held, when_rec = when_module.decide(
+            state.when_mode, line, state.trie,
+            anchor=filed_at if filed_at is not None else time.time(),
+            pinned=state.when_pinned)
+        if held:
+            excl = set(excl or ()) | held
+        state.last_when = when_rec
+        if state.when_mode != "off" or state.when_pinned is not None:
+            when_module.count(state.when_stats, when_rec)
         rows, q_vec = branch_query(state, line, switches)
         state.last_branch_scores = rows if state.branch_stats else None
         scope_sources, scope_note = scope_module.decide(
@@ -3199,6 +3265,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     extra.update(switch_extra(state))
     extra.update(scope_extra(state))
     extra.update(summary_extra(state))
+    extra.update(when_extra(state))
     try:
         state.kvtrace.record_turn(
             tokenizer=reply_tokenizer or state.runner.tokenizer,
@@ -3817,6 +3884,12 @@ def build_parser():
                    help="under --summary auto, the coverage discount a "
                         "summary turn selects with; lower spreads the budget "
                         "across more branches (default: %(default)s)")
+    p.add_argument("--when", default="off", choices=list(when_module.MODES),
+                   help="which time a turn searches: 'auto' reads a day, "
+                        "month, year or span off the question and holds the "
+                        "conversation rows filed outside it out of that "
+                        "turn's selection, 'off' searches every row "
+                        "(default: off)")
     p.add_argument("--scope-peak-margin", type=float,
                    default=scope_module.SCOPE_PEAK_MARGIN,
                    help="under --scope auto, how far below the best file's "
