@@ -1,9 +1,11 @@
 # 📄 Changelog
 
-What each version added. Versions match the git tags on the
-[repository](https://github.com/oteomamo/SALT).
+What each version added. The milestone versions, the `x.y.0` headings,
+match the git tags on the
+[repository](https://github.com/oteomamo/SALT). The patch versions
+listed under them are not tagged.
 
-## 2.11.0 - 2.11.97
+## 2.11.0 - 2.11.108
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
