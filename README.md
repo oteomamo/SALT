@@ -232,9 +232,11 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-This also installs the two console commands: `salt` (one-shot compression,
-see [Usage](https://oteomamo.github.io/SALT/latest/usage/)) and `saltChat` (interactive chat, see
-[Chatbot mode](#-chatbot-mode)).
+This also installs the four console commands: `salt` (one-shot compression,
+see [Usage](https://oteomamo.github.io/SALT/latest/usage/)), `saltChat` (interactive chat, see
+[Chatbot mode](#-chatbot-mode)), `saltServe` (persistent serving, see
+[Serving](https://oteomamo.github.io/SALT/latest/serving/)) and `salt-mcp` (the MCP server, see
+[MCP server](https://oteomamo.github.io/SALT/latest/mcp/)).
 
 **4. Authenticate with Hugging Face** - the eval model
 (`meta-llama/Llama-3.1-8B-Instruct`) is gated:

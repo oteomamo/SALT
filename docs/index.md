@@ -74,7 +74,7 @@ survive. Any model, plain text out, less compute in.
 
     ---
 
-    Every flag of the three commands in one line each, including the
+    Every flag of the four commands in one line each, including the
     off by default switches that make long sessions better.
 
     [Options](options.md)
@@ -110,7 +110,7 @@ survive. Any model, plain text out, less compute in.
 
 ## 🧭 New here
 
-1. [Install](installation.md) the environment and the three commands.
+1. [Install](installation.md) the environment and the four commands.
 2. [Compress](usage.md) one document and read what SALT kept.
 3. [Chat](chatbot.md) with a file attached and watch the memory block
    choose what to remember.
