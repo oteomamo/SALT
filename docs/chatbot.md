@@ -200,7 +200,7 @@ appear in it. Prompts and selection do not change.
 
 With several files attached, a question about one of them used to draw
 its memory block from all of them, and the block grew with every file
-added. `--scope auto` keeps, for each question, the attached files whose
+added. By default (`--scope auto`) a turn keeps the attached files whose
 content as a whole is about the question or holds a strong match for it,
 or that carry the most of the question's names, plus the conversation,
 which is always searched. The other files stay out of that turn's
@@ -217,9 +217,10 @@ routed turn kept and how often each file was kept, so a rule that has
 stopped keeping anything out is visible rather than silent. The files
 can also be named by hand: `/scope notes.pdf,report.pdf` searches those
 two until the next `/scope`, `/scope auto` returns the choice to the
-rule and `/scope off` searches every file. An unknown name lists what is
-attached and changes nothing. A session without attachments is not
-routed and selects exactly as before.
+rule and `/scope off` searches every file, as `--scope off` does for the
+whole session. An unknown name lists what is attached and changes
+nothing. A session without attachments is not routed and selects
+exactly as before.
 
 ## How PDFs are cleaned
 

@@ -39,7 +39,8 @@ query and the seam that lets a caller encode the query once. Groups:
      hits stays in on names alone; tighter margins never widen; nothing
      to route gives None; a failing rule is reported, never raised; the
      record and its /stats lines carry the asserted keys.
-  G. SCOPE FLAG - real sessions through the chat turn: --scope auto on a
+  G. SCOPE FLAG - real sessions through the chat turn: --scope auto (the
+     default) against an explicit --scope off on a
      session without attachments is byte-identical (prompts, stats,
      kvtrace keys, no scoped block); with one file the file is kept and
      the prompts still match; with two files under zero margins the out
@@ -481,7 +482,8 @@ def check_scope_rule():
 
 def check_scope_flag(tmp, tok, mdl, device):
     from salt.chat import cli
-    off = chat_session(tmp / "g_off", tok, mdl, device, [], docs=0)
+    off = chat_session(tmp / "g_off", tok, mdl, device, ["--scope", "off"],
+                       docs=0)
     on = chat_session(tmp / "g_on", tok, mdl, device, ["--scope", "auto"],
                       docs=0)
     assert off.runner.prompts == on.runner.prompts, (
@@ -493,7 +495,8 @@ def check_scope_flag(tmp, tok, mdl, device):
         d_on["kv"]["last_event"] or {}), "--scope auto changed kvtrace keys"
     assert not any(ln.startswith("scope (") for ln in stats_text(on))
 
-    one_off = chat_session(tmp / "g_one_off", tok, mdl, device, [])
+    one_off = chat_session(tmp / "g_one_off", tok, mdl, device,
+                           ["--scope", "off"])
     one = chat_session(tmp / "g_one", tok, mdl, device, ["--scope", "auto"])
     assert one_off.runner.prompts == one.runner.prompts, (
         "a single attached file is its own best, so nothing may narrow")
@@ -555,7 +558,8 @@ def check_scope_flag(tmp, tok, mdl, device):
 
 def check_scope_census(tmp, tok, mdl, device):
     from salt.chat import cli
-    off = chat_session(tmp / "h_off", tok, mdl, device, [], docs=2)
+    off = chat_session(tmp / "h_off", tok, mdl, device, ["--scope", "off"],
+                       docs=2)
     assert cli.build_stats(off)["scope_census"] is None
     assert not any(ln.startswith("scope census") for ln in stats_text(off))
 

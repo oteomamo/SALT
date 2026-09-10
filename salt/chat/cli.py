@@ -3519,12 +3519,12 @@ def build_parser():
                         "attached file and the conversation, against each "
                         "query and show the scores in /stats; prompts and "
                         "selection do not change (default: off)")
-    p.add_argument("--scope", default="off", choices=list(scope_module.MODES),
+    p.add_argument("--scope", default="auto", choices=list(scope_module.MODES),
                    help="which branches of the memory trie a turn searches: "
                         "'auto' keeps the attached files the question is "
                         "about, plus the conversation, and sizes the block "
                         "from the words in that scope; 'off' searches every "
-                        "branch (default: off)")
+                        "branch (default: auto)")
     p.add_argument("--scope-margin", type=float,
                    default=scope_module.SCOPE_CENTROID_MARGIN,
                    help="under --scope auto, how far below the best file's "
