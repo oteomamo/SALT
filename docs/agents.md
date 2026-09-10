@@ -4,8 +4,8 @@ A chat can name other models beside the one it talks to. A roster file
 lists them, `saltChat --roster` loads it, and the session keeps a handle
 on each one. Nothing is contacted until you ask, and a session that
 never asks behaves exactly as it did before. This page covers the
-roster and the workers it starts. What a session does with a worker
-once it is up is being built over the 2.10 releases.
+roster and the workers it starts, and the sections after it cover what
+a session does with a worker once it is up.
 
 ## Your first delegation
 
@@ -321,8 +321,9 @@ A spawn onto a card that already carries the chat model or another
 worker is refused, unless both sides declare a `gpu_mem_util` share.
 Two servers each assuming they may take most of a card is the ordinary
 way to run out of memory at load, and the refusal comes before anything
-is launched. When the declared shares on one card add up past 0.95 the
-start still runs and prints the total as a warning. The card holding the
+is launched. Each server's share plus a small margin is added up per
+card: past 0.95 the start still runs and prints the total as a warning,
+and past 1.0 it refuses. The card holding the
 BGE encoder is fine to share and says so, since the encoder needs about
 130 MB. An entry naming no card at all is allowed with a note, because
 then the child chooses for itself.
@@ -761,7 +762,8 @@ cost nothing.
 
 ## Letting a session decide its own switches
 
-SALT ships a set of memory switches that are off by default: how long a
+SALT ships a set of memory switches, all but tail exclusion off by
+default: how long a
 surfaced theme stays suppressed, whether attached files are profiled
 apart from the conversation, whether the keyword order is frozen, and so
 on. They are off because what each one is worth depends on the
