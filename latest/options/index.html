@@ -1460,6 +1460,16 @@ real session before it is trusted.</p>
 <td><code>conversation</code></td>
 <td>one session for all items, or a fresh session per item so unrelated items never see each other's memory</td>
 </tr>
+<tr>
+<td><code>--turns-timeout SECONDS</code></td>
+<td>none</td>
+<td>give up on a turn whose server sent nothing for this long and go on (served backends)</td>
+</tr>
+<tr>
+<td><code>--turns-resume</code></td>
+<td>off</td>
+<td>keep the <code>--turns-out</code> file and skip the items it already answers, so a stopped run continues</td>
+</tr>
 </tbody>
 </table>
 <p>Agents:</p>

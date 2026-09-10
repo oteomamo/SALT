@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-211109" class="md-nav__link">
+  <a href="#2110-211110" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.109
+        2.11.0 - 2.11.110
       
     </span>
   </a>
@@ -1289,10 +1289,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#2110-211109" class="md-nav__link">
+  <a href="#2110-211110" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2.11.0 - 2.11.109
+        2.11.0 - 2.11.110
       
     </span>
   </a>
@@ -1456,7 +1456,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="2110-211109">2.11.0 - 2.11.109</h2>
+<h2 id="2110-211110">2.11.0 - 2.11.110</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
 <code>salt-mcp</code> serves compression, conversations and delegation over the
 Model Context Protocol, and behind it saltChat can plan a turn with a
@@ -1670,11 +1670,14 @@ cover the tools, the roster and the limits.</p>
   files now searches, for each question, only the files the question is
   about plus the conversation. <code>--scope off</code> searches every file as
   before.</li>
-<li><strong>2.11.109</strong> <code>--turns-mode independent</code>. A scripted run of unrelated
-  items, a set of puzzles for instance, can give each item a fresh
-  session of its own so no item sees another's memory, with each output
-  row naming the session it ran in. The default, <code>conversation</code>, is the
-  one session the runs always used.</li>
+<li><strong>2.11.109 - 2.11.110</strong> Scripted runs that scale. <code>--turns-mode
+  independent</code> gives each item of a scripted run a fresh session of its
+  own so no item sees another's memory, with each output row naming the
+  session it ran in, while the default, <code>conversation</code>, is the one
+  session the runs always used. Every turn now reports its time and an
+  estimate of what is left, <code>--turns-timeout</code> abandons a turn whose
+  server went quiet and moves on, and <code>--turns-resume</code> continues a
+  stopped run from its output file, retrying only the items that failed.</li>
 </ul>
 <h2 id="2100-210123">2.10.0 - 2.10.123</h2>
 <p>The agent line. saltChat is growing an agent layer: a session can name
