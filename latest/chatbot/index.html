@@ -1709,8 +1709,14 @@ key yourself.</p>
 </code></pre></div>
 <p>Every backend works, so the same file can drive a persistent server. Each
 turn prints its id and the model's reply. Add <code>--turns-out results.jsonl</code>
-to also append <code>{id, turn, question, answer}</code> per turn, so the run can be
-reviewed or scored afterward.</p>
+to also append one row per turn, so the run can be reviewed or scored
+afterward. A row carries the id, the turn number, the question and the
+answer, the seconds the turn took, the prompt tokens the model saw and,
+on a served backend, the engine's prefix-cache counts. When a thinking
+model reasoned first, its reasoning lands under <code>think</code> and the answer
+holds only what it said, which is also all that memory keeps. An item's
+other fields, a dataset's category or split for instance, ride along
+under <code>item</code>.</p>
 <p><code>--turns-mode</code> says how the items relate. The default, <code>conversation</code>,
 feeds them into one session so the memory builds across them. For a file
 of unrelated items, such as a set of puzzles, <code>--turns-mode independent</code>
