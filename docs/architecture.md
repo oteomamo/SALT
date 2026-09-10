@@ -150,7 +150,8 @@ rides the last card in the list, inside the memory the per-card cap leaves
 free.
 
 Each card in the group is capped at a fraction of its memory (`0.80` by
-default across several cards, `0.90` for a lone server card), which leaves
+default across several cards, `0.85` for a lone card under `saltChat` and
+`0.90` for a lone `saltServe` card), which leaves
 headroom for activations, the KV cache, and the encoder. The list also
 pins PCI bus order, so a `--gpu` index names the card `nvidia-smi` shows,
 and the model and the encoder always agree on which physical card an index
@@ -295,8 +296,9 @@ What still runs every turn is the part that depends on the question.
 The trie is rebuilt and the selection pass runs across the living
 sentences each time, because both move with the question asked and
 with what memory has already surfaced. Per-file theme profiling
-(`--per-source-themes`) also keeps its own full recount, since its
-buckets shift as sentences are masked.
+(`--per-source-themes`) and role weighting (`--assistant-weight`) keep
+their own full recount, since their counts shift with what is masked and
+with who said what.
 
 ## MCP server
 
@@ -473,7 +475,8 @@ and how many of the question's keywords and names the branch contains,
 all from the embeddings and keywords the session already holds, at one
 encoder call per turn. A file stays in scope when it sits within a
 small margin of the best file on either similarity, or carries the
-most of the question's names, and the conversation is always in. The
+most of the question's names, at least one, and the conversation is
+always in. The
 other files leave that turn's candidacy the way sentences already
 visible in the recent messages do, and the budget fraction is taken of
 the words inside the scope, with a floor so a short file is still
