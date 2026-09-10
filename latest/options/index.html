@@ -1385,7 +1385,7 @@ real session before it is trusted.</p>
 <tbody>
 <tr>
 <td><code>--model NAME</code></td>
-<td>none</td>
+<td>the single registered model, if there is one</td>
 <td>load a registered model and start the REPL</td>
 </tr>
 <tr>
@@ -1700,7 +1700,7 @@ real session before it is trusted.</p>
 </tr>
 <tr>
 <td><code>--gpu-mem-util F</code></td>
-<td>per backend</td>
+<td><code>0.80</code> across several cards, <code>0.85</code> alone</td>
 <td>fraction of each card the engine may claim</td>
 </tr>
 <tr>
@@ -1857,6 +1857,11 @@ the server and its cache outlive individual chats. Everything after
 <td><code>--code</code></td>
 <td>off</td>
 <td>line record adapter for code datasets</td>
+</tr>
+<tr>
+<td><code>--fewshot</code></td>
+<td>off</td>
+<td>few-shot mode: for exemplar-shaped contexts, keep a diverse subset of whole exemplars chosen by the selector</td>
 </tr>
 <tr>
 <td><code>--max-samples N</code></td>

@@ -1595,6 +1595,10 @@ can be resumed here. The <a href="../mcp/">MCP server</a> page has the setup.</p
 </thead>
 <tbody>
 <tr>
+<td><code>/help</code></td>
+<td>list the commands</td>
+</tr>
+<tr>
 <td><code>salt@</code></td>
 <td>list attachable files staged in <code>salt/files/</code></td>
 </tr>
@@ -1632,7 +1636,7 @@ can be resumed here. The <a href="../mcp/">MCP server</a> page has the setup.</p
 </tr>
 <tr>
 <td><code>/roster</code></td>
-<td>list the models <code>--roster</code> names, <code>/roster probe</code> contacts them</td>
+<td>list the models <code>--roster</code> names, <code>/roster probe</code> contacts them, <code>/roster probe --deep NAME</code> reports what one serves</td>
 </tr>
 <tr>
 <td><code>/worker</code></td>
@@ -1672,7 +1676,7 @@ can be resumed here. The <a href="../mcp/">MCP server</a> page has the setup.</p
 </tr>
 <tr>
 <td><code>/exit</code></td>
-<td>leave (the session is saved and resumable by id)</td>
+<td>leave (also <code>/quit</code>, <code>/q</code>), the session is saved and resumable by id</td>
 </tr>
 </tbody>
 </table>
@@ -1748,16 +1752,19 @@ behind.</p>
 <h2 id="attachments">Attachments</h2>
 <p>A <code>salt@</code> file becomes <strong>its own branch</strong> of the session trie, hanging off the
 conversation's root - so multiple attachments never crowd each other out, and
-the per-turn budget (default 20%) spreads across files and conversation
-themes. The percentage is bounded twice: <code>--memory-cap auto</code> (the default)
-sizes the block to the space left after the fixed prompt and never lets it
-pass 4096 tokens, so a huge document cannot fill the window with memory.
+the per-turn budget (default 20%) is taken of the files a question is about
+plus the conversation (see "Where a turn searches" below), with a floor so
+a short file is still read. The block is bounded further: <code>--memory-cap
+auto</code> (the default) sizes it to the space left after the fixed prompt and
+never lets it pass 4096 tokens, so a huge document cannot fill the window
+with memory.
 <code>--memory-cap window</code> keeps only the window fit, and <code>--memory-cap off</code>
 restores the old unbounded sizing. An <code>attach@</code> file skips the trie
 entirely: its full text rides uncompressed in every prompt.</p>
 <p><code>--branch-stats</code> shows how each branch relates to the question. After
 every query turn, <code>/stats</code> lists the conversation and each attached file
-with two similarities to the question, the branch as a whole and its
+of at least three indexed sentences (a shorter one counts with the
+conversation) with two similarities to the question, the branch as a whole and its
 best single sentence, plus how many of the question's keywords and names
 appear in it. Prompts and selection do not change.</p>
 <h2 id="where-a-turn-searches">Where a turn searches</h2>
@@ -1765,8 +1772,8 @@ appear in it. Prompts and selection do not change.</p>
 its memory block from all of them, and the block grew with every file
 added. By default (<code>--scope auto</code>) a turn keeps the attached files whose
 content as a whole is about the question or holds a strong match for it,
-or that carry the most of the question's names, plus the conversation,
-which is always searched. The other files stay out of that turn's
+or that carry the most of the question's names, at least one, plus the
+conversation, which is always searched. The other files stay out of that turn's
 selection, and the block is sized from the words inside the scope rather
 than the whole session, with a floor so a short file is still read.
 Nothing about the files changes: the next question is routed again from
@@ -1935,7 +1942,7 @@ disappears without a trace.</p>
 keys follow the cached-token convention (<code>input</code> = freshly prefilled
 sentences, <code>input_cached_tokens</code> = context re-selected from the previous
 turn, <code>output</code> = generated tokens) plus a per-token <code>tokens.npy</code> matrix.
-<code>/stats</code> shows the running totals. On <code>--backend vllm</code> every event also
+<code>/stats</code> shows the running totals. On <code>--backend vllm</code> and <code>vllm-serve</code> every event also
 records the engine's measured prefix-cache reuse (<code>apc_cached_tokens</code> /
 <code>apc_prompt_tokens</code>) - the positional ground truth next to the ledger's
 content-overlap split.</p>

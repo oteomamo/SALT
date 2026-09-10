@@ -1998,8 +1998,8 @@
 lists them, <code>saltChat --roster</code> loads it, and the session keeps a handle
 on each one. Nothing is contacted until you ask, and a session that
 never asks behaves exactly as it did before. This page covers the
-roster and the workers it starts. What a session does with a worker
-once it is up is being built over the 2.10 releases.</p>
+roster and the workers it starts, and the sections after it cover what
+a session does with a worker once it is up.</p>
 <h2 id="your-first-delegation">Your first delegation</h2>
 <p>Four steps, starting from a saltChat that already works.</p>
 <p>Run a second model as a server, in its own terminal:</p>
@@ -2250,8 +2250,9 @@ enough to see why.</p>
 worker is refused, unless both sides declare a <code>gpu_mem_util</code> share.
 Two servers each assuming they may take most of a card is the ordinary
 way to run out of memory at load, and the refusal comes before anything
-is launched. When the declared shares on one card add up past 0.95 the
-start still runs and prints the total as a warning. The card holding the
+is launched. Each server's share plus a small margin is added up per
+card: past 0.95 the start still runs and prints the total as a warning,
+and past 1.0 it refuses. The card holding the
 BGE encoder is fine to share and says so, since the encoder needs about
 130 MB. An entry naming no card at all is allowed with a note, because
 then the child chooses for itself.</p>
@@ -2611,7 +2612,8 @@ there was no write-up. A model with no server in front of it reports no
 numbers of its own, and both fields stay empty rather than saying a call
 cost nothing.</p>
 <h2 id="letting-a-session-decide-its-own-switches">Letting a session decide its own switches</h2>
-<p>SALT ships a set of memory switches that are off by default: how long a
+<p>SALT ships a set of memory switches, all but tail exclusion off by
+default: how long a
 surfaced theme stays suppressed, whether attached files are profiled
 apart from the conversation, whether the keyword order is frozen, and so
 on. They are off because what each one is worth depends on the
