@@ -320,7 +320,7 @@ def check_flag(tmp, tok, mdl, device):
     p_same, _ = turn(off, "What did they talk about on 9 May 2023?")
     assert block_of(p_empty) == block_of(p_same), "an empty window changed the block"
     assert not any(k.startswith("when_") for k in ledger_keys(on))
-    assert cli.build_parser().parse_args([]).when == "off"
+    assert cli.build_parser().parse_args([]).when == "auto"
     print("C. flag: --when auto is byte-identical to off on an undated line, "
           "a dated line under auto holds the other day out and keeps the "
           "file, records the window and ledgers it, a time with no rows "

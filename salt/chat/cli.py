@@ -3884,12 +3884,12 @@ def build_parser():
                    help="under --summary auto, the coverage discount a "
                         "summary turn selects with; lower spreads the budget "
                         "across more branches (default: %(default)s)")
-    p.add_argument("--when", default="off", choices=list(when_module.MODES),
+    p.add_argument("--when", default="auto", choices=list(when_module.MODES),
                    help="which time a turn searches: 'auto' reads a day, "
                         "month, year or span off the question and holds the "
                         "conversation rows filed outside it out of that "
                         "turn's selection, 'off' searches every row "
-                        "(default: off)")
+                        "(default: auto)")
     p.add_argument("--scope-peak-margin", type=float,
                    default=scope_module.SCOPE_PEAK_MARGIN,
                    help="under --scope auto, how far below the best file's "

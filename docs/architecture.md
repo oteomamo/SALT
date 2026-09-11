@@ -508,8 +508,8 @@ filed, the moment it was said in a live session or the `timestamp` a
 scripted turn names, and nothing read the day off the question. Two
 things changed.
 
-A turn can search a window in time. Under `--when auto` the session
-reads a day, a month, a year or a span relative to the moment of
+A turn searches a window in time. By default the session reads a
+day, a month, a year or a span relative to the moment of
 asking off the question, `on 8 May 2023`, `in May`, `during 2023`,
 `yesterday`, `last week`, `the last two weeks`, `last Monday`, and
 holds the conversation rows filed outside that window out of the
@@ -520,7 +520,8 @@ out, since their rows are filed when they are attached and a date on
 the line says nothing about them, and a window that holds no
 conversation rows is not applied. The budget is not resized, so a day
 that fits inside it is handed over whole. Nothing about the decision
-persists: the next question is read again. `/when <time>` pins a
+persists: the next question is read again. `--when off` searches
+every row as before. `/when <time>` pins a
 window by hand, `/when auto` and `/when off` set the mode, and
 `/stats` and the ledger report the window a turn searched.
 

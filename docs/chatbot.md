@@ -300,7 +300,7 @@ defaults are a starting point rather than a measured optimum.
 ## When a turn searches
 
 A question about what was said on a given day is answered from the
-whole history unless something holds the other days out. `--when auto`
+whole history unless something holds the other days out. Every turn
 reads the time off the question, a day (`on 8 May 2023`, `May 8`,
 `2023-05-08`), a month (`in May`, `May 2023`), a year (`during 2023`)
 or a span relative to the moment of asking (`yesterday`, `three days
@@ -311,7 +311,8 @@ conversation's own years, latest first. Attached files are never held
 out, since their rows are filed when they are attached and a date on
 the line says nothing about them, and a window that holds no
 conversation rows is not applied. The budget is not resized, so a day
-that fits inside it is handed over whole.
+that fits inside it is handed over whole. `--when off` searches every
+row as before.
 
 `/when auto` and `/when off` set the mode for the session, and `/when
 <time>` pins a window, `/when last week` for instance, for every turn

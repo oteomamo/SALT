@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 2.11.0 - 2.11.121
+## 2.11.0 - 2.11.123
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
 `salt-mcp` serves compression, conversations and delegation over the
@@ -251,6 +251,10 @@ cover the tools, the roster and the limits.
   that turn's selection, files never, so a day that fits the budget is
   handed over whole. `/when <time>` pins a window by hand, and `/stats`
   and the ledger report the window a turn searched.
+- **2.11.123** `--when auto` by default. A question that names a day, a
+  month, a year or a span now searches only the conversation rows
+  filed inside it, attached files untouched. `--when off` searches
+  every row as before.
 
 ## 2.10.0 - 2.10.123
 
