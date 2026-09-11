@@ -5,6 +5,22 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
+## 3.0.0 - 3.0.0
+
+The agents release. saltChat plans a turn out over helper models, or
+over personas riding its own chat model when there is one GPU or none,
+grades the reply it wrote against the material it was written from,
+re-targets a piece whose helper vanished, and lets a rules file decide
+which turns are worth planning at all. Its memory now searches where
+the question points: the attached files it is about, the time it
+names, and never past a ceiling of 4096 tokens, each of those
+decisions measured against handing the right material over by hand. A
+scripted run drives a whole dataset through the same path, with a
+fresh session per item, scoring, templating and resumption. Everything
+in the 2.11 line is here unchanged. The [agents](agents.md),
+[chatbot](chatbot.md) and [architecture](architecture.md) pages cover
+the details, and the 2.11 section below lists each step.
+
 ## 2.11.0 - 2.11.123
 
 The MCP milestone. SALT is a working memory layer for any MCP client:
