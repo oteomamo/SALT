@@ -1907,7 +1907,7 @@ a census of how many turns were treated that way. The two knobs'
 defaults are a starting point rather than a measured optimum.</p>
 <h2 id="when-a-turn-searches">When a turn searches</h2>
 <p>A question about what was said on a given day is answered from the
-whole history unless something holds the other days out. <code>--when auto</code>
+whole history unless something holds the other days out. Every turn
 reads the time off the question, a day (<code>on 8 May 2023</code>, <code>May 8</code>,
 <code>2023-05-08</code>), a month (<code>in May</code>, <code>May 2023</code>), a year (<code>during 2023</code>)
 or a span relative to the moment of asking (<code>yesterday</code>, <code>three days
@@ -1918,7 +1918,8 @@ conversation's own years, latest first. Attached files are never held
 out, since their rows are filed when they are attached and a date on
 the line says nothing about them, and a window that holds no
 conversation rows is not applied. The budget is not resized, so a day
-that fits inside it is handed over whole.</p>
+that fits inside it is handed over whole. <code>--when off</code> searches every
+row as before.</p>
 <p><code>/when auto</code> and <code>/when off</code> set the mode for the session, and <code>/when
 &lt;time&gt;</code> pins a window, <code>/when last week</code> for instance, for every turn
 until the next <code>/when</code>. <code>/stats</code> shows the window a turn searched, how
