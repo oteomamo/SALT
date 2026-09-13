@@ -300,7 +300,10 @@ a query-biased context block under the token budget.
 saltChat --model qwen05 --conversation-id demo1 --doc report.txt
 ```
 
-A persistent server started with `saltServe` keeps the model loaded and
+Each turn searches only the attached files the question is about and,
+when the question names a day, a month or a span, only the exchanges
+filed inside it, so the memory block comes from where the answer is. A
+persistent server started with `saltServe` keeps the model loaded and
 its cache warm between chats, so a resumed conversation picks up without
 re-reading its documents. The
 [Chatbot mode guide](https://oteomamo.github.io/SALT/latest/chatbot/) covers

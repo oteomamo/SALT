@@ -37,7 +37,8 @@ survive. Any model, plain text out, less compute in.
     ---
 
     A chat REPL where SALT is the conversation memory, so long chats
-    and attached files stay recallable at a fixed prompt size.
+    and attached files stay recallable at a fixed prompt size. Each
+    turn searches the files and the time the question names.
 
     [Chatbot mode](chatbot.md)
 
@@ -112,16 +113,16 @@ survive. Any model, plain text out, less compute in.
 
 1. [Install](installation.md) the environment and the four commands.
 2. [Compress](usage.md) one document and read what SALT kept.
-3. [Chat](chatbot.md) with a file attached and watch the memory block
-   choose what to remember.
+3. [Chat](chatbot.md) with two files attached and watch the memory
+   block choose which one to read, and what to remember from it.
 4. [Read why](architecture.md) selection spreads the budget across
    themes instead of ranking sentences.
 
 ## 🔭 Where the project is going
 
-The [Roadmap](roadmap.md) lists what is in progress and what comes
-next, and the [Changelog](changelog.md) explains what every version
-changed in plain language.
+The [Roadmap](roadmap.md) lists what comes next, and the
+[Changelog](changelog.md) explains what every version changed in
+plain language.
 
 ## 📝 Paper
 
