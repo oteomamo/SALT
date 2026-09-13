@@ -420,6 +420,18 @@ page lists them all with when to reach for each. In concept:
 - **Bookkeeping bounds.** `--coverage-gc` collects remembered keys that
   match nothing anymore, and `--coverage-max-keys` puts a hard limit
   on the remembered dictionary.
+- **Where a turn searches.** With several files attached, a turn
+  searches only the files the question is about plus the conversation,
+  and sizes the block from the words in that scope, never past a
+  ceiling of 4096 tokens. `--scope off` searches every file, `/scope`
+  names files by hand. See [Where a turn searches](#where-a-turn-searches).
+- **When a turn searches.** A question that names a day, a month, a
+  year or a span such as last week searches only the conversation rows
+  filed inside it. `--when off` searches every row, `/when` pins a
+  window by hand. See [When a turn searches](#when-a-turn-searches).
+- **Summary turns.** `--summary auto` profiles more themes and spreads
+  the budget wider on a turn that asks for a summary. Off by default.
+  See [Summary turns](#summary-turns).
 - **Session bounds.** `--max-sentences` caps how many conversation
   sentences stay in memory. Past the cap the oldest are masked out of
   selection rather than deleted, so their text and their numbering
