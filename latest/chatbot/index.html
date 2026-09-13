@@ -2010,6 +2010,18 @@ page lists them all with when to reach for each. In concept:</p>
 <li><strong>Bookkeeping bounds.</strong> <code>--coverage-gc</code> collects remembered keys that
   match nothing anymore, and <code>--coverage-max-keys</code> puts a hard limit
   on the remembered dictionary.</li>
+<li><strong>Where a turn searches.</strong> With several files attached, a turn
+  searches only the files the question is about plus the conversation,
+  and sizes the block from the words in that scope, never past a
+  ceiling of 4096 tokens. <code>--scope off</code> searches every file, <code>/scope</code>
+  names files by hand. See <a href="#where-a-turn-searches">Where a turn searches</a>.</li>
+<li><strong>When a turn searches.</strong> A question that names a day, a month, a
+  year or a span such as last week searches only the conversation rows
+  filed inside it. <code>--when off</code> searches every row, <code>/when</code> pins a
+  window by hand. See <a href="#when-a-turn-searches">When a turn searches</a>.</li>
+<li><strong>Summary turns.</strong> <code>--summary auto</code> profiles more themes and spreads
+  the budget wider on a turn that asks for a summary. Off by default.
+  See <a href="#summary-turns">Summary turns</a>.</li>
 <li><strong>Session bounds.</strong> <code>--max-sentences</code> caps how many conversation
   sentences stay in memory. Past the cap the oldest are masked out of
   selection rather than deleted, so their text and their numbering
