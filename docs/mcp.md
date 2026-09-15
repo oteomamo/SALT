@@ -383,4 +383,8 @@ conversation's turns are not written to the kv ledger the REPL keeps,
 so an MCP client's traffic does not appear in a session's turn records.
 There is no full-context attachment either: a document joins the memory
 and is compressed with everything else, the way `salt@` works at the
-prompt, rather than riding whole in every prompt like `attach@`.
+prompt, rather than riding whole in every prompt like `attach@`. The
+searches a saltChat turn narrows itself to, the attached files a
+question is about and the time it names, are the REPL's own reading of
+the user's line and do not apply here: a conversation's memory is
+selected from everything it holds.
