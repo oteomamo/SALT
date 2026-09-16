@@ -1,9 +1,12 @@
 # 🔬 Results
 
 SALT (coverage/CELF selector) on LongBench with Llama-3.1-8B-Instruct at a 20%
-token budget. More datasets coming soon. The trie these numbers rest
-on is the subject of the [EMNLP 2026 paper](paper.md), which reports
-the earlier legacy selector.
+token budget. The trie these numbers rest on is the subject of the
+[EMNLP 2026 paper](paper.md), which reports the earlier legacy
+selector. The measurements behind saltChat's memory features, on
+conversation benchmarks rather than documents, are described on the
+[Architecture](architecture.md) page beside the feature each one
+decided.
 
 | Category | Dataset | Metric | SALT |
 |---|---|---|---:|
