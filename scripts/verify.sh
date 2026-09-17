@@ -3,7 +3,7 @@
 # a memory exercise. Wraps the regression table in CONTRIBUTING.md.
 #
 # Usage:
-#   bash scripts/verify.sh chat      # chat ingest + theme suites
+#   bash scripts/verify.sh chat      # ingest, themes, scope, turns, summary, when
 #   bash scripts/verify.sh all      # every CPU suite + eval smoke + docs
 #
 # Areas: chat, engine, dedup, keys, evict, incr, tail, text, scope, turns, summary, when,
