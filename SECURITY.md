@@ -6,7 +6,8 @@ Security fixes land on the current release line.
 
 | Version         | Supported |
 | --------------- | --------- |
-| 2.x (current)   | Yes       |
+| 3.x (current)   | Yes       |
+| 2.x             | No        |
 | 1.x             | No        |
 
 ## Reporting a Vulnerability
