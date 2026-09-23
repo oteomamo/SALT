@@ -47,6 +47,14 @@ KWARGS = tuple(SELECTION)
 INGEST_ONLY = tuple(sw.name for sw in SWITCHES if sw.name not in SELECTION)
 
 
+def selection_kwargs(value_of):
+    """The compress() keywords a selection runs under, each read by its
+    switch's name. Every call that selects builds them here, so a turn
+    and the pieces it hands out cannot select under different lists."""
+    return {kwarg: value_of(name) for name, kwarg in SELECTION.items()
+            if kwarg is not None}
+
+
 def _finite(value):
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
             and math.isfinite(value))

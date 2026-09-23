@@ -76,6 +76,10 @@ class DelegationState:
         self.shift_margin = args.shift_margin
         self.shift_query_boost = args.shift_query_boost
         self.per_source_themes = args.per_source_themes
+        self.query_identifiers = args.query_identifiers
+        self.episode_gap = args.episode_gap
+        self.assistant_weight = args.assistant_weight
+        self.row_coverage = args.row_coverage
         self.stable_coverage_keys = args.stable_coverage_keys
         self.coverage_gc = args.coverage_gc
         self.coverage_max_keys = args.coverage_max_keys

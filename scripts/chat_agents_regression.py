@@ -9463,6 +9463,54 @@ def check_switch_values(tmp, tok, mdl):
           "shipped sample included, still loads")
 
 
+def check_piece_switches(tmp, tok, mdl):
+    """A handed-out piece selects under every switch its turn selected
+    under, and a delegation over MCP carries every one of them."""
+    from types import SimpleNamespace
+
+    from salt.agents import delegate as D
+    from salt.agents import policy as PL
+    from salt.mcp import agents as MA
+
+    kwargs = {name: kwarg for name, kwarg in PL.SELECTION.items() if kwarg}
+    state = quiet_state(tmp, "piece_switches", tok, mdl,
+                        flags=("--query-identifiers", "--row-coverage",
+                               "--episode-gap", "6",
+                               "--assistant-weight", "0.5"))
+    try:
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                D.build_context(state, D.DelegationRequest(task="the bank"))
+        for name, kwarg in kwargs.items():
+            assert sent[0][kwarg] == getattr(state, name), (
+                f"a piece selected {kwarg}={sent[0][kwarg]!r} under a "
+                f"session that runs {getattr(state, name)!r}")
+        assert (sent[0]["query_identifiers"], sent[0]["row_coverage"],
+                sent[0]["episode_gap"], sent[0]["assistant_weight"]) == \
+            (True, True, 6.0, 0.5), sent[0]
+        assert sent[0]["exclude_sent_idx"] is None, sent[0]
+        decided = {"row_coverage": False, "episode_gap": None}
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                D.build_context(state, D.DelegationRequest(
+                    task="the bank", switches=decided))
+        assert (sent[0]["row_coverage"], sent[0]["episode_gap"],
+                sent[0]["query_identifiers"]) == (False, None, True), sent[0]
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+
+    engine = SimpleNamespace(tokenizer=None, model=None, device="cpu")
+    held = MA.DelegationState(SimpleNamespace(engine=engine))
+    defaults = MA.chat_defaults()
+    for name in kwargs:
+        assert getattr(held, name) == getattr(defaults, name), name
+    print("88. piece switches: a delegation selects under every switch its "
+          "turn selects under, launch flags and a turn's decision alike, "
+          "and a delegation over MCP holds every one of them at the chat "
+          "defaults")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9562,6 +9610,7 @@ def main():
         check_note_overlap(tmp)
         check_structured_probe(tok_path)
         check_switch_values(tmp, tok, mdl)
+        check_piece_switches(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

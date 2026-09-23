@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from salt.agents.policy import selection_kwargs
 from salt.agents.thinking import ThinkGuard, gen_kwargs, settle
 from salt.agents.worker import (DEAD, WorkerError, is_connection_error,
                                 is_read_timeout)
@@ -182,20 +183,10 @@ def build_context(state, req):
                                tokenizer=state.bge_tok,
                                model=state.bge_model,
                                device=state.bge_device,
-                               coverage_half_life=switch(
-                                   "coverage_half_life"),
-                               coverage_decay_docs=switch(
-                                   "coverage_decay_docs"),
-                               shift_damping=switch("shift_damping"),
-                               shift_margin=switch("shift_margin"),
-                               shift_query_boost=switch("shift_query_boost"),
-                               per_source_themes=switch("per_source_themes"),
                                max_words=min(caps) if caps else None,
-                               stable_keys=switch("stable_coverage_keys"),
-                               coverage_gc=switch("coverage_gc"),
-                               coverage_max_keys=switch("coverage_max_keys"),
                                defer_commit=True,
-                               exclude_sent_idx=None)
+                               exclude_sent_idx=None,
+                               **selection_kwargs(switch))
     # the commit is deliberately dropped on the floor: dropping it is what
     # keeps a delegation invisible to the session's own memory
     selected = comp["selected_sent_idx"]

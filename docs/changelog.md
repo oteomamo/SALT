@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.8
+## 3.0.0 - 3.0.9
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -26,6 +26,11 @@ the details, and the 2.11 section below lists each step.
   for the shift margin or `true` for the key limit is refused when the
   file loads, and dropped with the reason kept when the model proposes
   it, instead of failing or erasing memory partway through a turn.
+- **3.0.9** A handed-out piece selects under every memory switch. The
+  pieces of a planned turn and an `/offload` now carry
+  `--query-identifiers`, `--episode-gap`, `--assistant-weight` and
+  `--row-coverage` the way the turn itself does, instead of selecting
+  without them.
 
 ## 2.11.0 - 2.11.123
 
