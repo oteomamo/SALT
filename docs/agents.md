@@ -804,9 +804,13 @@ rule names the signal on its own or orders against it.
 
 Everything a file can get wrong is refused when it loads rather than
 partway through a conversation: a signal nobody reports, a switch a turn
-cannot set, an expression that does not parse, two rules under one name,
-and a set that could turn on two switches known to cancel each other.
-The session does not start until the file is right.
+cannot set, a value that switch does not take, an expression that does
+not parse, two rules under one name, and a set that could turn on two
+switches known to cancel each other. A value is held to the same range
+the switch's own flag accepts, so `null` for the shift margin or `true`
+for the key limit is refused at the door. The session does not start
+until the file is right, and a model's proposal that breaks the same
+ranges is dropped with the reason kept.
 
 A decision lasts one turn. The session's own settings are the starting
 point every time, so nothing a rule did last turn survives into this

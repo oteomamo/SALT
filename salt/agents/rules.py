@@ -12,9 +12,10 @@ run code is not configuration.
 
 Everything a rule could get wrong is found when the file loads rather
 than mid-conversation. A signal nobody reports, a switch a turn cannot
-set, an expression that does not parse, two rules with one id, and a set
-that could turn on two switches known to cancel each other are all
-refused at the door, naming what was wrong and what was allowed.
+set, a value that switch does not take, an expression that does not
+parse, two rules with one id, and a set that could turn on two switches
+known to cancel each other are all refused at the door, naming what was
+wrong and what was allowed.
 
 A signal a session cannot report reads as nothing, and a comparison
 against nothing is false. A rule about attachments does not fire for a
@@ -28,7 +29,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from salt.agents.policy import KWARGS, SwitchPolicy, check
+from salt.agents.policy import KWARGS, SwitchPolicy, check, value_error
 from salt.agents.snapshot import RULE_SIGNALS
 
 SCHEMA = "salt-switch-rules/1"
@@ -302,6 +303,9 @@ def switch_values(rule_id, then):
         if isinstance(value, float) and not math.isfinite(value):
             raise RuleError(f"{rule_id!r} sets {name} to {value!r}, and a "
                             f"switch takes a finite number")
+        why = value_error(name, value)
+        if why:
+            raise RuleError(f"{rule_id!r}: {why}")
     return then
 
 

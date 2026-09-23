@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.0
+## 3.0.0 - 3.0.8
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -20,6 +20,12 @@ fresh session per item, scoring, templating and resumption. Everything
 in the 2.11 line is here unchanged. The [agents](agents.md),
 [chatbot](chatbot.md) and [architecture](architecture.md) pages cover
 the details, and the 2.11 section below lists each step.
+
+- **3.0.8** Switch values are range-checked. A rules file or a model
+  proposal sets a switch only to a value its flag accepts, so `null`
+  for the shift margin or `true` for the key limit is refused when the
+  file loads, and dropped with the reason kept when the model proposes
+  it, instead of failing or erasing memory partway through a turn.
 
 ## 2.11.0 - 2.11.123
 

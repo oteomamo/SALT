@@ -9400,6 +9400,69 @@ def check_structured_probe(tok_path):
           "and a server that refuses both stays plain with the reason")
 
 
+def check_switch_values(tmp, tok, mdl):
+    """A switch value is held to the range its own flag accepts, whether
+    a rules file or a model proposed it."""
+    from salt.agents import orchestrator as O
+    from salt.agents import policy as PL
+    from salt.agents import protocol as P
+    from salt.agents import rules as RU
+
+    assert set(PL.VALUES) == set(PL.SELECTION), "a settable switch is unheld"
+    bad = ({"shift_margin": None}, {"shift_margin": -0.1},
+           {"shift_query_boost": None}, {"shift_query_boost": 0},
+           {"coverage_max_keys": True}, {"coverage_max_keys": 2.5},
+           {"coverage_half_life": True}, {"coverage_half_life": 0},
+           {"episode_gap": -1}, {"assistant_weight": 7},
+           {"assistant_weight": 1}, {"shift_damping": 2},
+           {"shift_damping": 0}, {"per_source_themes": 1},
+           {"row_coverage": None}, {"tail_exclude": "no"})
+    for then in bad:
+        name = next(iter(then))
+        try:
+            RU.read_rule({"id": "r", "when": "n_turns > 0", "then": then}, 0)
+            raise AssertionError(f"{then} loaded")
+        except RU.RuleError as exc:
+            assert name in str(exc), (then, str(exc))
+        try:
+            PL.check(then)
+            raise AssertionError(f"{then} passed the check")
+        except PL.PolicyError as exc:
+            assert name in str(exc), (then, str(exc))
+    good = ({"shift_margin": 0}, {"shift_query_boost": 1},
+            {"coverage_max_keys": 500}, {"coverage_max_keys": None},
+            {"coverage_half_life": 8}, {"episode_gap": 6},
+            {"assistant_weight": 0.5}, {"shift_damping": None},
+            {"tail_exclude": False}, {"row_coverage": True})
+    for then in good:
+        RU.read_rule({"id": "r", "when": "n_turns > 0", "then": then}, 0)
+        assert PL.check(then) == then, then
+    sample = REPO / "salt" / "agents" / "switch_rules_sample.json"
+    assert len(RU.load(sample, allow_examples=True)) == 3, (
+        "the shipped sample stopped loading")
+
+    reply = json.dumps({"version": P.SCHEMA, "action": "answer",
+                        "answer": "a", "switches": {"shift_margin": None}})
+    state = canned_state(tmp, "switch_values", tok, mdl, [reply, reply])
+    state.switch_policy = O.ModelPolicy().bind(state)
+    try:
+        with watched_compress(state.trie) as sent:
+            with redirect_stdout(io.StringIO()):
+                cli.chat_turn(state, "and the inverter?")
+        assert state.last_overrides == {}, state.last_overrides
+        assert sent[0]["shift_margin"] == state.shift_margin, sent[0]
+        assert "shift_margin" in state.last_audit[0]["when"], (
+            state.last_audit)
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+    print("87. switch values: a rules file setting a value the switch's "
+          "own flag refuses does not load, a model proposing one is "
+          "dropped with the reason kept and the turn selects under the "
+          "session's own settings, and every value a flag accepts, the "
+          "shipped sample included, still loads")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9498,6 +9561,7 @@ def main():
         check_retarget(tmp)
         check_note_overlap(tmp)
         check_structured_probe(tok_path)
+        check_switch_values(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

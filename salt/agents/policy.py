@@ -18,6 +18,9 @@ that was never given one selects exactly as it did before this file
 existed.
 """
 
+import json
+import math
+
 from salt.agents.snapshot import SWITCHES
 
 # what a decision may set, and the compress() keyword each one travels
@@ -42,6 +45,58 @@ KWARGS = tuple(SELECTION)
 # than when one is chosen, so a decision made per selection has nothing
 # to apply them to
 INGEST_ONLY = tuple(sw.name for sw in SWITCHES if sw.name not in SELECTION)
+
+
+def _finite(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
+
+
+def _off_or(test):
+    return lambda value: value is None or (_finite(value) and test(value))
+
+
+_YES_NO = (lambda value: isinstance(value, bool), "true or false")
+
+VALUES = {
+    "coverage_half_life": (_off_or(lambda v: v > 0),
+                           "null or a number of turns above 0"),
+    "coverage_decay_docs": _YES_NO,
+    "shift_damping": (_off_or(lambda v: 0 < v < 1),
+                      "null or a scale strictly between 0 and 1"),
+    "shift_margin": (lambda v: _finite(v) and v >= 0,
+                     "a cosine drop of 0 or more"),
+    "shift_query_boost": (lambda v: _finite(v) and v >= 1,
+                          "a multiplier of 1 or more"),
+    "per_source_themes": _YES_NO,
+    "query_identifiers": _YES_NO,
+    "episode_gap": (_off_or(lambda v: v > 0),
+                    "null or a number of hours above 0"),
+    "assistant_weight": (_off_or(lambda v: 0 < v < 1),
+                         "null or a weight strictly between 0 and 1"),
+    "row_coverage": _YES_NO,
+    "stable_coverage_keys": _YES_NO,
+    "coverage_gc": _YES_NO,
+    "coverage_max_keys": (lambda v: v is None or (
+        isinstance(v, int) and not isinstance(v, bool)),
+        "null or a whole number of keys"),
+    "tail_exclude": _YES_NO,
+}
+if set(VALUES) != set(SELECTION):
+    raise AssertionError("a settable switch has no value it is held to")
+
+
+def value_error(name, value):
+    """Why this value cannot be given to this switch, or None if it can.
+    The same values a session refuses at launch."""
+    ok, wanted = VALUES[name]
+    if ok(value):
+        return None
+    try:
+        shown = json.dumps(value)
+    except (TypeError, ValueError):
+        shown = repr(value)
+    return f"{name} takes {wanted}, not {shown}"
 
 
 class PolicyError(Exception):
@@ -86,12 +141,8 @@ class NullPolicy(SwitchPolicy):
 
 
 def check(overrides):
-    """What a policy proposed, or a refusal naming what is wrong with it.
-
-    Names are checked and nothing else here. What a value may be is a
-    question about that particular switch, and the rules that set them
-    are checked against their own language when they load.
-    """
+    """What a policy proposed, or a refusal naming what is wrong with it:
+    a name no turn can set, or a value that switch does not take."""
     if not isinstance(overrides, dict):
         raise PolicyError(f"a policy answers with a dict of switches to "
                           f"change, and this one answered with "
@@ -105,4 +156,8 @@ def check(overrides):
         raise PolicyError(f"a decision named {unknown}, which is not "
                           f"something a turn's selection can set.{why} "
                           f"Allowed: {', '.join(KWARGS)}")
+    for name, value in overrides.items():
+        why = value_error(name, value)
+        if why:
+            raise PolicyError(why)
     return dict(overrides)
