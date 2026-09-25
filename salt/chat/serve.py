@@ -87,7 +87,8 @@ def build_cmd(vllm_bin, cfg, host, port, dtype, gpu_mem_util, gpus,
               max_model_len, extra):
     """The ``vllm serve`` argv. Several cards add --tensor-parallel-size so
     vLLM shards the weights across them; one card adds nothing (the flag
-    defaults to 1). Everything in ``extra`` is appended unchanged."""
+    defaults to 1). Everything in ``extra`` is appended unchanged, after
+    --enable-prefix-caching, so a passed --no-enable-prefix-caching wins."""
     cmd = [vllm_bin, "serve", cfg["path"],
            "--served-model-name", cfg["alias"],
            "--enable-prompt-tokens-details",
@@ -99,7 +100,7 @@ def build_cmd(vllm_bin, cfg, host, port, dtype, gpu_mem_util, gpus,
         cmd += ["--tensor-parallel-size", str(len(gpus))]
     if max_model_len:
         cmd += ["--max-model-len", str(max_model_len)]
-    return cmd + list(extra)
+    return cmd + ["--enable-prefix-caching"] + list(extra)
 
 
 def build_env(base_env, gpus, vllm_bin=None):

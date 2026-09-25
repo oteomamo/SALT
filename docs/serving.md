@@ -20,6 +20,12 @@ and `--vllm-bin` can point at another environment's vllm, so the server
 runs whichever vLLM release fits the hardware while the SALT install
 stays put.
 
+`saltServe` always asks vLLM for prefix caching, the reuse that keeps
+a long conversation fast. Some vLLM releases leave it off by default
+for hybrid attention models such as Qwen3.5. To turn it off, for
+example while chasing a server error, end the command with
+`-- --no-enable-prefix-caching`.
+
 ## Connect a chat
 
 ```bash

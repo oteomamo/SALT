@@ -11,8 +11,10 @@ the serve seam end to end:
      cards but 0.90 on one, saltChat resolves the model and BGE devices in
      PCI order, the hf backend shards via device_map, and duplicate indices
      are rejected.
-  3. Launch environment (no GPU needed): with --vllm-bin, the bin
-     directory of that binary and of its resolved target lead the
+  3. Launch command and environment (no GPU needed): saltServe asks for
+     prefix caching before the passthrough, so a passed
+     --no-enable-prefix-caching comes last and wins. With --vllm-bin, the
+     bin directory of that binary and of its resolved target lead the
      server's PATH, so that environment's own tools are found, and
      without it PATH is left alone.
   4. Launcher refusals: unknown model, bad --vllm-bin, a bad port, and a
@@ -213,8 +215,8 @@ def check_multi_gpu():
 
 
 def check_launch():
-    """main() runs up to a stubbed exec, so the environment the server
-    would get is checked without vllm, a model, or a GPU."""
+    """main() runs up to a stubbed exec, so the command and environment
+    the server would get are checked without vllm, a model, or a GPU."""
     import salt.chat.serve as serve
     with tempfile.TemporaryDirectory() as tmp:
         tmp = os.path.realpath(tmp)
@@ -229,6 +231,14 @@ def check_launch():
         assert env["PATH"] == f"{real}:/usr/bin:/bin", env["PATH"]
         assert serve.build_env({"PATH": "/a:/b"}, ["0"])["PATH"] == "/a:/b"
         assert "PATH" not in serve.build_env({}, None)
+        fake = {"path": "/w", "alias": "m"}
+        solo = serve.build_cmd("vllm", fake, "h", 1, "bfloat16", 0.9, None,
+                               0, [])
+        assert solo.count("--enable-prefix-caching") == 1, solo
+        multi = serve.build_cmd("vllm", fake, "h", 1, "bfloat16", 0.8,
+                                ["0", "1"], 4096, ["--trust-remote-code"])
+        assert (multi.index("--enable-prefix-caching")
+                < multi.index("--trust-remote-code")), multi
 
         seen = {}
         saved = (serve.resolve_model, serve.compute_capability, os.execvpe,
@@ -245,9 +255,12 @@ def check_launch():
                 serve.main(["m", "--vllm-bin", os.path.join(link, "vllm")])
                 head = seen["env"]["PATH"].split(os.pathsep)[:3]
                 assert head == [link, real, first], head
-                serve.main(["m"])
+                serve.main(["m", "--", "--no-enable-prefix-caching"])
                 assert seen["env"]["PATH"] == os.environ["PATH"], (
                     "PATH changed without --vllm-bin")
+                assert "--enable-prefix-caching" in seen["cmd"]
+                assert seen["cmd"][-1] == "--no-enable-prefix-caching", (
+                    seen["cmd"])
         finally:
             serve.resolve_model, serve.compute_capability, os.execvpe = \
                 saved[:3]
@@ -282,10 +295,11 @@ def main():
           "defaults 0.80 across cards, model/BGE resolve in PCI order, "
           "hf shards via device_map, duplicates rejected")
 
-    # 3. the server's environment (pure, GPU-free)
+    # 3. the server's command and environment (pure, GPU-free)
     check_launch()
-    print("3. launch environment: --vllm-bin's bin directory and its "
-          "resolved target's lead PATH, PATH untouched without it")
+    print("3. launch: prefix caching asked for before the passthrough, "
+          "--vllm-bin's bin directory and its resolved target's lead PATH, "
+          "PATH untouched without it")
 
     try:
         import vllm  # noqa: F401

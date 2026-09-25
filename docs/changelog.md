@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.13
+## 3.0.0 - 3.0.14
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -42,6 +42,11 @@ the details, and the 2.11 section below lists each step.
   server's PATH, so a vLLM release that builds kernels as it starts finds
   its own `ninja` instead of failing to launch. Without `--vllm-bin` the
   server's PATH is unchanged.
+- **3.0.14** `saltServe` asks vLLM for prefix caching on every launch.
+  Some vLLM releases leave it off for hybrid attention models such as
+  Qwen3.5, which cost a served chat all of its reuse from one turn to
+  the next. Ending the command with `-- --no-enable-prefix-caching`
+  still turns it off.
 
 ## 2.11.0 - 2.11.123
 
