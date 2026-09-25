@@ -67,7 +67,9 @@ plain install stays green.
 ## 📦 Utilities
 
 - `verify.sh` runs the regression suites for one area in one command
-  (`bash scripts/verify.sh chat`, or `all`). Start here.
+  (`bash scripts/verify.sh chat`, or `all`). Start here. `SALT_ENV`
+  (a conda environment) or `SALT_PY` (an interpreter) runs them in
+  another environment.
 - The shipped demo conversation replays a mixed chat and delegation
   session against a running worker:
   `saltChat --roster salt/agents/roster_sample.json --turns

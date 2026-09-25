@@ -53,7 +53,15 @@ bash scripts/verify.sh all       # every CPU suite plus the eval smoke run
 The script picks the `salt` conda environment automatically when it
 exists (the suites need its dependencies, `pypdf` among them) and
 retries the PDF suite before believing a failure, since `pypdf` is not
-deterministic. The table it wraps, for reference:
+deterministic. To run the same suites somewhere else, for example in an
+environment built on newer dependencies, name it with `SALT_ENV` (a
+conda environment) or `SALT_PY` (any Python interpreter):
+
+```bash
+SALT_ENV=salt-next bash scripts/verify.sh all
+```
+
+The table it wraps, for reference:
 
 | If you touched | Run |
 |---|---|

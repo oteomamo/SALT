@@ -5,6 +5,8 @@
 # Usage:
 #   bash scripts/verify.sh chat      # ingest, themes, scope, turns, summary, when
 #   bash scripts/verify.sh all      # every CPU suite + eval smoke + docs
+#   SALT_ENV=salt-next bash scripts/verify.sh all    # the same, in another conda env
+#   SALT_PY=/path/to/python bash scripts/verify.sh all  # or under any interpreter
 #
 # Areas: chat, engine, dedup, keys, evict, incr, tail, text, scope, turns, summary, when,
 # agents, mcp, pdf, docs, smoke, vllm, serve, all. `all` covers everything that runs on CPU
@@ -12,17 +14,33 @@
 # explicitly).
 #
 # Suites run under the `salt` conda environment when it exists (they need
-# its dependencies, e.g. pypdf), else under the current python.
+# its dependencies, e.g. pypdf), else under the current python. SALT_ENV
+# names another conda environment and SALT_PY any interpreter, and the
+# smoke run follows the same choice.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+SALT_ENV="${SALT_ENV:-salt}"
 PY=(python)
-if command -v conda >/dev/null 2>&1 \
-    && conda env list 2>/dev/null | awk '{print $1}' | grep -qx salt; then
-  PY=(conda run --no-capture-output -n salt python)
+if [ -n "${SALT_PY:-}" ]; then
+  if [ ! -x "$SALT_PY" ]; then
+    echo "SALT_PY is not an executable python: $SALT_PY" >&2
+    exit 2
+  fi
+  PY=("$SALT_PY")
+  PATH="$(dirname "$SALT_PY"):$PATH"
+elif command -v conda >/dev/null 2>&1 \
+    && conda env list 2>/dev/null | awk '{print $1}' | grep -qx "$SALT_ENV"; then
+  PY=(conda run --no-capture-output -n "$SALT_ENV" python)
+  SALT_PY="$(conda env list | awk -v n="$SALT_ENV" '$1 == n {print $NF}')/bin/python"
+elif [ "$SALT_ENV" != salt ]; then
+  echo "no conda environment named $SALT_ENV" >&2
+  exit 2
 fi
+export PATH
+[ -n "${SALT_PY:-}" ] && export SALT_PY
 
 FAILED=()
 
@@ -94,7 +112,7 @@ case "${1:-}" in
   chat|engine|dedup|keys|evict|incr|tail|text|scope|turns|summary|when|agents|mcp|pdf|docs|smoke|vllm|serve|all)
     "area_$1" ;;
   *)
-    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
     exit 2 ;;
 esac
 
