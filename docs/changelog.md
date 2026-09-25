@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.10
+## 3.0.0 - 3.0.13
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -37,6 +37,11 @@ the details, and the 2.11 section below lists each step.
   asks for mcp 2.0, the first release with the server class `salt-mcp`
   builds on, and stops below 2.1, which reports every refused tool call
   as a bare error.
+- **3.0.13** `saltServe --vllm-bin` finds the tools of the environment
+  it points at. That environment's bin directory now comes first on the
+  server's PATH, so a vLLM release that builds kernels as it starts finds
+  its own `ninja` instead of failing to launch. Without `--vllm-bin` the
+  server's PATH is unchanged.
 
 ## 2.11.0 - 2.11.123
 

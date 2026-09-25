@@ -102,13 +102,20 @@ def build_cmd(vllm_bin, cfg, host, port, dtype, gpu_mem_util, gpus,
     return cmd + list(extra)
 
 
-def build_env(base_env, gpus):
+def build_env(base_env, gpus, vllm_bin=None):
     """A copy of base_env with the card selection pinned. PCI order makes
-    --gpu N mean the card nvidia-smi (and the capability probe) call N."""
+    --gpu N mean the card nvidia-smi (and the capability probe) call N.
+    A vllm_bin puts its directory, and its symlink target's, first on
+    PATH, so the tools of the environment it comes from are found."""
     env = dict(base_env)
     if gpus:
         env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         env["CUDA_VISIBLE_DEVICES"] = ",".join(gpus)
+    if vllm_bin:
+        head = [os.path.dirname(os.path.abspath(vllm_bin)),
+                os.path.dirname(os.path.realpath(vllm_bin))]
+        rest = env.get("PATH", os.defpath).split(os.pathsep)
+        env["PATH"] = os.pathsep.join(dict.fromkeys(head + rest))
     return env
 
 
@@ -211,7 +218,8 @@ def main(argv=None):
 
     cmd = build_cmd(vllm_bin, cfg, args.host, args.port, served_dtype,
                     gpu_mem_util, gpus, args.max_model_len, extra)
-    env = build_env(os.environ.copy(), gpus)
+    env = build_env(os.environ.copy(), gpus,
+                    vllm_bin if args.vllm_bin else None)
 
     print(f"Serving {cfg['alias']} ({cfg['hf_id']}) at "
           f"http://{args.host}:{args.port} - Ctrl-C stops the server")

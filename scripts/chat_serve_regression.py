@@ -11,42 +11,49 @@ the serve seam end to end:
      cards but 0.90 on one, saltChat resolves the model and BGE devices in
      PCI order, the hf backend shards via device_map, and duplicate indices
      are rejected.
-  3. Launcher refusals: unknown model, bad --vllm-bin, a bad port, and a
+  3. Launch environment (no GPU needed): with --vllm-bin, the bin
+     directory of that binary and of its resolved target lead the
+     server's PATH, so that environment's own tools are found, and
+     without it PATH is left alone.
+  4. Launcher refusals: unknown model, bad --vllm-bin, a bad port, and a
      bad --gpu token fail with actionable messages before anything starts.
-  4. Stub fault injection (a local fake server, no GPU): mid-stream error
+  5. Stub fault injection (a local fake server, no GPU): mid-stream error
      frames surface as errors instead of a silently truncated reply,
      U+2028-class codepoints stream intact, closing the stream severs the
      request server-side, and an over-window prompt sends exactly the
      last budget token ids.
-  5. saltServe boots the server: /v1/models answers under the alias and
+  6. saltServe boots the server: /v1/models answers under the alias and
      carries the context window.
-  6. Client errors: a dead port and a wrong model fail with messages that
+  7. Client errors: a dead port and a wrong model fail with messages that
      name the fix.
-  7. Prompt parity: the serve client's post-truncation token counts match a
+  8. Prompt parity: the serve client's post-truncation token counts match a
      direct local render, including the over-window keep-the-tail path,
      and the server's usage echoes the same count (replies are never
      compared).
-  8. Streaming + abort: pieces arrive incrementally, and closing the
+  9. Streaming + abort: pieces arrive incrementally, and closing the
      stream mid-reply leaves the client and the server healthy.
-  9. APC over the wire: a scripted REPL session records engine_backend
+ 10. APC over the wire: a scripted REPL session records engine_backend
      vllm-serve with real cache hits from turn 2, format v1, additive keys.
- 10. Warm resume: a second REPL process on the same conversation renders
+ 11. Warm resume: a second REPL process on the same conversation renders
      its restored tail (the first prompt grows by at least the tail),
      served mostly from the still-warm cache; tail.json holds the
      alternating exchanges.
- 11. Resume stability: attachment order and the saved tail reload exactly;
+ 12. Resume stability: attachment order and the saved tail reload exactly;
      malformed tail files fall back to the empty-tail behavior.
- 12. The server outlives its clients: after every client exited,
+ 13. The server outlives its clients: after every client exited,
      /v1/models still answers.
 
 Skips with exit 0 when vLLM, a GPU, the qwen05 registry entry, or the
 scratch port is unavailable, so default HF-only environments stay green
-(check 2 is pure and runs regardless).
+(checks 2 and 3 are pure and run regardless).
 Assert-based: refuses to run under python -O.
 """
 
 import argparse
+import contextlib
+import io
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -205,6 +212,51 @@ def check_multi_gpu():
     assert mmem == {0: int(16 * gib * 0.80), 1: int(24 * gib * 0.80)}
 
 
+def check_launch():
+    """main() runs up to a stubbed exec, so the environment the server
+    would get is checked without vllm, a model, or a GPU."""
+    import salt.chat.serve as serve
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = os.path.realpath(tmp)
+        real, link = os.path.join(tmp, "env", "bin"), os.path.join(tmp, "l")
+        os.makedirs(real)
+        os.makedirs(link)
+        exe = os.path.join(real, "vllm")
+        Path(exe).write_text("#!/bin/sh\n")
+        os.chmod(exe, 0o755)
+        os.symlink(exe, os.path.join(link, "vllm"))
+        env = serve.build_env({"PATH": f"/usr/bin:{real}:/bin"}, None, exe)
+        assert env["PATH"] == f"{real}:/usr/bin:/bin", env["PATH"]
+        assert serve.build_env({"PATH": "/a:/b"}, ["0"])["PATH"] == "/a:/b"
+        assert "PATH" not in serve.build_env({}, None)
+
+        seen = {}
+        saved = (serve.resolve_model, serve.compute_capability, os.execvpe,
+                 os.environ.get("PATH"))
+        serve.resolve_model = lambda name: {
+            "alias": "m", "hf_id": "o/m", "path": "/w", "downloaded": True}
+        serve.compute_capability = lambda gpu: 8.0
+        os.execvpe = lambda path, cmd, env: seen.update(cmd=cmd, env=env)
+        first = os.path.join(tmp, "first")
+        os.environ["PATH"] = os.pathsep.join(
+            [first, real, saved[3] or os.defpath])
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                serve.main(["m", "--vllm-bin", os.path.join(link, "vllm")])
+                head = seen["env"]["PATH"].split(os.pathsep)[:3]
+                assert head == [link, real, first], head
+                serve.main(["m"])
+                assert seen["env"]["PATH"] == os.environ["PATH"], (
+                    "PATH changed without --vllm-bin")
+        finally:
+            serve.resolve_model, serve.compute_capability, os.execvpe = \
+                saved[:3]
+            if saved[3] is None:
+                os.environ.pop("PATH", None)
+            else:
+                os.environ["PATH"] = saved[3]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gpu", type=int, default=0, help="CUDA GPU index")
@@ -229,6 +281,11 @@ def main():
           "joined CUDA_VISIBLE_DEVICES, a lone card yields neither, cap "
           "defaults 0.80 across cards, model/BGE resolve in PCI order, "
           "hf shards via device_map, duplicates rejected")
+
+    # 3. the server's environment (pure, GPU-free)
+    check_launch()
+    print("3. launch environment: --vllm-bin's bin directory and its "
+          "resolved target's lead PATH, PATH untouched without it")
 
     try:
         import vllm  # noqa: F401
@@ -270,7 +327,7 @@ def main():
     assert r.returncode != 0 and "--port" in r.stderr, r.stderr
     r = serve_cmd(MODEL_ALIAS, "--gpu", "0,x")
     assert r.returncode != 0 and "--gpu takes GPU indices" in r.stderr, r.stderr
-    print("3. launcher refusals: unknown model, bad --vllm-bin, bad port, "
+    print("4. launcher refusals: unknown model, bad --vllm-bin, bad port, "
           "bad --gpu")
 
     from salt.chat.cli import ChatState, SESSIONS_DIR
@@ -310,7 +367,7 @@ def main():
     assert stub.aborted.wait(10), "closing the stream did not sever it"
     sr.unload()
     stub.shutdown()
-    print("4. stub fault injection: error frames surface, U+2028 streams "
+    print("5. stub fault injection: error frames surface, U+2028 streams "
           "intact, abort severs the request, truncation keeps the tail")
 
     log = tempfile.NamedTemporaryFile(prefix="saltserve-reg-", suffix=".log",
@@ -339,7 +396,7 @@ def main():
         assert card, ("server never became ready; log tail:\n"
                       + Path(log.name).read_text()[-2000:])
         assert card["id"] == MODEL_ALIAS and card.get("max_model_len")
-        print(f"5. saltServe serves {card['id']} "
+        print(f"6. saltServe serves {card['id']} "
               f"(window {card['max_model_len']})")
 
         try:
@@ -355,7 +412,7 @@ def main():
             raise AssertionError("wrong model did not raise")
         except RuntimeError as exc:
             assert MODEL_ALIAS in str(exc) and "other-model" in str(exc), exc
-        print("6. client errors: dead port and wrong model are actionable")
+        print("7. client errors: dead port and wrong model are actionable")
 
         runner = make_runner(cfg, "cuda", "vllm-serve", server_url=url)
         turns = [
@@ -374,7 +431,7 @@ def main():
             assert runner.last_prompt_tokens == expect, \
                 (runner.last_prompt_tokens, expect)
             assert runner.last_engine_stats["apc_prompt_tokens"] == expect
-        print(f"7. prompt parity: local render, truncation to "
+        print(f"8. prompt parity: local render, truncation to "
               f"input_budget, and the server's count all agree ({expect})")
 
         gen = runner.stream_chat(
@@ -387,7 +444,7 @@ def main():
             temperature=0.0, do_sample=False, max_new_tokens=8))
         assert after.strip(), "client dead after aborted stream"
         runner.unload()
-        print("8. streaming + abort: incremental pieces, clean recovery")
+        print("9. streaming + abort: incremental pieces, clean recovery")
 
         cid = "servereg-apc"
         session = SESSIONS_DIR / cid
@@ -402,7 +459,7 @@ def main():
                    for e in ev)
         frac = ev[1]["apc_cached_tokens"] / ev[1]["apc_prompt_tokens"]
         assert frac >= 0.3, f"turn-1 reuse only {frac:.0%}"
-        print(f"9. APC over the wire: turn-1 reuse {frac:.0%}, "
+        print(f"10. APC over the wire: turn-1 reuse {frac:.0%}, "
               f"format v1, additive keys")
 
         tail = json.loads((session / "tail.json").read_text())
@@ -418,7 +475,7 @@ def main():
         assert delta >= 40, f"restored tail added only {delta} tokens"
         rfrac = resumed["apc_cached_tokens"] / resumed["apc_prompt_tokens"]
         assert rfrac >= 0.5, f"warm resume only {rfrac:.0%}"
-        print(f"10. warm resume: restored tail adds {delta} prompt tokens, "
+        print(f"11. warm resume: restored tail adds {delta} prompt tokens, "
               f"{rfrac:.0%} served from the warm cache")
         # kept on assert failure so events.jsonl stays inspectable; the
         # next run's pre-clean removes it
@@ -449,11 +506,11 @@ def main():
             st3.tail, st3.tail_min, st3.tail_max = [], 4, 8
             st3.load_tail()
             assert st3.tail == []
-        print("11. resume stability: attach order and tail reload exactly, "
+        print("12. resume stability: attach order and tail reload exactly, "
               "malformed tail falls back to empty")
 
         assert requests.get(f"{url}/v1/models", timeout=5).status_code == 200
-        print("12. the server outlived every client")
+        print("13. the server outlived every client")
     finally:
         server.terminate()
         try:
