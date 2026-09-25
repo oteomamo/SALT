@@ -102,15 +102,25 @@ PRs that reorder, re-tune, or "clean up" these files will be asked to
 restructure. PRs that add an opt-in seam with the default proven
 unchanged are welcome, and the chat layer adds them regularly.
 
-To prove a default is unchanged, run the eval smoke on `main` and on
-your branch with fixed output dirs and diff the results:
+To prove a default is unchanged, run the eval smoke on `main` into a
+fixed output dir, then on your branch with that dir as the reference:
 
 ```bash
 MAX_SAMPLES=5 RUN_EVAL=0 OUT_DIR=runs/base bash scripts/run_datasets.sh
-MAX_SAMPLES=5 RUN_EVAL=0 OUT_DIR=runs/mine bash scripts/run_datasets.sh
+SMOKE_BASE=runs/base bash scripts/verify.sh smoke
 ```
 
-Timing fields may differ. The compressed text may not.
+Both runs must use the same environment. The numeric libraries are part
+of it: the same code reproduces the smoke byte for byte only on the same
+builds of torch, transformers and numpy, and within one environment
+every file must match exactly.
+
+When the dependencies themselves move, the comparison crosses
+environments. Add `SMOKE_ACROSS=1`: the compressed text, the selected
+sentences and every metadata file must still match. The one field
+allowed to differ is the greedy mode label of a selection whose
+objective and sentences are identical, since a different linear algebra
+library can tip that label on an exact tie.
 
 Everyday feature work does not need any of this: the conversation layer
 (`salt/engine/session_trie.py` and everything under `salt/chat/`) plus

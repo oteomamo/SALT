@@ -78,5 +78,8 @@ plain install stays green.
   dependencies.
 - `run_datasets.sh` compresses the LongBench datasets and can then
   evaluate the compressed outputs.
+- `smoke_compare.py` checks an eval smoke run against a reference run,
+  byte for byte or across environments (`verify.sh smoke` calls it when
+  `SMOKE_BASE` is set).
 - `longbench_categories.py` folds a LongBench result file into the
   standard per-category summary row.

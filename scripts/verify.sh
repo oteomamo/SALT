@@ -7,6 +7,7 @@
 #   bash scripts/verify.sh all      # every CPU suite + eval smoke + docs
 #   SALT_ENV=salt-next bash scripts/verify.sh all    # the same, in another conda env
 #   SALT_PY=/path/to/python bash scripts/verify.sh all  # or under any interpreter
+#   SMOKE_BASE=runs/base bash scripts/verify.sh smoke   # compare with a reference run
 #
 # Areas: chat, engine, dedup, keys, evict, incr, tail, text, scope, turns, summary, when,
 # agents, mcp, pdf, docs, smoke, vllm, serve, all. `all` covers everything that runs on CPU
@@ -16,7 +17,9 @@
 # Suites run under the `salt` conda environment when it exists (they need
 # its dependencies, e.g. pypdf), else under the current python. SALT_ENV
 # names another conda environment and SALT_PY any interpreter, and the
-# smoke run follows the same choice.
+# smoke run follows the same choice. With SMOKE_BASE the smoke output must
+# match that run byte for byte, or under the cross-environment rule with
+# SMOKE_ACROSS=1.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -80,7 +83,12 @@ pdf_suite() {
 }
 
 smoke_suite() {
-  MAX_SAMPLES=5 RUN_EVAL=0 bash scripts/run_datasets.sh
+  local out="$REPO_ROOT/runs/run_$(date +%Y%m%d_%H%M%S)"
+  MAX_SAMPLES=5 RUN_EVAL=0 OUT_DIR="$out" bash scripts/run_datasets.sh || return 1
+  if [ -n "${SMOKE_BASE:-}" ]; then
+    "${PY[@]}" scripts/smoke_compare.py "$SMOKE_BASE" "$out" \
+      ${SMOKE_ACROSS:+--across}
+  fi
 }
 
 area_chat()   { run "chat ingest"     "${PY[@]}" scripts/chat_ingest_regression.py
@@ -112,7 +120,7 @@ case "${1:-}" in
   chat|engine|dedup|keys|evict|incr|tail|text|scope|turns|summary|when|agents|mcp|pdf|docs|smoke|vllm|serve|all)
     "area_$1" ;;
   *)
-    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
     exit 2 ;;
 esac
 
