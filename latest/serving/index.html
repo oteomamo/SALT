@@ -1247,6 +1247,11 @@ serves one model. Anything after <code>--</code> passes to <code>vllm serve</cod
 and <code>--vllm-bin</code> can point at another environment's vllm, so the server
 runs whichever vLLM release fits the hardware while the SALT install
 stays put.</p>
+<p><code>saltServe</code> always asks vLLM for prefix caching, the reuse that keeps
+a long conversation fast. Some vLLM releases leave it off by default
+for hybrid attention models such as Qwen3.5. To turn it off, for
+example while chasing a server error, end the command with
+<code>-- --no-enable-prefix-caching</code>.</p>
 <h2 id="connect-a-chat">Connect a chat</h2>
 <div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen05<span class="w"> </span>--backend<span class="w"> </span>vllm-serve
 </code></pre></div>

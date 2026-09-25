@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3013" class="md-nav__link">
+  <a href="#300-3014" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.13
+        3.0.0 - 3.0.14
       
     </span>
   </a>
@@ -1300,10 +1300,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3013" class="md-nav__link">
+  <a href="#300-3014" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.13
+        3.0.0 - 3.0.14
       
     </span>
   </a>
@@ -1478,7 +1478,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="300-3013">3.0.0 - 3.0.13</h2>
+<h2 id="300-3014">3.0.0 - 3.0.14</h2>
 <p>The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
 grades the reply it wrote against the material it was written from,
@@ -1514,6 +1514,11 @@ the details, and the 2.11 section below lists each step.</p>
   server's PATH, so a vLLM release that builds kernels as it starts finds
   its own <code>ninja</code> instead of failing to launch. Without <code>--vllm-bin</code> the
   server's PATH is unchanged.</li>
+<li><strong>3.0.14</strong> <code>saltServe</code> asks vLLM for prefix caching on every launch.
+  Some vLLM releases leave it off for hybrid attention models such as
+  Qwen3.5, which cost a served chat all of its reuse from one turn to
+  the next. Ending the command with <code>-- --no-enable-prefix-caching</code>
+  still turns it off.</li>
 </ul>
 <h2 id="2110-211123">2.11.0 - 2.11.123</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
