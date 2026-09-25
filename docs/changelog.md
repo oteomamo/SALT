@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.9
+## 3.0.0 - 3.0.10
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -31,6 +31,12 @@ the details, and the 2.11 section below lists each step.
   `--query-identifiers`, `--episode-gap`, `--assistant-weight` and
   `--row-coverage` the way the turn itself does, instead of selecting
   without them.
+- **3.0.10** An install that skips the requirements file stays on
+  releases SALT runs with. pypdf stops below 6.16, with which the PDF
+  reader no longer keeps a numbered algorithm together. The MCP extra
+  asks for mcp 2.0, the first release with the server class `salt-mcp`
+  builds on, and stops below 2.1, which reports every refused tool call
+  as a bare error.
 
 ## 2.11.0 - 2.11.123
 
