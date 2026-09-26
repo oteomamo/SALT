@@ -59,7 +59,7 @@ from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
                              split_document_sentences)
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
-from salt.chat.runner import TEMPLATE_KEY, make_runner
+from salt.chat.runner import TEMPLATE_KEY, make_runner, render_prompt
 from salt.chat import scope as scope_module
 from salt.chat import summary as summary_module
 from salt.chat import when as when_module
@@ -3120,13 +3120,13 @@ THINK_TOGGLE = (" or set gen.chat_template_kwargs "
                 "{\"enable_thinking\": false}")
 
 
-def template_opened(state, runner, off=False):
-    """Whether the template this runner renders with opens a think block
-    in front of the reply, or would with thinking asked off. Asked once
-    per tokenizer and settings."""
+def template_render(state, runner, off=False):
+    """The fixed probe as this runner's template renders it, with
+    thinking asked off when ``off``. Rendered once per tokenizer and
+    settings."""
     tok = getattr(runner, "tokenizer", None)
     if tok is None:
-        return False
+        return None
     kwargs = ((getattr(runner, "cfg", None) or {}).get("gen")
               or {}).get(TEMPLATE_KEY)
     if off:
@@ -3134,11 +3134,18 @@ def template_opened(state, runner, off=False):
     try:
         seen = state.think_opened.setdefault(tok, {})
     except TypeError:
-        return thinking.template_opens(tok, kwargs)
+        seen = {}
     key = json.dumps(kwargs, sort_keys=True, default=str)
     if key not in seen:
-        seen[key] = thinking.template_opens(tok, kwargs)
+        seen[key] = render_prompt(tok, list(thinking.PROBE), kwargs)[0]
     return seen[key]
+
+
+def template_opened(state, runner):
+    """Whether this runner's template opens a think block in front of
+    the reply."""
+    text = template_render(state, runner)
+    return text is not None and thinking.opens_thinking(text)
 
 
 def chat_turn(state, line, reply_fn=None, reply_model_id=None,
@@ -3296,11 +3303,13 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     opened = template_opened(state, source)
     state.last_reply_raw = thinking.reopened(raw) if opened else raw
     reply = protocol.reply_text(state.last_reply_raw)
-    if (opened and not reply and raw.strip() and not interrupted
+    if (source is not None and not reply and raw.strip()
+            and not interrupted
             and thinking.opens_thinking(state.last_reply_raw)):
-        toggle = ("" if template_opened(state, source, off=True)
-                  else THINK_TOGGLE)
-        print(THINK_HINT.format(alias=source.alias, toggle=toggle))
+        switch = (template_render(state, source)
+                  != template_render(state, source, off=True))
+        print(THINK_HINT.format(alias=source.alias,
+                                toggle=THINK_TOGGLE if switch else ""))
     # no drain here (it would put a big paste's leftover encode back on
     # the prompt path): record_turn reads only pre-turn rows, and
     # appends never move them

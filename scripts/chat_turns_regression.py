@@ -102,6 +102,9 @@ ALWAYS_TEMPLATE = CHATML + "<think>\n{% endif %}"
 TOGGLE_TEMPLATE = CHATML + ("{% if enable_thinking is defined and "
                             "enable_thinking is false %}<think>\n\n</think>"
                             "\n\n{% else %}<think>\n{% endif %}{% endif %}")
+SELF_TEMPLATE = CHATML + ("{% if enable_thinking is defined and "
+                          "enable_thinking is false %}<think>\n\n</think>"
+                          "\n\n{% endif %}{% endif %}")
 
 
 class _FakeRunner:
@@ -640,12 +643,25 @@ def check_template_thinking(tmp, tok, mdl, device):
         assert rows[0]["answer"] == capped, rows[0]
         assert [r.get("enable_thinking") for r in renders] == [False, None], renders
         assert state.tail[-1]["content"] == capped, state.tail
+
+        state, rows, said, renders = opened_run(
+            root, tok, mdl, device, SELF_TEMPLATE, [first],
+            ["<think>" + capped], "self_opened")
+        assert rows[0]["answer"] == "" and rows[0]["think"] == capped, rows[0]
+        assert said.count(hint) == 1, said
+        assert [r.get("enable_thinking") for r in renders] == [None, False], (
+            renders)
+        _, rows, said, _ = opened_run(
+            root, tok, mdl, device, PLAIN_TEMPLATE, [first],
+            ["<think>" + capped], "self_opened_plain")
+        assert rows[0]["answer"] == "" and said.count(always) == 1, said
     finally:
         cli.SESSIONS_DIR = sessions
     print("H. template-opened thinking: a <think> in a user line or a memory "
           "excerpt leaves a plain template's answer whole, a template that "
           "opens the block keeps a capped reply out of memory and the tail "
-          "with one hint and its reasoning under think, and the check follows "
+          "with one hint and its reasoning under think, a reply that opened "
+          "the block itself gets the same hint, and the check follows "
           "the entry's template settings, asked once per tokenizer and "
           "settings")
 

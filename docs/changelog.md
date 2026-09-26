@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.27
+## 3.0.0 - 3.0.29
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -114,6 +114,11 @@ the details, and the 2.11 section below lists each step.
   still runs on Volta cards. The vLLM backend now installs through the
   package's extra, `pip install -e ".[vllm]"`. The published results
   page names the previous stack, which produced its numbers.
+- **3.0.29** The note about a reply that ended inside its reasoning also
+  prints when the model opened the reasoning block itself, as the Qwen3
+  family does, instead of the answer vanishing without a word. It
+  suggests turning thinking off only when the model's template has that
+  switch.
 
 ## 2.11.0 - 2.11.123
 
