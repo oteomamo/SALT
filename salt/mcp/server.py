@@ -29,6 +29,7 @@ the tool contract's own number beside the tool list it covers.
 
 import argparse
 import atexit
+import logging
 import os
 import signal
 import sys
@@ -522,6 +523,8 @@ def build_server(engine, pool=None, roster=None,
                                        "answers about conversations and "
                                        "changes none of them."
                                        if read_only else ""))
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     @server.tool(name="salt_compress",
                  description="Compress a text to a fraction of its words, "

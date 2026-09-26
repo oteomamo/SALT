@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.23
+## 3.0.0 - 3.0.24
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -92,6 +92,10 @@ the details, and the 2.11 section below lists each step.
 - **3.0.23** The HF backend names the weights' precision the way the
   installed transformers expects, so transformers 4.56 and later no
   longer print a deprecation notice on every model load.
+- **3.0.24** `salt-mcp` keeps request log lines from the Hugging Face
+  client off its stderr. Newer `huggingface_hub` releases log every file
+  check at startup, which buried the server's own messages. Warnings
+  still show.
 
 ## 2.11.0 - 2.11.123
 

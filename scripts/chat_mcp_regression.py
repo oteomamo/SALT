@@ -894,6 +894,26 @@ def check_off_path():
           "nor the MCP SDK")
 
 
+def check_hub_logging():
+    code = ("import logging; "
+            "from salt.mcp.server import Engine, build_server; "
+            "build_server(Engine('cpu')); "
+            "logging.getLogger('httpx').info('probe-info'); "
+            "logging.getLogger('httpcore').info('probe-info'); "
+            "logging.getLogger('httpx').warning('probe-warn')")
+    env = dict(os.environ)
+    env.pop("MKL_THREADING_LAYER", None)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, cwd=REPO, env=env)
+    assert out.returncode == 0, out.stderr[-400:]
+    assert "probe-info" not in out.stderr, (
+        f"hub request logging reaches the server's stderr: "
+        f"{out.stderr[-400:]}")
+    assert "probe-warn" in out.stderr, out.stderr[-400:]
+    print("16. hub logging: request lines from the Hub's HTTP client stay "
+          "off the server's stderr, its warnings still show")
+
+
 TALK = [("user", "The house has 9 kW of solar panels and a 5 kW inverter."),
         ("assistant", "In December the panels produce almost nothing, so "
                       "the battery carries the evening on its own."),
@@ -1113,6 +1133,7 @@ def main():
         check_scenario(sessions)
         check_serial_and_sync(sessions)
         asyncio.run(drive_doc_root(sessions))
+        check_hub_logging()
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
     print("PASS")
