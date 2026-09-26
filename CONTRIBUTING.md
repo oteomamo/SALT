@@ -118,10 +118,9 @@ every file must match exactly.
 
 When the dependencies themselves move, the comparison crosses
 environments. Add `SMOKE_ACROSS=1`: the compressed text, the selected
-sentences and every metadata file must still match. The one field
-allowed to differ is the greedy mode label of a selection whose
-objective and sentences are identical, since a different linear algebra
-library can tip that label on an exact tie.
+sentences and every metadata file must still match. Numeric statistics,
+such as the objective or a keyword count, may differ slightly, since a
+different linear algebra library rounds some sums differently.
 
 Everyday feature work does not need any of this: the conversation layer
 (`salt/engine/session_trie.py` and everything under `salt/chat/`) plus

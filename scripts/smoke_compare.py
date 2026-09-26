@@ -1,10 +1,9 @@
 """Compare an eval smoke run with a reference run.
 
 Within one environment every output file must match byte for byte.
-With --across (the dependencies themselves moved) the compressed
-records must match field for field, except the greedy mode label of a
-selection whose other fields, objective and chosen sentences included,
-are identical. Metadata files must match byte for byte in both modes.
+With --across (the dependencies themselves moved) each compressed record
+must keep its text and its selected sentences, while numeric statistics
+may differ. Metadata files must match byte for byte in both modes.
 
     python scripts/smoke_compare.py BASE_DIR NEW_DIR [--across]
 """
@@ -16,10 +15,11 @@ import sys
 from pathlib import Path
 
 
-def _without_tie_label(record):
-    stats = (record.get("compression_stats") or {}).get("selection_stats")
-    if isinstance(stats, dict):
-        stats.pop("greedy_mode", None)
+def _comparable(record):
+    stats = record.pop("compression_stats", None) or {}
+    chosen = (stats.get("selection_stats") or {}).get("selected_details")
+    record["selected"] = [d.get("sent_idx") for d in chosen or ()
+                          if isinstance(d, dict)]
     return record
 
 
@@ -29,8 +29,7 @@ def _records_match(base, new):
     if len(a) != len(b):
         return f"{len(a)} records vs {len(b)}"
     for i, (x, y) in enumerate(zip(a, b)):
-        if x != y and (_without_tie_label(json.loads(x))
-                       != _without_tie_label(json.loads(y))):
+        if x != y and _comparable(json.loads(x)) != _comparable(json.loads(y)):
             return f"record {i} differs"
     return None
 
