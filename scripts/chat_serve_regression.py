@@ -13,10 +13,13 @@ the serve seam end to end:
      are rejected.
   3. Launch command and environment (no GPU needed): saltServe asks for
      prefix caching before the passthrough, so a passed
-     --no-enable-prefix-caching comes last and wins. With --vllm-bin, the
-     bin directory of that binary and of its resolved target lead the
-     server's PATH, so that environment's own tools are found, and
-     without it PATH is left alone.
+     --no-enable-prefix-caching comes last and wins. A model whose
+     tokenizer the loader had to correct gets --tokenizer with the
+     corrected directory, also before the passthrough, and every other
+     model's command is unchanged. Importing saltServe pulls no
+     transformers. With --vllm-bin, the bin directory of that binary and
+     of its resolved target lead the server's PATH, so that environment's
+     own tools are found, and without it PATH is left alone.
   4. Launcher refusals: unknown model, bad --vllm-bin, a bad port, and a
      bad --gpu token fail with actionable messages before anything starts.
   5. Stub fault injection (a local fake server, no GPU): mid-stream error
@@ -239,14 +242,23 @@ def check_launch():
                                 ["0", "1"], 4096, ["--trust-remote-code"])
         assert (multi.index("--enable-prefix-caching")
                 < multi.index("--trust-remote-code")), multi
+        assert "--tokenizer" not in multi
+        tok = serve.build_cmd("vllm", fake, "h", 1, "bfloat16", 0.8,
+                              ["0", "1"], 4096, ["--trust-remote-code"], "/t")
+        at = tok.index("--tokenizer")
+        assert tok[:at] + tok[at + 2:] == multi and tok[at + 1] == "/t", tok
+        assert at < tok.index("--trust-remote-code"), tok
 
         seen = {}
+        import salt.chat.tokload as tokload
         saved = (serve.resolve_model, serve.compute_capability, os.execvpe,
-                 os.environ.get("PATH"))
+                 os.environ.get("PATH"), tokload.engine_tokenizer)
         serve.resolve_model = lambda name: {
             "alias": "m", "hf_id": "o/m", "path": "/w", "downloaded": True}
         serve.compute_capability = lambda gpu: 8.0
         os.execvpe = lambda path, cmd, env: seen.update(cmd=cmd, env=env)
+        engine = {"/w": None}
+        tokload.engine_tokenizer = lambda path: engine[path]
         first = os.path.join(tmp, "first")
         os.environ["PATH"] = os.pathsep.join(
             [first, real, saved[3] or os.defpath])
@@ -261,13 +273,30 @@ def check_launch():
                 assert "--enable-prefix-caching" in seen["cmd"]
                 assert seen["cmd"][-1] == "--no-enable-prefix-caching", (
                     seen["cmd"])
+                assert "--tokenizer" not in seen["cmd"], seen["cmd"]
+                plain = seen["cmd"]
+                engine["/w"] = "/fixed"
+                serve.main(["m", "--", "--no-enable-prefix-caching"])
+                at = seen["cmd"].index("--tokenizer")
+                assert seen["cmd"][at + 1] == "/fixed", seen["cmd"]
+                assert seen["cmd"][:at] + seen["cmd"][at + 2:] == plain
+                serve.main(["m", "--", "--tokenizer", "/mine"])
+                assert seen["cmd"][-2:] == ["--tokenizer", "/mine"], (
+                    seen["cmd"])
+                assert seen["cmd"].index("--tokenizer") < len(seen["cmd"]) - 2
         finally:
             serve.resolve_model, serve.compute_capability, os.execvpe = \
                 saved[:3]
+            tokload.engine_tokenizer = saved[4]
             if saved[3] is None:
                 os.environ.pop("PATH", None)
             else:
                 os.environ["PATH"] = saved[3]
+    probe = subprocess.run(
+        [sys.executable, "-c",
+         "import sys, salt.chat.serve; "
+         "sys.exit(1 if 'transformers' in sys.modules else 0)"])
+    assert probe.returncode == 0, "importing saltServe pulled transformers"
 
 
 def main():
@@ -297,9 +326,10 @@ def main():
 
     # 3. the server's command and environment (pure, GPU-free)
     check_launch()
-    print("3. launch: prefix caching asked for before the passthrough, "
-          "--vllm-bin's bin directory and its resolved target's lead PATH, "
-          "PATH untouched without it")
+    print("3. launch: prefix caching and a corrected tokenizer asked for "
+          "before the passthrough, the command unchanged when no tokenizer "
+          "needs correcting, --vllm-bin's bin directory and its resolved "
+          "target's lead PATH, PATH untouched without it")
 
     try:
         import vllm  # noqa: F401

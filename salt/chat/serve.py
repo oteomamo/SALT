@@ -84,11 +84,12 @@ def probe_gpu(gpus):
 
 
 def build_cmd(vllm_bin, cfg, host, port, dtype, gpu_mem_util, gpus,
-              max_model_len, extra):
+              max_model_len, extra, tokenizer=None):
     """The ``vllm serve`` argv. Several cards add --tensor-parallel-size so
     vLLM shards the weights across them; one card adds nothing (the flag
-    defaults to 1). Everything in ``extra`` is appended unchanged, after
-    --enable-prefix-caching, so a passed --no-enable-prefix-caching wins."""
+    defaults to 1). A tokenizer directory adds --tokenizer. Everything in
+    ``extra`` is appended unchanged, after --enable-prefix-caching, so a
+    passed --no-enable-prefix-caching or --tokenizer wins."""
     cmd = [vllm_bin, "serve", cfg["path"],
            "--served-model-name", cfg["alias"],
            "--enable-prompt-tokens-details",
@@ -100,6 +101,8 @@ def build_cmd(vllm_bin, cfg, host, port, dtype, gpu_mem_util, gpus,
         cmd += ["--tensor-parallel-size", str(len(gpus))]
     if max_model_len:
         cmd += ["--max-model-len", str(max_model_len)]
+    if tokenizer:
+        cmd += ["--tokenizer", tokenizer]
     return cmd + ["--enable-prefix-caching"] + list(extra)
 
 
@@ -217,8 +220,10 @@ def main(argv=None):
         print("note: could not detect the GPU's compute capability - if "
               "the server rejects bfloat16, add: -- --dtype float16")
 
+    from salt.chat.tokload import engine_tokenizer
     cmd = build_cmd(vllm_bin, cfg, args.host, args.port, served_dtype,
-                    gpu_mem_util, gpus, args.max_model_len, extra)
+                    gpu_mem_util, gpus, args.max_model_len, extra,
+                    engine_tokenizer(cfg["path"]))
     env = build_env(os.environ.copy(), gpus,
                     vllm_bin if args.vllm_bin else None)
 

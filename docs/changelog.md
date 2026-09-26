@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.24
+## 3.0.0 - 3.0.25
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -96,6 +96,13 @@ the details, and the 2.11 section below lists each step.
   client off its stderr. Newer `huggingface_hub` releases log every file
   check at startup, which buried the server's own messages. Warnings
   still show.
+- **3.0.25** The vLLM backends show a reply the way the model wrote it.
+  When saltChat's tokenizer loader has to replace the tokenizer the
+  installed transformers builds, the in-process engine and `saltServe`
+  now get the corrected one too, so a model such as
+  DeepSeek-R1-Distill-Llama-8B no longer answers with `Ġ` in place of
+  every space under transformers 5. Models whose tokenizer loads
+  faithfully start with the same engine settings as before.
 
 ## 2.11.0 - 2.11.123
 

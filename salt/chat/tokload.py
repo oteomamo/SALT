@@ -1,8 +1,19 @@
 # -*- coding: utf-8 -*-
 """The one tokenizer loader every chat runner uses."""
 
+import hashlib
 import json
 import os
+import shutil
+import tempfile
+
+CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME")
+                         or os.path.expanduser("~/.cache"), "salt",
+                         "tokenizers")
+ENGINE_FILES = ("tokenizer.json", "tokenizer.model", "special_tokens_map.json",
+                "added_tokens.json", "chat_template.jinja",
+                "chat_template.json", "additional_chat_templates",
+                "vocab.json", "merges.txt")
 
 PROBE = [
     {"role": "system",
@@ -39,9 +50,9 @@ def faithful(tok, spec):
         return False
 
 
-def _config(path):
+def _config(path, name="tokenizer_config.json"):
     try:
-        with open(os.path.join(path, "tokenizer_config.json")) as fh:
+        with open(os.path.join(path, name)) as fh:
             return json.load(fh)
     except (OSError, ValueError):
         return {}
@@ -108,3 +119,65 @@ def load_tokenizer(path):
               f"tokenizer.json, so prompts may not reach the model exactly "
               f"as written")
     return tok
+
+
+def _engine_dir(path):
+    from salt.chat.registry import MODELS_DIR
+    if os.path.basename(path) == "weights" and \
+            os.path.dirname(os.path.dirname(path)) == str(MODELS_DIR):
+        return os.path.join(os.path.dirname(path), "tokenizer")
+    digest = hashlib.sha1(os.path.realpath(path).encode()).hexdigest()[:16]
+    return os.path.join(CACHE_DIR, digest)
+
+
+def _written(out):
+    try:
+        links = {n: os.readlink(os.path.join(out, n))
+                 for n in os.listdir(out) if n != "tokenizer_config.json"}
+        with open(os.path.join(out, "tokenizer_config.json")) as fh:
+            return fh.read(), links
+    except OSError:
+        return None
+
+
+def _own_code(path):
+    return bool(_config(path).get("auto_map")) or "AutoTokenizer" in (
+        _config(path, "config.json").get("auto_map") or {})
+
+
+def engine_tokenizer(path):
+    """A tokenizer directory for the vLLM engine, None to keep the model's."""
+    try:
+        if _own_code(path):
+            return None
+        reason = resolve_tokenizer(path)[1]
+    except Exception:
+        return None
+    if reason in (None, "unfaithful"):
+        return None
+    path = os.path.abspath(path)
+    config = _config(path)
+    config["tokenizer_class"] = "PreTrainedTokenizerFast"
+    if isinstance(config.get("extra_special_tokens"), list):
+        del config["extra_special_tokens"]
+    text = json.dumps(config, indent=2) + "\n"
+    links = {n: os.path.join(path, n) for n in ENGINE_FILES
+             if os.path.exists(os.path.join(path, n))}
+    want = (text, links)
+    out = _engine_dir(path)
+    if _written(out) == want:
+        return out
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix=".tokenizer-", dir=os.path.dirname(out))
+    for name, target in links.items():
+        os.symlink(target, os.path.join(tmp, name))
+    with open(os.path.join(tmp, "tokenizer_config.json"), "w") as fh:
+        fh.write(text)
+    shutil.rmtree(out, ignore_errors=True)
+    try:
+        os.rename(tmp, out)
+    except OSError:
+        shutil.rmtree(tmp, ignore_errors=True)
+        if _written(out) != want:
+            raise
+    return out

@@ -20,7 +20,7 @@ from transformers import AutoConfig
 
 from salt.chat.runner import (_model_input_limit, input_budget_for,
                               render_prompt, TEMPLATE_KEY)
-from salt.chat.tokload import load_tokenizer
+from salt.chat.tokload import engine_tokenizer, load_tokenizer
 
 
 class VLLMChatRunner:
@@ -46,6 +46,7 @@ class VLLMChatRunner:
               f"[vLLM, {cfg.get('dtype', 'bfloat16')}, prefix caching "
               f"on{note}]")
         self.tokenizer = load_tokenizer(cfg["path"])
+        engine_tok = engine_tokenizer(cfg["path"]) or cfg["path"]
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(target=self._loop.run_forever,
                                              daemon=True)
@@ -65,7 +66,7 @@ class VLLMChatRunner:
         mutated = bool(gpus) or ":" in device
         try:
             self.engine = AsyncLLM.from_engine_args(AsyncEngineArgs(
-                model=cfg["path"], tokenizer=cfg["path"],
+                model=cfg["path"], tokenizer=engine_tok,
                 dtype=cfg.get("dtype", "bfloat16"),
                 tensor_parallel_size=tp,
                 gpu_memory_utilization=gpu_memory_utilization,

@@ -6,6 +6,7 @@ Chat models registered for `saltChat` live here, one directory per model:
 salt/models/<alias>/
   config.json   loading + generation settings
   weights       symlink to the snapshot in your HuggingFace cache
+  tokenizer     only when needed, see below
 ```
 
 Weights are never copied: registering downloads through
@@ -25,6 +26,11 @@ saltChat --list
 Before the download, `--add` fetches the model's own `config.json` and
 prints a warning when this environment cannot load that model, then
 registers it anyway.
+
+When the installed transformers builds a model's tokenizer differently
+from the model's own `tokenizer.json`, saltChat writes a `tokenizer`
+folder into the entry that hands vLLM that file instead. Removing the
+entry removes the folder too.
 
 `config.json` schema:
 

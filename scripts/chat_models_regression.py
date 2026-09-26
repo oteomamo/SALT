@@ -9,12 +9,20 @@ CPU only, no model weights. Asserts:
      extra special tokens written as a list, the TokenizersBackend class,
      and a Llama label over a byte-level tokenizer. A tokenizer it
      substitutes hands the model input ids and an attention mask only.
-  2. Every registered model's tokenizer stays faithful to its
-     tokenizer.json, with any fallback named (SKIP when none is registered).
-  3. The HF runner also stops at the tokenizer's end token: generate gets
+  2. The vLLM engine's tokenizer, on the same fixtures: none for a
+     tokenizer the loader keeps or cannot make faithful, or one that
+     ships its own code, otherwise a directory outside the snapshot whose
+     config names PreTrainedTokenizerFast and which encodes and decodes
+     as tokenizer.json does. It lives in the registry entry for a
+     registered model, is kept while current and rebuilt when stale.
+  3. Every registered model's tokenizer stays faithful to its
+     tokenizer.json, with any fallback named, and the vLLM engine gets a
+     corrected tokenizer exactly when the loader fell back (SKIP when none
+     is registered).
+  4. The HF runner also stops at the tokenizer's end token: generate gets
      the union of the model's stop ids and the tokenizer's only when the
      tokenizer's id is missing, and nothing extra when they agree.
-  4. The HF runner names the dtype the way the installed transformers
+  5. The HF runner names the dtype the way the installed transformers
      reads it: torch_dtype before 4.56, dtype from 4.56 on.
 
 Usage:
@@ -24,6 +32,8 @@ Usage:
 import contextlib
 import io
 import json
+import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -41,11 +51,11 @@ from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
 from salt.chat import runner as runner_mod
-from salt.chat import tokload
+from salt.chat import registry, tokload
 from salt.chat.registry import list_models
 from salt.chat.runner import ChatRunner, dtype_keyword, eos_union
-from salt.chat.tokload import (PROBE, faithful, load_tokenizer,
-                               resolve_tokenizer)
+from salt.chat.tokload import (PROBE, engine_tokenizer, faithful,
+                               load_tokenizer, resolve_tokenizer)
 
 transformers.logging.set_verbosity_error()
 
@@ -67,6 +77,9 @@ FIXTURES = {
               "add_bos_token": True},
 }
 WARNING = "does not reproduce its tokenizer.json"
+AUTO_MAP = {"AutoTokenizer": [None, "tokenization_custom.CustomTokenizerFast"]}
+CUSTOM = ("from transformers import PreTrainedTokenizerFast\n\n\n"
+          "class CustomTokenizerFast(PreTrainedTokenizerFast):\n    pass\n")
 
 
 def byte_level_bpe():
@@ -143,23 +156,110 @@ def check_warns_once(path):
     assert out.getvalue().count(WARNING) == 1, out.getvalue()
 
 
+def snapshot(path):
+    return {n: Path(path, n).read_bytes() for n in sorted(os.listdir(path))}
+
+
+def check_engine_dir(out, spec):
+    config = json.loads(Path(out, "tokenizer_config.json").read_text())
+    assert config["tokenizer_class"] == "PreTrainedTokenizerFast", config
+    assert not isinstance(config.get("extra_special_tokens"), list), config
+    tok = AutoTokenizer.from_pretrained(out)
+    assert faithful(tok, spec), f"{out}: the engine tokenizer is unfaithful"
+    ids = spec.encode(PROBE[2]["content"], add_special_tokens=False).ids
+    assert (tok.decode(ids, clean_up_tokenization_spaces=False)
+            == spec.decode(ids)), tok.decode(ids)
+
+
+def own_code(root, source):
+    for name, where in (("code", "tokenizer_config.json"),
+                        ("code-config", "config.json")):
+        path = root / name
+        shutil.copytree(source, path)
+        (path / "tokenization_custom.py").write_text(CUSTOM)
+        config = {"auto_map": AUTO_MAP}
+        if where == "tokenizer_config.json":
+            config = {**json.loads((path / where).read_text()), **config,
+                      "tokenizer_class": "CustomTokenizerFast"}
+        (path / where).write_text(json.dumps(config))
+        yield str(path)
+
+
+def check_engine(root, spec):
+    kept = (tokload.CACHE_DIR, registry.MODELS_DIR, tokload.faithful,
+            tokload.resolve_tokenizer)
+    tokload.CACHE_DIR = str(root / "cache")
+    registry.MODELS_DIR = root / "models"
+    needed = []
+    try:
+        for name in FIXTURES:
+            path = str(root / name)
+            before = snapshot(path)
+            out = engine_tokenizer(path)
+            assert snapshot(path) == before, f"{name}: the snapshot changed"
+            if resolve_tokenizer(path)[1] is None:
+                assert out is None, (name, out)
+                continue
+            needed.append(name)
+            assert out.startswith(tokload.CACHE_DIR + os.sep), out
+            check_engine_dir(out, spec)
+            inode = os.stat(out).st_ino
+            assert engine_tokenizer(path) == out
+            assert os.stat(out).st_ino == inode, (
+                f"{name}: rebuilt while current")
+            Path(out, "tokenizer_config.json").write_text("{}")
+            assert engine_tokenizer(path) == out
+            check_engine_dir(out, spec)
+        assert needed, "no fixture needed an engine tokenizer"
+        source = root / needed[0]
+        before = snapshot(source)
+        entry = root / "models" / "zz"
+        entry.mkdir(parents=True)
+        os.symlink(source, entry / "weights")
+        out = engine_tokenizer(str(entry / "weights"))
+        assert out == str(entry / "tokenizer"), out
+        check_engine_dir(out, spec)
+        assert snapshot(source) == before
+        assert engine_tokenizer(str(root / "missing")) is None
+        calls = []
+        tokload.resolve_tokenizer = lambda path: (
+            calls.append(path) or (None, "AutoTokenizer failed (stub)"))
+        cached = sorted(os.listdir(tokload.CACHE_DIR))
+        for path in own_code(root, source):
+            assert engine_tokenizer(path) is None, path
+        assert not calls and sorted(os.listdir(tokload.CACHE_DIR)) == cached
+        assert engine_tokenizer(str(source)) and calls == [str(source)]
+        tokload.resolve_tokenizer = kept[3]
+        tokload.faithful = lambda tok, spec: False
+        assert engine_tokenizer(str(source)) is None
+    finally:
+        (tokload.CACHE_DIR, registry.MODELS_DIR, tokload.faithful,
+         tokload.resolve_tokenizer) = kept
+    return needed
+
+
 def check_fixtures():
     spec = byte_level_bpe()
     with tempfile.TemporaryDirectory() as tmp:
         for name in FIXTURES:
             check_fixture(build(Path(tmp), name, spec), name, spec)
         check_warns_once(str(Path(tmp) / "plain"))
+        needed = check_engine(Path(tmp), spec)
     print(f"1. fixtures: {len(FIXTURES)} tokenizers faithful under "
           f"transformers {transformers.__version__}, an unfaithful one "
           f"warns once")
+    print(f"2. engine tokenizer: none for a kept or unfaithful tokenizer or "
+          f"one that ships its own code, a corrected directory for "
+          f"{', '.join(needed)}, in the registry entry when registered, the "
+          f"snapshot untouched, rebuilt when stale")
 
 
 def check_registered():
     entries = [m for m in list_models() if m.get("downloaded")]
     if not entries:
-        print("2. registered models: SKIP (none registered)")
+        print("3. registered models: SKIP (none registered)")
         return
-    bad = []
+    bad, engines = [], 0
     for m in entries:
         path = Path(m["path"])
         try:
@@ -167,17 +267,26 @@ def check_registered():
         except Exception as exc:
             raise AssertionError(f"{m['alias']}: the tokenizer does not "
                                  f"load: {type(exc).__name__}: {exc}")
+        engine = engine_tokenizer(str(path))
+        assert (engine is None) == (reason in (None, "unfaithful")), (
+            m["alias"], reason, engine)
         if not (path / "tokenizer.json").is_file():
             print(f"  {m['alias']}: {type(tok).__name__}, no tokenizer.json")
             continue
-        ok = faithful(tok, Tokenizer.from_file(str(path / "tokenizer.json")))
+        spec = Tokenizer.from_file(str(path / "tokenizer.json"))
+        ok = faithful(tok, spec)
         if not ok:
             bad.append(m["alias"])
+        if engine:
+            check_engine_dir(engine, spec)
+            engines += 1
         print(f"  {m['alias']}: {type(tok).__name__}"
               + (f", fallback: {reason}" if reason else "")
-              + ("" if ok else ", UNFAITHFUL"))
+              + ("" if ok else ", UNFAITHFUL")
+              + (f", vLLM gets {engine}" if engine else ""))
     assert not bad, f"tokenizers unfaithful to tokenizer.json: {bad}"
-    print(f"2. registered models: {len(entries)} tokenizers faithful")
+    print(f"3. registered models: {len(entries)} tokenizers faithful, "
+          f"{engines} handed to vLLM corrected")
 
 
 class StubModel:
@@ -221,7 +330,7 @@ def check_eos():
     assert generate_kwargs(tok, None).get("eos_token_id") == [end]
     for own in ([end, other], end, [other, end]):
         assert "eos_token_id" not in generate_kwargs(tok, own), own
-    print("3. stop ids: the tokenizer's end token joins the model's own "
+    print("4. stop ids: the tokenizer's end token joins the model's own "
           "only when missing, and a model that has it passes nothing new")
 
 
@@ -258,7 +367,7 @@ def check_dtype():
     other = {"dtype": "torch_dtype", "torch_dtype": "dtype"}[want]
     assert StubLoader.seen.get(want) is torch.float16, StubLoader.seen
     assert other not in StubLoader.seen, StubLoader.seen
-    print(f"4. dtype: torch_dtype below transformers 4.56, dtype from it, "
+    print(f"5. dtype: torch_dtype below transformers 4.56, dtype from it, "
           f"and this {transformers.__version__} load passes {want}")
 
 
