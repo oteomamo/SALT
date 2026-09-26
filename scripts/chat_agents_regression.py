@@ -1646,12 +1646,22 @@ def check_offload_command(tmp, tok, mdl):
                            flags=("--offload-ingest",))
     try:
         before, tail_before = trie_snapshot(state.trie), list(state.tail)
-        timer = threading.Timer(1.0, _thread.interrupt_main)
-        timer.start()
+        done = threading.Event()
+
+        def interrupt_mid_reply():
+            while ((slow.httpd.last_payload or {}).get("stream") is not True
+                   and not done.wait(0.02)):
+                pass
+            if not done.wait(1.0):
+                _thread.interrupt_main()
+
+        watcher = threading.Thread(target=interrupt_mid_reply, daemon=True)
+        watcher.start()
         try:
             out = offload_line(state, "talk for a long time")
         finally:
-            timer.cancel()
+            done.set()
+            watcher.join()
         assert "[w] aborted," in out, (
             f"an interrupted delegation was not reported as one: {out}")
         assert "t0 t1 " in out, (
