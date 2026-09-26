@@ -1601,7 +1601,8 @@ cache into <code>salt/models/</code>, never copied (see
 <div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen05<span class="w"> </span>--conversation-id<span class="w"> </span>demo1<span class="w"> </span>--doc<span class="w"> </span>report.txt
 </code></pre></div>
 <p>The default backend runs the model through HF transformers and works
-anywhere. <code>--backend vllm</code> serves the same registered weights through an
+on any machine, for any model type the installed transformers knows.
+<code>--backend vllm</code> serves the same registered weights through an
 in-process vLLM engine with automatic prefix caching, so the stable prompt
 head and tail are reused from the GPU KV cache instead of being re-prefilled
 every turn (install vLLM first, see
@@ -1612,6 +1613,9 @@ every turn (install vLLM first, see
 on either backend, with the encoder riding the last card. Memory
 shares, window caps and device flags are on the <a href="../options/">Options</a>
 page.</p>
+<p>When a model cannot load, the start ends with one line naming the
+error, plus a hint line when the model's config shows the cause, and
+leaves no empty session behind.</p>
 <h2 id="persistent-serving">Persistent serving</h2>
 <p>The backends above load the model inside the saltChat process, so the
 model and its cache disappear on exit. <code>saltServe</code> keeps them alive as
