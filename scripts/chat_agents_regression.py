@@ -9511,6 +9511,96 @@ def check_piece_switches(tmp, tok, mdl):
           "defaults")
 
 
+def check_stub_spellings():
+    """The stub worker binds, ignores or refuses each schema spelling,
+    and answers a request that asks for no stream in one body."""
+    import requests
+    import _agent_stub as AS
+
+    one = {"guided_json": {"enum": ["salt-ok"]},
+           "guided_choice": ["salt-ok"],
+           "guided_regex": "salt-ok",
+           "guided_grammar": 'root ::= "salt-ok"',
+           "structured_outputs": {"json": {"enum": ["salt-ok"]}}}
+    bound = {"guided_json": '"salt-ok"', "guided_choice": "salt-ok",
+             "structured_outputs": '"salt-ok"'}
+    assert set(one) == set(AS.SPELLINGS)
+
+    def ask(stub, stream=False, prompt="{", **extra):
+        body = {"model": "some/model", "prompt": prompt, "max_tokens": 16,
+                **extra}
+        if stream is not None:
+            body["stream"] = stream
+        return requests.post(f"{stub.url}/v1/completions", json=body,
+                             timeout=5)
+
+    def streamed(resp):
+        assert resp.headers["Content-Type"] == "text/event-stream", resp
+        return "".join(json.loads(f[6:])["choices"][0]["text"]
+                       for f in resp.text.split("\n\n")
+                       if f.startswith("data: {"))
+
+    def whole(resp):
+        assert resp.headers["Content-Type"] == "application/json", resp
+        return resp.json()["choices"][0]["text"]
+
+    with Stub(cards=CARDS) as s:
+        assert s.httpd.modes == dict(
+            dict.fromkeys(AS.SPELLINGS, AS.IGNORE),
+            structured_outputs=AS.REFUSE), s.httpd.modes
+        for spelling in ("guided_json", "guided_choice", "guided_regex",
+                         "guided_grammar"):
+            r = ask(s, stream=None, **{spelling: one[spelling]})
+            assert r.status_code == 200 and streamed(r) == "hello", (
+                spelling, r.text)
+        r = ask(s, stream=None, structured_outputs=one["structured_outputs"])
+        assert r.status_code == 400 and "structured_outputs" in r.text, r.text
+        r = ask(s, stream=True)
+        assert streamed(r) == "hello", r.text
+        r = ask(s)
+        assert r.status_code == 200 and whole(r) == "hello", r.text
+        assert r.json()["choices"][0]["finish_reason"] == "stop", r.text
+    with Stub(cards=CARDS, guided=False, structured=True) as s:
+        r = ask(s, guided_json=one["guided_json"])
+        assert r.status_code == 400 and "guided_json" in r.text, r.text
+        r = ask(s, structured_outputs=one["structured_outputs"])
+        assert whole(r) == "hello", r.text
+
+    for spelling, value in one.items():
+        canned = CannedReplies(["scripted"])
+        with Stub(cards=CARDS, canned=canned,
+                  spellings={spelling: AS.HONOR}) as s:
+            want = bound.get(spelling, "scripted")
+            assert whole(ask(s, **{spelling: value})) == want, spelling
+            assert canned.n_asked == (spelling not in bound), (
+                f"a reply bound by {spelling} took a canned answer")
+            assert streamed(ask(s, stream=True, **{spelling: value})) == \
+                want, spelling
+        with Stub(cards=CARDS, spellings={spelling: AS.REFUSE}) as s:
+            r = ask(s, **{spelling: value})
+            assert r.status_code == 400 and spelling in r.text, r.text
+            assert whole(ask(s)) == "hello"
+        with Stub(cards=CARDS, spellings={spelling: AS.IGNORE}) as s:
+            assert whole(ask(s, **{spelling: value})) == "hello", spelling
+
+    with Stub(cards=CARDS, guided=AS.HONOR, structured=AS.HONOR) as s:
+        assert whole(ask(s, structured_outputs={
+            "choice": ["salt-ok"]})) == "salt-ok"
+        for loose in ({"enum": ["a", "b"]}, {"type": "object"}):
+            assert whole(ask(s, guided_json=loose)) == "hello", loose
+    with Stub(cards=CARDS, usage=True) as s:
+        first = ask(s, prompt=[1, 2, 3]).json()["usage"]
+        again = ask(s, prompt=[1, 2, 3, 4]).json()["usage"]
+        assert (first["prompt_tokens"], again["prompt_tokens"]) == (3, 4)
+        assert (first["prompt_tokens_details"]["cached_tokens"],
+                again["prompt_tokens_details"]["cached_tokens"]) == (0, 3)
+    print("89. the stub's schema spellings: each one bound to its single "
+          "reply without taking a canned answer, ignored with the "
+          "scripted text or refused by name, the defaults still ignoring "
+          "guided_json and refusing structured_outputs, and a request "
+          "for no stream answered in one body")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9611,6 +9701,7 @@ def main():
         check_structured_probe(tok_path)
         check_switch_values(tmp, tok, mdl)
         check_piece_switches(tmp, tok, mdl)
+        check_stub_spellings()
         print("PASS")
     finally:
         if not args.keep:

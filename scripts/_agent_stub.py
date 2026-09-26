@@ -27,6 +27,34 @@ if str(REPO) not in sys.path:
 
 from salt.agents.worker import HOST                              # noqa: E402
 
+SPELLINGS = ("guided_json", "guided_choice", "guided_regex", "guided_grammar",
+             "structured_outputs")
+HONOR, IGNORE, REFUSE = "honor", "ignore", "refuse"
+
+
+def _mode(value):
+    mode = {True: IGNORE, False: REFUSE}.get(value, value)
+    if mode not in (HONOR, IGNORE, REFUSE):
+        raise ValueError(f"unknown stub mode {value!r}")
+    return mode
+
+
+def _held(spelling, value):
+    """The one reply a spelling allows, or None when it allows more."""
+    if spelling == "structured_outputs":
+        value = value if isinstance(value, dict) else {}
+        if "json" in value:
+            return _held("guided_json", value["json"])
+        return _held("guided_choice", value.get("choice"))
+    if spelling == "guided_json" and isinstance(value, dict):
+        one = value.get("enum")
+        if isinstance(one, list) and len(one) == 1:
+            return json.dumps(one[0])
+    if spelling == "guided_choice" and isinstance(value, list) \
+            and len(value) == 1:
+        return str(value[0])
+    return None
+
 
 class CannedReplies:
     """Scripted answers handed out by which prompt asked for them.
@@ -108,12 +136,42 @@ class _StubHandler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _pieces(self):
-        """What this request gets back: the scripted stream, or the one
-        answer this exact prompt was canned to receive."""
+        """What this request gets back: the one reply an honored spelling
+        allows, the scripted stream, or the one answer this exact prompt
+        was canned to receive."""
+        payload = self.server.last_payload
+        for spelling in SPELLINGS:
+            if spelling in payload and self.server.modes[spelling] == HONOR:
+                held = _held(spelling, payload[spelling])
+                if held is not None:
+                    return [held]
         canned = getattr(self.server, "canned", None)
         if canned is None:
             return list(self.server.pieces or ())
         return [canned.answer(self.server.last_payload.get("prompt"))]
+
+    def _completion(self, pieces):
+        """The whole reply as one body, for a request that asked for no
+        stream."""
+        if self.server.delay:
+            time.sleep(self.server.delay * len(pieces))
+        reply = {"object": "text_completion",
+                 "model": self.server.last_payload.get("model"),
+                 "choices": [{"index": 0, "text": "".join(pieces),
+                              "finish_reason": "stop"}]}
+        if self.server.usage:
+            prompt = self.server.last_payload.get("prompt") or []
+            reply["usage"] = {
+                "prompt_tokens": len(prompt),
+                "completion_tokens": len(pieces),
+                "prompt_tokens_details": {
+                    "cached_tokens": self._reuse(prompt)}}
+        body = json.dumps(reply).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _reuse(self, prompt):
         """How much of this prompt the previous one already covered."""
@@ -149,16 +207,11 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            refused = None
-            if (not self.server.guided
-                    and "guided_json" in self.server.last_payload):
-                # what a server that dropped (or never had) the old
-                # spelling says: the parameter itself is the complaint
-                refused = "guided_json"
-            elif (not self.server.structured
-                    and "structured_outputs" in self.server.last_payload):
-                # and an old server says the same of the new spelling
-                refused = "structured_outputs"
+            # what a server that dropped (or never had) a spelling says:
+            # the parameter itself is the complaint
+            refused = next((s for s in SPELLINGS
+                            if s in self.server.last_payload
+                            and self.server.modes[s] == REFUSE), None)
             if refused:
                 body = json.dumps({"error": {
                     "message": f"unknown parameter: {refused}",
@@ -177,6 +230,9 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             pieces = self._pieces()
+            if self.server.last_payload.get("stream") is False:
+                self._completion(pieces)
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
@@ -215,17 +271,28 @@ class Stub:
     collides with, or silently satisfies, one of these checks. A fixed
     port is for the checks that stop the server and bring it back with a
     session's client still pointing at it.
+
+    Each schema spelling is honored, ignored or refused. `guided` and
+    `structured` set guided_json and structured_outputs (True ignores,
+    False refuses, or a mode by name) and `spellings` sets any of them.
     """
 
     def __init__(self, cards=(), pieces=("he", "llo"), delay=0.0,
                  status=200, raw=None, port=0, stall=0.0, drop=False,
                  serving=True, post_status=200, usage=False, guided=True,
-                 canned=None, unknown_model=False, structured=False):
+                 canned=None, unknown_model=False, structured=False,
+                 spellings=None):
+        modes = dict.fromkeys(SPELLINGS, IGNORE)
+        modes.update(guided_json=_mode(guided),
+                     structured_outputs=_mode(structured))
+        for spelling, mode in (spellings or {}).items():
+            if spelling not in SPELLINGS:
+                raise ValueError(f"unknown schema spelling {spelling!r}")
+            modes[spelling] = _mode(mode)
         self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
                         status=status, raw=raw, stall=stall, drop=drop,
-                        post_status=post_status, usage=usage, guided=guided,
-                        canned=canned, unknown_model=unknown_model,
-                        structured=structured)
+                        post_status=post_status, usage=usage, modes=modes,
+                        canned=canned, unknown_model=unknown_model)
         self.port = port
         self.httpd = None
         self.aborted = threading.Event()
