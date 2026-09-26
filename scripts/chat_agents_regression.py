@@ -9683,6 +9683,90 @@ def check_probe_by_output(tmp, tok, mdl):
           "structured_outputs when the old spelling is answered but "
           "ignored, plain when neither binds, and unknown for a server "
           "that does not have the model")
+CHATML = ("{% for m in messages %}<|im_start|>{{ m.role }}\n{{ m.content }}"
+          "<|im_end|>\n{% endfor %}{% if add_generation_prompt %}"
+          "<|im_start|>assistant\n")
+ALWAYS_TEMPLATE = CHATML + "<think>\n{% endif %}"
+TOGGLE_TEMPLATE = CHATML + ("{% if enable_thinking is defined and "
+                            "enable_thinking is false %}<think>\n\n</think>"
+                            "\n\n{% else %}<think>\n{% endif %}{% endif %}")
+
+
+def templated(template, t=None):
+    from transformers import AutoTokenizer
+    t = AutoTokenizer.from_pretrained(BGE_MODEL) if t is None else t
+    t.chat_template = template
+    return t
+
+
+def check_template_opened(tmp, tok, mdl):
+    """A reply that began inside a think block its template opened is
+    cut where the turn is remembered, and nowhere else."""
+    from salt.agents import protocol as P
+    from salt.agents import thinking as TH
+
+    toggle = templated(TOGGLE_TEMPLATE)
+    assert TH.template_opens(toggle) and TH.template_opens(templated(
+        ALWAYS_TEMPLATE), {"enable_thinking": False})
+    assert not TH.template_opens(toggle, {"enable_thinking": False})
+    assert not TH.template_opens(tok), "a tokenizer with no template opened"
+
+    answer_json = json.dumps({"version": P.SCHEMA, "action": "answer",
+                              "answer": "about 9 kWh"})
+    assert P.find_object(P.strip_think(answer_json)) == answer_json
+    send, _ = scripted_sender([answer_json])
+    out = P.ask_directive(send, [])
+    assert not out.fell_back and out.directive.answer == "about 9 kWh", out
+
+    capped = ("Okay, so they want the evening draw. Let me size the bank "
+              "from")
+    hint = cli.THINK_HINT.format(alias="stub", toggle="")
+    with Stub(cards=CARDS, pieces=(capped,)) as s:
+        kept = R.RosterEntry(
+            name="w2", alias="stub", role="worker", server_url=s.url,
+            model={"alias": "stub", "hf_id": "some/model", "path": BGE_MODEL,
+                   "gen": {runner_mod.TEMPLATE_KEY: {"enable_thinking":
+                                                     False}}})
+        roster = delegation_roster(s.url, tmp)
+        roster = R.Roster(path=roster.path, entries=roster.entries + (kept,))
+        state = canned_state(tmp, "opened_agent", tok, mdl, [answer_json],
+                             roster)
+        try:
+            templated(ALWAYS_TEMPLATE, state.worker("w").opened().tokenizer)
+            templated(TOGGLE_TEMPLATE, state.worker("w2").opened().tokenizer)
+            tail = list(state.tail)
+            ask = "what size battery does that argue for"
+            said = worker_turn_line(state, f"@w {ask}")
+            assert capped in said and said.count(hint) == 1, said
+            assert state.tail == tail, (
+                "a reply that never left its reasoning entered the tail")
+            assert any(ask in t for t in state.trie.texts), state.trie.texts
+            assert not any("size the bank from" in t
+                           for t in state.trie.texts), state.trie.texts
+
+            said = worker_turn_line(state, "@w2 and for the winter")
+            assert hint not in said, said
+            assert state.tail[-1]["content"] == capped, (
+                "the worker's own template settings were not the ones read")
+
+            state.runner.tokenizer = templated(ALWAYS_TEMPLATE)
+            said = agent_line(state, f"/agent {ask}")
+            assert state.tail[-1]["content"] == "about 9 kWh", (
+                f"an /agent answer was cut as reasoning: {state.tail[-1]}")
+            assert state.last_round.protocol_failures == 0, state.last_round
+            assert hint.replace("stub", "fake") not in said, said
+
+            said = worker_turn_line(state, "@w2 and for the spring")
+            assert state.tail[-1]["content"] == capped, (
+                "the chat model's template decided a worker's reply")
+        finally:
+            with redirect_stdout(io.StringIO()):
+                cli.close_ingest(state)
+    print("91. template-opened replies: a worker whose template opens the "
+          "block has a capped reply kept out of the tail and memory with "
+          "one hint, its own template settings decide, a plan with no "
+          "closer still parses and an /agent answer stays whole on a chat "
+          "model whose template opens the block")
 
 
 def main():
@@ -9787,6 +9871,7 @@ def main():
         check_piece_switches(tmp, tok, mdl)
         check_stub_spellings()
         check_probe_by_output(tmp, tok, mdl)
+        check_template_opened(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

@@ -30,6 +30,7 @@ import shutil
 import string
 import sys
 import time
+import weakref
 from collections import Counter, namedtuple
 from datetime import datetime
 from itertools import groupby
@@ -58,7 +59,7 @@ from salt.chat.pdfio import (PLAIN_SUFFIXES, ExtractionError,
                              split_document_sentences)
 from salt.chat.registry import (RegistryError, list_models, register_model,
                                 resolve_model)
-from salt.chat.runner import make_runner
+from salt.chat.runner import TEMPLATE_KEY, make_runner
 from salt.chat import scope as scope_module
 from salt.chat import summary as summary_module
 from salt.chat import when as when_module
@@ -400,6 +401,7 @@ class ChatState:
         self.last_summary = None
         self.last_when = None
         self.last_reply_raw = None
+        self.think_opened = weakref.WeakKeyDictionary()
         self.scope_stats = scope_module.census()
         self.summary_stats = summary_module.census()
         self.when_stats = when_module.census()
@@ -1290,7 +1292,7 @@ def worker_turn(state, line):
     return chat_turn(state, question, reply_fn=worker_stream(handle),
                      reply_model_id=handle.cfg.get("hf_id"),
                      reply_tokenizer=getattr(runner, "tokenizer", None),
-                     reply_label=handle.name)
+                     reply_label=handle.name, reply_runner=runner)
 
 
 def ingest_result(state, req, result):
@@ -3091,8 +3093,37 @@ def compress_kwargs(state, line, excl, switches, query_embedding=None,
             "exclude_sent_idx": excl}
 
 
+THINK_HINT = ("note: the reply ended inside its reasoning, so it was not "
+              "kept - raise gen.max_new_tokens{toggle} in the {alias} "
+              "registry entry")
+THINK_TOGGLE = (" or set gen.chat_template_kwargs "
+                "{\"enable_thinking\": false}")
+
+
+def template_opened(state, runner, off=False):
+    """Whether the template this runner renders with opens a think block
+    in front of the reply, or would with thinking asked off. Asked once
+    per tokenizer and settings."""
+    tok = getattr(runner, "tokenizer", None)
+    if tok is None:
+        return False
+    kwargs = ((getattr(runner, "cfg", None) or {}).get("gen")
+              or {}).get(TEMPLATE_KEY)
+    if off:
+        kwargs = dict(kwargs or {}, **{thinking.KEY: False})
+    try:
+        seen = state.think_opened.setdefault(tok, {})
+    except TypeError:
+        return thinking.template_opens(tok, kwargs)
+    key = json.dumps(kwargs, sort_keys=True, default=str)
+    if key not in seen:
+        seen[key] = thinking.template_opens(tok, kwargs)
+    return seen[key]
+
+
 def chat_turn(state, line, reply_fn=None, reply_model_id=None,
-              reply_tokenizer=None, reply_label=None, filed_at=None):
+              reply_tokenizer=None, reply_label=None, filed_at=None,
+              reply_runner=None):
     """One turn of the conversation, from the question to what is kept.
 
     ``reply_fn(state, messages, memory_block)`` yields the answer's text
@@ -3103,7 +3134,8 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     different thing for that turn. ``filed_at`` (epoch seconds) is
     stamped on both sides of the exchange in memory in place of the
     ingest moment, for replays of conversations that really happened
-    at another time.
+    at another time. ``reply_runner`` is the runner behind ``reply_fn``,
+    whose template decides whether the reply began inside a think block.
     """
     if state.runner is None:
         print("No chat model loaded - /model <name> to load one.")
@@ -3240,8 +3272,15 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     # can answer a turn directly: through @NAME, or as the orchestrator
     # writing an /agent turn up
     raw = "".join(pieces)
-    state.last_reply_raw = raw
-    reply = protocol.reply_text(raw)
+    source = state.runner if reply_fn is None else reply_runner
+    opened = template_opened(state, source)
+    state.last_reply_raw = thinking.reopened(raw) if opened else raw
+    reply = protocol.reply_text(state.last_reply_raw)
+    if (opened and not reply and raw.strip() and not interrupted
+            and thinking.opens_thinking(state.last_reply_raw)):
+        toggle = ("" if template_opened(state, source, off=True)
+                  else THINK_TOGGLE)
+        print(THINK_HINT.format(alias=source.alias, toggle=toggle))
     # no drain here (it would put a big paste's leftover encode back on
     # the prompt path): record_turn reads only pre-turn rows, and
     # appends never move them

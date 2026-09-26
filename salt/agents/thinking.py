@@ -56,6 +56,19 @@ def opens_thinking(text):
     return not _CLOSE.search(text, last_open)
 
 
+def template_opens(tokenizer, template_kwargs=None):
+    """Whether this template, under these settings, opens a think block
+    in front of the reply. Asked of PROBE, never of a live prompt."""
+    from salt.chat.runner import render_prompt
+    return opens_thinking(
+        render_prompt(tokenizer, list(PROBE), template_kwargs)[0])
+
+
+def reopened(text):
+    """A reply from a template that opened the block, with the tag back."""
+    return text if _OPEN.match(text.lstrip()) else "<think>" + text
+
+
 def template_thinking(tokenizer, key=KEY):
     """One of `toggle`, `always` or `unset` for this tokenizer.
 

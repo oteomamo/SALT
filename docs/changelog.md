@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.17
+## 3.0.0 - 3.0.18
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -60,6 +60,13 @@ the details, and the 2.11 section below lists each step.
   model's own tokenizer.json, as transformers 5 does for some models,
   every backend falls back to that tokenizer.json. Tokenizers that
   already load faithfully are untouched.
+- **3.0.18** A reply that runs out of room while still reasoning is no
+  longer remembered as the answer. Some chat templates, Qwen3.5-9B's
+  among them, open the reasoning block in the prompt, so a reply cut
+  off before it closed had no tag at all and was stored whole. Such a
+  reply now stays out of memory and the tail, and one line names the
+  setting to change. Models whose template leaves the block to the
+  model are unchanged.
 
 ## 2.11.0 - 2.11.123
 

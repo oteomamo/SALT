@@ -47,6 +47,12 @@ sessions kept under a temporary directory. Groups:
      the template names stops the load, the composed message is what
      the model sees and what the row says, and the launch refuses the
      template beside --turns-field.
+  H. TEMPLATE-OPENED THINKING - a `<think>` in a user line or a memory
+     excerpt never cuts a plain template's answer, a template that opens
+     the block itself has a capped reply with no closer kept out of
+     memory and the tail with one hint line, the reasoning under `think`
+     either way, the check follows the entry's template settings and is
+     asked once per tokenizer and settings.
 
 Needs the BGE encoder (downloaded to the HF cache on first use). CPU is
 the default device; the run takes about a minute.
@@ -88,6 +94,14 @@ DOC_TEXT = ("The garden irrigation system uses a drip line on each "
             "vegetable bed. A timer valve opens the drip line for twenty "
             "minutes at dawn. Rain sensors pause the schedule after heavy "
             "rainfall. The pump pressure stays near two bar.")
+CHATML = ("{% for m in messages %}<|im_start|>{{ m.role }}\n{{ m.content }}"
+          "<|im_end|>\n{% endfor %}{% if add_generation_prompt %}"
+          "<|im_start|>assistant\n")
+PLAIN_TEMPLATE = CHATML + "{% endif %}"
+ALWAYS_TEMPLATE = CHATML + "<think>\n{% endif %}"
+TOGGLE_TEMPLATE = CHATML + ("{% if enable_thinking is defined and "
+                            "enable_thinking is false %}<think>\n\n</think>"
+                            "\n\n{% else %}<think>\n{% endif %}{% endif %}")
 
 
 class _FakeRunner:
@@ -517,6 +531,125 @@ def check_templating(tmp, tok, mdl, device):
           "template beside --turns-field")
 
 
+def templated(template):
+    from transformers import AutoTokenizer
+    t = AutoTokenizer.from_pretrained(BGE_MODEL)
+    t.chat_template = template
+    renders, render = [], t.apply_chat_template
+
+    def counted(*a, **k):
+        renders.append(k)
+        return render(*a, **k)
+    t.apply_chat_template = counted
+    return t, renders
+
+
+def opened_run(root, tok, mdl, device, template, items, replies, name,
+               gen=None, state=None, flags=()):
+    from salt.chat import cli
+    root = root / name
+    root.mkdir()
+    renders = None
+    if state is None:
+        state = make_state(root, tok, mdl, device, flags, replies=replies)
+        state.runner.tokenizer, renders = templated(template)
+    if gen is not None:
+        state.runner.cfg["gen"] = gen
+    out, said = root / "out.jsonl", io.StringIO()
+    with redirect_stdout(said), redirect_stderr(io.StringIO()):
+        cli.run_turns(state, cli.load_turns(write_items(root, items)),
+                      str(out))
+    rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
+    return state, rows, said.getvalue(), renders
+
+
+def check_template_thinking(tmp, tok, mdl, device):
+    from salt.agents import thinking
+    from salt.chat import cli
+    from salt.chat.runner import render_prompt
+    assert thinking.reopened("a</think>b") == "<think>a</think>b"
+    assert thinking.reopened(" <think>a</think>b") == " <think>a</think>b"
+    root = tmp / "opened"
+    root.mkdir()
+    sessions, cli.SESSIONS_DIR = cli.SESSIONS_DIR, root
+    try:
+        answer = "It marks where the hidden reasoning of a model starts."
+        ask = "What does a <think> tag mark in a model reply?"
+        state, rows, said, _ = opened_run(root, tok, mdl, device,
+                                          PLAIN_TEMPLATE, [ask], [answer],
+                                          "user")
+        live = render_prompt(state.runner.tokenizer, state.runner.prompts[0])[0]
+        assert thinking.opens_thinking(live), "the live prompt opens no block"
+        assert rows[0]["answer"] == answer and "think" not in rows[0], rows[0]
+        assert state.tail == [{"role": "user", "content": ask},
+                              {"role": "assistant", "content": answer}], state.tail
+        assert "registry entry" not in said, said
+
+        doc = root / "parser.txt"
+        doc.write_text("The reply parser treats a <think> tag as the start of "
+                       "hidden reasoning. " + DOC_TEXT, encoding="utf-8")
+        ask = "Which tag starts the hidden reasoning for the reply parser?"
+        state, rows, said, _ = opened_run(
+            root, tok, mdl, device, PLAIN_TEMPLATE,
+            [{"id": "d", "doc": str(doc)}, ask], [answer], "memory",
+            flags=["--budget-pct", "1.0"])
+        sent = state.runner.prompts[0][-1]["content"]
+        assert "<think>" in sent.split(ask)[0] and "<think>" not in ask, sent
+        assert rows[1]["answer"] == answer and "think" not in rows[1], rows[1]
+        assert state.tail[-1]["content"] == answer, state.tail
+        assert any(answer in t for t in state.trie.texts), state.trie.texts
+
+        capped = ("Okay, the user wants a gasket for a hydrogen manifold. "
+                  "Let me weigh nitrile against")
+        closed = "Nitrile holds up.</think>A nitrile gasket suits it."
+        first = "Which gasket suits a hydrogen manifold?"
+        second = "And which one lasts longer on a mooring mast?"
+        state, rows, said, renders = opened_run(
+            root, tok, mdl, device, ALWAYS_TEMPLATE, [first, second],
+            [capped, closed], "always")
+        assert rows[0]["answer"] == "" and rows[0]["think"] == capped, rows[0]
+        assert rows[1]["answer"] == "A nitrile gasket suits it.", rows[1]
+        assert rows[1]["think"] == "Nitrile holds up.", rows[1]
+        assert state.tail == [{"role": "user", "content": second},
+                              {"role": "assistant",
+                               "content": "A nitrile gasket suits it."}], state.tail
+        assert any(first in t for t in state.trie.texts), state.trie.texts
+        assert not any("Let me weigh" in t for t in state.trie.texts)
+        always = cli.THINK_HINT.format(alias="fake", toggle="")
+        assert said.count(always) == 1 and "gen.max_new_tokens" in always, said
+        assert "enable_thinking" not in said, said
+        assert [r.get("enable_thinking") for r in renders] == [None, False], (
+            renders)
+        hint = cli.THINK_HINT.format(alias="fake", toggle=cli.THINK_TOGGLE)
+        assert '"enable_thinking": false' in hint, hint
+
+        state, rows, said, renders = opened_run(
+            root, tok, mdl, device, TOGGLE_TEMPLATE, [first], [capped],
+            "toggle_off", gen={"chat_template_kwargs": {"enable_thinking": False}})
+        assert rows[0]["answer"] == capped and "think" not in rows[0], rows[0]
+        assert state.tail[-1]["content"] == capped and hint not in said, said
+        state.runner.replies = [capped]
+        _, rows, said, _ = opened_run(root, tok, mdl, device, None, [second],
+                                      None, "toggle_on", gen={}, state=state)
+        assert rows[0]["answer"] == "" and rows[0]["think"] == capped, rows[0]
+        assert said.count(hint) == 1, said
+        _, rows, _, _ = opened_run(
+            root, tok, mdl, device, None, [first], None, "toggle_off_again",
+            gen={"chat_template_kwargs": {"enable_thinking": False}},
+            state=state)
+        assert rows[0]["answer"] == capped, rows[0]
+        assert [r.get("enable_thinking") for r in renders] == [False, None], renders
+        assert state.tail[-1]["content"] == capped, state.tail
+    finally:
+        cli.SESSIONS_DIR = sessions
+    print("H. template-opened thinking: a <think> in a user line or a memory "
+          "excerpt leaves a plain template's answer whole, a template that "
+          "opens the block keeps a capped reply out of memory and the tail "
+          "with one hint and its reasoning under think, and the check follows "
+          "the entry's template settings, asked once per tokenizer and "
+          "settings")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -533,6 +666,7 @@ def main():
         check_richer_rows(tmp, tok, mdl, args.device)
         check_scoring(tmp, tok, mdl, args.device)
         check_templating(tmp, tok, mdl, args.device)
+        check_template_thinking(tmp, tok, mdl, args.device)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")
