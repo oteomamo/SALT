@@ -14,6 +14,8 @@ CPU only, no model weights. Asserts:
   3. The HF runner also stops at the tokenizer's end token: generate gets
      the union of the model's stop ids and the tokenizer's only when the
      tokenizer's id is missing, and nothing extra when they agree.
+  4. The HF runner names the dtype the way the installed transformers
+     reads it: torch_dtype before 4.56, dtype from 4.56 on.
 
 Usage:
     python scripts/chat_models_regression.py
@@ -32,14 +34,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if not __debug__:
     sys.exit("this harness is assert-based - run it without python -O")
 
+import torch
 import transformers
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         trainers)
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
+from salt.chat import runner as runner_mod
 from salt.chat import tokload
 from salt.chat.registry import list_models
-from salt.chat.runner import ChatRunner, eos_union
+from salt.chat.runner import ChatRunner, dtype_keyword, eos_union
 from salt.chat.tokload import (PROBE, faithful, load_tokenizer,
                                resolve_tokenizer)
 
@@ -221,10 +225,48 @@ def check_eos():
           "only when missing, and a model that has it passes nothing new")
 
 
+class StubLoader:
+    seen = None
+
+    @classmethod
+    def from_pretrained(cls, path, **kwargs):
+        cls.seen = kwargs
+        return SimpleNamespace(eval=lambda: None, config=None,
+                               get_input_embeddings=None, device="cpu")
+
+
+def check_dtype():
+    for version, want in (("4.55.2", "torch_dtype"), ("4.55.0", "torch_dtype"),
+                          ("3.9.0", "torch_dtype"), ("4.56.0", "dtype"),
+                          ("4.56.0.dev0", "dtype"), ("4.57.6", "dtype"),
+                          ("5.0.0rc1", "dtype"), ("5.5.3", "dtype"),
+                          ("5.17.0", "dtype")):
+        assert dtype_keyword(version) == want, (version, want)
+
+    kept = runner_mod.AutoModelForCausalLM, runner_mod.load_tokenizer
+    runner_mod.AutoModelForCausalLM = StubLoader
+    runner_mod.load_tokenizer = lambda path: SimpleNamespace(
+        pad_token="<pad>", eos_token="<eos>", model_max_length=None)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            ChatRunner({"alias": "stub", "hf_id": "stub/stub",
+                        "path": "/nonexistent", "dtype": "float16"},
+                       device="cpu")
+    finally:
+        runner_mod.AutoModelForCausalLM, runner_mod.load_tokenizer = kept
+    want = dtype_keyword(transformers.__version__)
+    other = {"dtype": "torch_dtype", "torch_dtype": "dtype"}[want]
+    assert StubLoader.seen.get(want) is torch.float16, StubLoader.seen
+    assert other not in StubLoader.seen, StubLoader.seen
+    print(f"4. dtype: torch_dtype below transformers 4.56, dtype from it, "
+          f"and this {transformers.__version__} load passes {want}")
+
+
 def main():
     check_fixtures()
     check_registered()
     check_eos()
+    check_dtype()
     print("PASS")
 
 

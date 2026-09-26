@@ -17,6 +17,7 @@ import gc
 import threading
 
 import torch
+import transformers
 from transformers import (AutoModelForCausalLM, StoppingCriteria,
                           StoppingCriteriaList, TextIteratorStreamer)
 
@@ -113,6 +114,11 @@ def sampling_for(gen_cfg):
     return temperature, do_sample
 
 
+def dtype_keyword(version):
+    major, minor = (int(p) for p in version.split(".")[:2])
+    return "dtype" if (major, minor) >= (4, 56) else "torch_dtype"
+
+
 def eos_union(generation_ids, tokenizer_id):
     """The model's stop ids plus the tokenizer's, None when already there."""
     ids = ([] if generation_ids is None else [generation_ids]
@@ -183,9 +189,9 @@ class ChatRunner:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.model = AutoModelForCausalLM.from_pretrained(
-            cfg["path"], torch_dtype=dtype, device_map=device_map,
-            max_memory=max_memory,
-            attn_implementation=cfg.get("attn_implementation", "sdpa"))
+            cfg["path"], device_map=device_map, max_memory=max_memory,
+            attn_implementation=cfg.get("attn_implementation", "sdpa"),
+            **{dtype_keyword(transformers.__version__): dtype})
         self.model.eval()
         # generation inputs start on the first shard (where the embeddings
         # live); with a device_map the model spans several cards, so

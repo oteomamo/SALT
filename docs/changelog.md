@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.22
+## 3.0.0 - 3.0.23
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -89,6 +89,9 @@ the details, and the 2.11 section below lists each step.
   token, Qwen3.5 among them, ran past the end of its turn and left a
   trailing newline on every reply. Models whose settings already name
   that token are unchanged.
+- **3.0.23** The HF backend names the weights' precision the way the
+  installed transformers expects, so transformers 4.56 and later no
+  longer print a deprecation notice on every model load.
 
 ## 2.11.0 - 2.11.123
 

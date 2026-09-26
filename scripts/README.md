@@ -43,7 +43,7 @@ plain install stays green.
 - `chat_models_regression.py` covers chat model loading: the one
   tokenizer loader every backend uses, checked on small tokenizers it
   builds itself and on every registered model. It also checks the stop
-  tokens the HF backend hands to generate.
+  tokens and the dtype keyword the HF backend hands to transformers.
 - `chat_vllm_regression.py` covers the in-process `--backend vllm`.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.
