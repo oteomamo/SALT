@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3014" class="md-nav__link">
+  <a href="#300-3016" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.14
+        3.0.0 - 3.0.16
       
     </span>
   </a>
@@ -1300,10 +1300,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3014" class="md-nav__link">
+  <a href="#300-3016" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.14
+        3.0.0 - 3.0.16
       
     </span>
   </a>
@@ -1478,7 +1478,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="300-3014">3.0.0 - 3.0.14</h2>
+<h2 id="300-3016">3.0.0 - 3.0.16</h2>
 <p>The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
 grades the reply it wrote against the material it was written from,
@@ -1519,6 +1519,13 @@ the details, and the 2.11 section below lists each step.</p>
   Qwen3.5, which cost a served chat all of its reuse from one turn to
   the next. Ending the command with <code>-- --no-enable-prefix-caching</code>
   still turns it off.</li>
+<li><strong>3.0.16</strong> A helper's server is trusted to hold replies to a schema
+  only when it shows it. Newer vLLM releases answer a request in the
+  old <code>guided_json</code> spelling and ignore the schema, so schema-bound
+  agent calls went out unchecked. The probe now asks for a schema that
+  allows one reply, first as <code>guided_json</code> and then as
+  <code>structured_outputs</code>, and keeps the spelling whose reply comes back
+  held to it.</li>
 </ul>
 <h2 id="2110-211123">2.11.0 - 2.11.123</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:

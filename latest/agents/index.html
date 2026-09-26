@@ -2371,13 +2371,17 @@ mode: a session loses the delegation, never the reply.</p>
 <p>Two things help before any of that. A helper's server is asked once
 whether it will hold a model to a schema at all, because a version
 number does not answer that question and only the wire does. The ask
-comes in both spellings the serving stacks have used, the deprecated
-<code>guided_json</code> and the <code>structured_outputs</code> that replaced it, and
-whichever one the server took is the one every later schema rides. A
-model whose server will is told to fill the schema. One whose server
-will not is shown the object to copy instead, which is worth more to
-it than a paragraph about JSON. And <code>/roster probe --deep NAME</code> will
-tell you which of the two a given helper is before you rely on it.</p>
+is a schema that allows exactly one reply. It tries the spelling older
+servers take first, <code>guided_json</code>, then the newer <code>structured_outputs</code>,
+and trusts a spelling only when the reply comes back held to that
+schema, not merely because the server answered. A newer server answers
+a request in the old spelling without complaint and ignores the schema,
+so an answer alone proves nothing. The spelling that held the reply is
+the one every later schema rides. A model whose server will is told to fill
+the schema. One whose server will not is shown the object to copy
+instead, which is worth more to it than a paragraph about JSON. And
+<code>/roster probe --deep NAME</code> will tell you which of the two a given
+helper is before you rely on it.</p>
 <p>Reasoning stays out of memory throughout. Text between <code>&lt;think&gt;</code> tags
 is the model's working, and it is cut before an answer is remembered
 and before any of this is read, so a plan is judged by what the model
