@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.25
+## 3.0.0 - 3.0.26
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -103,6 +103,11 @@ the details, and the 2.11 section below lists each step.
   DeepSeek-R1-Distill-Llama-8B no longer answers with `Ġ` in place of
   every space under transformers 5. Models whose tokenizer loads
   faithfully start with the same engine settings as before.
+- **3.0.26** SALT installs next to transformers 4.55.2 through 5.5, so
+  an environment can load model families newer than the 4.55 line, such
+  as Qwen3.5, on the HF backend. The vLLM extra keeps vLLM 0.11.0 on
+  transformers 4.55.2, since that vLLM release cannot run with
+  transformers 5.
 
 ## 2.11.0 - 2.11.123
 
