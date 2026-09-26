@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3016" class="md-nav__link">
+  <a href="#300-3017" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.16
+        3.0.0 - 3.0.17
       
     </span>
   </a>
@@ -1300,10 +1300,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3016" class="md-nav__link">
+  <a href="#300-3017" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.16
+        3.0.0 - 3.0.17
       
     </span>
   </a>
@@ -1478,7 +1478,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="300-3016">3.0.0 - 3.0.16</h2>
+<h2 id="300-3017">3.0.0 - 3.0.17</h2>
 <p>The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
 grades the reply it wrote against the material it was written from,
@@ -1526,6 +1526,12 @@ the details, and the 2.11 section below lists each step.</p>
   allows one reply, first as <code>guided_json</code> and then as
   <code>structured_outputs</code>, and keeps the spelling whose reply comes back
   held to it.</li>
+<li><strong>3.0.17</strong> saltChat loads the tokenizer a model was trained with.
+  When the installed transformers cannot read a tokenizer saved by a
+  newer release, or builds one that splits text differently from the
+  model's own tokenizer.json, as transformers 5 does for some models,
+  every backend falls back to that tokenizer.json. Tokenizers that
+  already load faithfully are untouched.</li>
 </ul>
 <h2 id="2110-211123">2.11.0 - 2.11.123</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
