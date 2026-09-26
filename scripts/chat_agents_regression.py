@@ -9767,6 +9767,324 @@ def check_template_opened(tmp, tok, mdl):
           "one hint, its own template settings decide, a plan with no "
           "closer still parses and an /agent answer stays whole on a chat "
           "model whose template opens the block")
+@contextmanager
+def patched(target, **attrs):
+    """Attributes swapped on a module for the length of a block."""
+    real = {name: getattr(target, name) for name in attrs}
+    for name, value in attrs.items():
+        setattr(target, name, value)
+    try:
+        yield
+    finally:
+        for name, value in real.items():
+            setattr(target, name, value)
+
+
+def model_entry(tmp, alias, **config):
+    """A registry entry whose snapshot is its config.json alone."""
+    folder = tmp / "config_only" / alias
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "config.json").write_text(json.dumps(config))
+    return {"alias": alias, "hf_id": f"fixture/{alias}",
+            "path": str(folder), "downloaded": True}
+
+
+def folder_state(folder):
+    return {p.name: p.read_bytes() for p in sorted(folder.iterdir())
+            if p.is_file()}
+
+
+def check_load_failures(tmp, tok, mdl):
+    """A chat model that cannot load ends the start with one line and
+    leaves no session behind, and /model survives two failures."""
+    from packaging.version import Version
+    from transformers.models.auto.configuration_auto import \
+        CONFIG_MAPPING_NAMES
+
+    from salt.chat import support as S
+
+    sessions = tmp / "load_sessions"
+    sessions.mkdir()
+    plain = model_entry(tmp, "plain", model_type="qwen2")
+    future = model_entry(tmp, "future", model_type="salt_future_arch")
+
+    def raising(exc):
+        def make(*a, **k):
+            raise exc
+        return make
+
+    def launch(exc, *flags, cfg=plain, auto_roster=None):
+        out, err = io.StringIO(), io.StringIO()
+        swaps = {"SESSIONS_DIR": sessions, "resolve_model": lambda n: cfg,
+                 "load_bge": lambda *a: (tok, mdl),
+                 "make_runner": raising(exc)}
+        if auto_roster:
+            swaps["auto_roster"] = auto_roster
+        with patched(cli, **swaps), redirect_stdout(out), \
+                redirect_stderr(err):
+            rc = cli.main(["--device", "cpu", "--model", cfg["alias"],
+                           *flags])
+        return rc, out.getvalue(), err.getvalue().splitlines()
+
+    class ValidationError(ValueError):
+        pass
+
+    # THE START. Each failure is one line on stderr and a return code,
+    # and the session it was about to open is not left behind
+    for exc, line in (
+            (ValueError("boom"), "plain did not load: ValueError: boom"),
+            (RuntimeError("CUDA out of memory.\nTried to allocate 2 GiB"),
+             "plain did not load: RuntimeError: CUDA out of memory."),
+            (KeyboardInterrupt(), "plain did not load: KeyboardInterrupt"),
+            (ValidationError("1 validation error for ModelConfig\n"
+                             "  Value error, max_model_len 300000 is over "
+                             "32768 [type=value_error]"),
+             "plain did not load: ValidationError: Value error, "
+             "max_model_len 300000 is over 32768")):
+        rc, out, err = launch(exc, "--conversation-id", "lf_new")
+        assert rc == 1, (rc, line)
+        assert err == [line], err
+        assert "New session 'lf_new'" in out, out
+        assert not (sessions / "lf_new").exists(), (
+            f"{type(exc).__name__} left an empty session behind")
+    rc, _, err = launch(ValueError("boom"))
+    assert rc == 1 and len(err) == 1, err
+    assert not list(sessions.iterdir()), list(sessions.iterdir())
+
+    # a resumed session is the user's, whatever the model did
+    with redirect_stdout(io.StringIO()):
+        kept = replayed_state(sessions, "lf_kept", tok, mdl,
+                              turns=TRANSCRIPT[:2])
+        cli.close_ingest(kept)
+    before = folder_state(sessions / "lf_kept")
+    assert before, "the resumed fixture saved nothing"
+    rc, out, err = launch(ValueError("boom"), "--conversation-id", "lf_kept")
+    assert rc == 1 and len(err) == 1, err
+    assert "Resumed session 'lf_kept'" in out, out
+    assert folder_state(sessions / "lf_kept") == before, (
+        "a failed load changed a resumed session")
+
+    # --roster auto writes its fit beside the session first, and a start
+    # that dies takes that file with the folder it made
+    def fitted(*extra):
+        def fake(args):
+            folder = sessions / args.conversation_id
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "roster.auto.json").write_text("{}")
+            for name in extra:
+                (folder / name).write_text("x")
+            return None, None
+        return fake
+
+    rc, _, err = launch(ValueError("boom"), "--roster", "auto",
+                        "--conversation-id", "lf_auto",
+                        auto_roster=fitted())
+    assert rc == 1 and len(err) == 1, err
+    assert not (sessions / "lf_auto").exists(), (
+        list((sessions / "lf_auto").iterdir()))
+    rc, _, _ = launch(ValueError("boom"), "--roster", "auto",
+                      auto_roster=fitted())
+    assert rc == 1
+    assert sorted(p.name for p in sessions.iterdir()) == ["lf_kept"], (
+        list(sessions.iterdir()))
+    # never a tree removal: what the launch did not write stays put
+    rc, _, _ = launch(ValueError("boom"), "--roster", "auto",
+                      "--conversation-id", "lf_stray",
+                      auto_roster=fitted("notes.txt"))
+    assert rc == 1
+    assert [p.name for p in (sessions / "lf_stray").iterdir()] == [
+        "notes.txt"], list((sessions / "lf_stray").iterdir())
+    # and a folder that was there before the launch is not its to clear
+    (sessions / "lf_earlier").mkdir()
+    (sessions / "lf_earlier" / "roster.auto.json").write_text("{}")
+    rc, _, _ = launch(ValueError("boom"), "--conversation-id", "lf_earlier")
+    assert rc == 1
+    assert (sessions / "lf_earlier" / "roster.auto.json").is_file()
+
+    # the line after it says why, when the config can tell
+    rc, _, err = launch(ValueError("boom"), "--conversation-id", "lf_hint",
+                        cfg=future)
+    assert rc == 1 and len(err) == 2, err
+    assert err[0] == "future did not load: ValueError: boom", err
+    assert "does not know the model type 'salt_future_arch'" in err[1], err
+    assert "Installation page" in err[1], err
+    assert not (sessions / "lf_hint").exists()
+
+    # THE DIAGNOSIS, from config.json and the installed versions alone
+    tf = str(S.installed("transformers"))
+    qwen35 = {"model_type": "qwen3_5",
+              "text_config": {"model_type": "qwen3_5_text"}}
+    hint = S.load_hint(qwen35)
+    if "qwen3_5" in CONFIG_MAPPING_NAMES:
+        assert hint is None, hint
+    else:
+        assert hint and "does not know the model type 'qwen3_5'" in hint
+        assert f"transformers {tf}" in hint and "newer SALT" in hint, hint
+    # the vLLM installed here only decides the pair check below
+    real_installed = S.installed
+    with patched(S, installed=lambda name: None if name == "vllm"
+                 else real_installed(name)):
+        mistral3 = {"model_type": "mistral3",
+                    "text_config": {"model_type": "mistral"}}
+        hint = S.load_hint(mistral3)
+        assert "no text-generation class for 'mistral3'" in hint, hint
+        assert "--backend vllm" in hint, hint
+        assert S.load_hint(mistral3, "vllm") is None
+        awq = {"model_type": "qwen3",
+               "quantization_config": {"quant_method": "awq", "bits": 4}}
+        with patched(S, importable=lambda name: False):
+            hint = S.load_hint(awq)
+            assert "AWQ" in hint and "--backend vllm" in hint, hint
+            gptq = dict(awq, quantization_config={"quant_method": "gptq"})
+            assert "GPTQ" in S.load_hint(gptq)
+            assert S.load_hint(awq, "vllm") is None
+        with patched(S, importable=lambda name: True):
+            assert S.load_hint(awq) is None
+        for backend in ("hf", "vllm", "vllm-serve"):
+            assert S.load_hint({"model_type": "qwen2"}, backend) is None
+        # config.json's own transformers_version is never read as a floor
+        assert S.load_hint({"model_type": "qwen2",
+                            "transformers_version": "99.0.0"}) is None
+        assert "salt_future_arch" in S.load_hint(
+            {"model_type": "salt_future_arch",
+             "transformers_version": "4.0.0"})
+        # custom code, a type the vLLM here reads itself, and the serve
+        # client are left to the load's own line
+        assert S.load_hint({"model_type": "salt_future_arch",
+                            "auto_map": {"AutoConfig": "x.Y"}}) is None
+        assert S.load_hint({"model_type": "salt_future_arch"},
+                           "vllm-serve") is None
+        with patched(S, vllm_knows=lambda t: True):
+            assert S.load_hint({"model_type": "salt_future_arch"},
+                               "vllm") is None
+        with patched(S, vllm_knows=lambda t: False):
+            assert "salt_future_arch" in S.load_hint(
+                {"model_type": "salt_future_arch"}, "vllm")
+    # the one pair that cannot run whatever the model is
+    for vllm, tfv, broken in (("0.11.0", "5.5.3", True),
+                              ("0.19.1", "5.5.3", False),
+                              ("0.11.0", "4.55.2", False),
+                              (None, "5.5.3", False)):
+        versions = {"vllm": vllm and Version(vllm),
+                    "transformers": Version(tfv)}
+        with patched(S, installed=versions.get):
+            hint = S.load_hint({"model_type": "qwen2"}, "vllm")
+            assert S.load_hint({"model_type": "qwen2"}) is None
+        assert (hint is not None) == broken, (vllm, tfv, hint)
+        if broken:
+            assert f"vLLM {vllm}" in hint and f"transformers {tfv}" in hint
+    for bad in (None, [], "qwen2", {}):
+        assert S.load_hint(bad) is None, bad
+    assert S.read_config(tmp / "nowhere") is None
+    (tmp / "config_only" / "torn").mkdir(parents=True)
+    (tmp / "config_only" / "torn" / "config.json").write_text("{")
+    assert S.read_config(tmp / "config_only" / "torn") is None
+
+    # vLLM reports a config problem as a pydantic error whose first line
+    # only counts the errors, and the line names the cause instead
+    try:
+        from typing import Literal
+
+        from pydantic import BaseModel, model_validator
+    except ImportError:
+        BaseModel = None
+    if BaseModel is not None:
+        class ModelConfig(BaseModel):
+            dtype: Literal["auto", "bfloat16"] = "auto"
+
+            @model_validator(mode="after")
+            def fits(self):
+                raise ValueError("max_model_len 300000 is over 32768")
+
+        head = "plain did not load: ValidationError: "
+        for kwargs, detail in (
+                ({}, "Value error, max_model_len 300000 is over 32768"),
+                ({"dtype": "fp8"}, "dtype: Input should be ")):
+            try:
+                ModelConfig(**kwargs)
+            except Exception as exc:
+                assert str(exc).startswith("1 validation error for"), exc
+                line = S.failure_line("plain", exc)
+            else:
+                raise AssertionError(f"{kwargs} validated")
+            assert line.startswith(head + detail), line
+        assert "'bfloat16'" in line, line
+
+    # /MODEL. A session left with no model loads the next one, and two
+    # failures in a row leave it able to try again
+    loads = []
+
+    def loading(fail=()):
+        def make(cfg, **k):
+            loads.append(cfg["alias"])
+            if cfg["alias"] in fail:
+                raise fail[cfg["alias"]]
+            r = _FakeRunner(tok, REPLIES)
+            r.alias, r.cfg = cfg["alias"], cfg
+            return r
+        return make
+
+    entries = {"plain": plain, "other": model_entry(tmp, "other",
+                                                   model_type="llama")}
+    state = quiet_state(tmp, "lf_model", tok, mdl, turns=())
+    try:
+        state.runner = None
+        buf = io.StringIO()
+        with patched(cli, resolve_model=entries.__getitem__,
+                     make_runner=loading()), redirect_stdout(buf):
+            cli.handle_command("/model plain", state)
+        assert state.runner.alias == "plain", buf.getvalue()
+        assert loads == ["plain"], loads
+
+        unloaded = []
+        state.runner.unload = lambda: unloaded.append(1)
+        fail = {"other": ValueError("boom"), "plain": RuntimeError("gone")}
+        loads.clear()
+        buf = io.StringIO()
+        with patched(cli, resolve_model=entries.__getitem__,
+                     make_runner=loading(fail)), redirect_stdout(buf):
+            cli.handle_command("/model other", state)
+            cli.handle_command("/model", state)
+        out = buf.getvalue().splitlines()
+        assert unloaded == [1], "the old model was not freed first"
+        assert loads == ["other", "plain"], loads
+        assert state.runner is None
+        for line in ("other did not load: ValueError: boom",
+                     "Reloading previous model plain ...",
+                     "plain did not load: RuntimeError: gone",
+                     "No model loaded - use /model <name> when ready."):
+            assert line in out, (line, out)
+
+        # no model to go back to: one load, no reload attempted
+        loads.clear()
+        buf = io.StringIO()
+        with patched(cli, resolve_model=entries.__getitem__,
+                     make_runner=loading({"other": ValueError("boom")})), \
+                redirect_stdout(buf):
+            cli.switch_model(state, "other")
+        assert loads == ["other"], loads
+        assert "Reloading" not in buf.getvalue(), buf.getvalue()
+        with patched(cli, resolve_model=entries.__getitem__,
+                     make_runner=loading()), redirect_stdout(io.StringIO()):
+            cli.switch_model(state, "other")
+        assert state.runner.alias == "other"
+
+        # an interrupted load is a failed one: the previous model returns
+        loads.clear()
+        with patched(cli, resolve_model=entries.__getitem__,
+                     make_runner=loading({"plain": KeyboardInterrupt()})), \
+                redirect_stdout(io.StringIO()):
+            cli.switch_model(state, "plain")
+        assert loads == ["plain", "other"], loads
+        assert state.runner.alias == "other", state.runner
+    finally:
+        with redirect_stdout(io.StringIO()):
+            cli.close_ingest(state)
+    print("92. load failures: a chat model that cannot load ends the start "
+          "with one line naming the cause, past a validation error's count, "
+          "and the reason when its config names one, the session it was "
+          "opening is removed and a resumed one is left alone, and /model "
+          "loads again after two failures in a row")
 
 
 def main():
@@ -9872,6 +10190,7 @@ def main():
         check_stub_spellings()
         check_probe_by_output(tmp, tok, mdl)
         check_template_opened(tmp, tok, mdl)
+        check_load_failures(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

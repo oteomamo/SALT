@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.18
+## 3.0.0 - 3.0.19
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -67,6 +67,13 @@ the details, and the 2.11 section below lists each step.
   reply now stays out of memory and the tail, and one line names the
   setting to change. Models whose template leaves the block to the
   model are unchanged.
+- **3.0.19** A chat model that cannot load ends the start with one line
+  naming the error instead of a traceback, and leaves no empty session
+  behind. When the model's config shows why, a second line says so: a
+  model type the installed transformers does not know, a checkpoint
+  only the vLLM backend can run, or a vLLM release that cannot run next
+  to the installed transformers. `/model` keeps working after a switch
+  where neither model loads.
 
 ## 2.11.0 - 2.11.123
 

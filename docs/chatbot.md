@@ -25,7 +25,8 @@ saltChat --model qwen05 --conversation-id demo1 --doc report.txt
 ```
 
 The default backend runs the model through HF transformers and works
-anywhere. `--backend vllm` serves the same registered weights through an
+on any machine, for any model type the installed transformers knows.
+`--backend vllm` serves the same registered weights through an
 in-process vLLM engine with automatic prefix caching, so the stable prompt
 head and tail are reused from the GPU KV cache instead of being re-prefilled
 every turn (install vLLM first, see
@@ -39,6 +40,10 @@ A model too big for one card splits across several with a `--gpu` list,
 on either backend, with the encoder riding the last card. Memory
 shares, window caps and device flags are on the [Options](options.md)
 page.
+
+When a model cannot load, the start ends with one line naming the
+error, plus a hint line when the model's config shows the cause, and
+leaves no empty session behind.
 
 ## Persistent serving
 

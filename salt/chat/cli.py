@@ -64,6 +64,7 @@ from salt.chat import scope as scope_module
 from salt.chat import summary as summary_module
 from salt.chat import when as when_module
 from salt.chat import scoring
+from salt.chat import support
 from salt.chat.serve import default_gpu_mem_util, parse_gpu_list
 from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
                                  is_short_user_unit)
@@ -603,6 +604,14 @@ class ChatState:
 
 def fresh_conversation_id():
     return datetime.now().strftime("chat-%Y%m%d-%H%M%S")
+
+
+def drop_empty_session(folder):
+    (folder / provision.ROSTER_FILENAME).unlink(missing_ok=True)
+    try:
+        folder.rmdir()
+    except OSError:
+        pass
 
 
 def valid_session_id(cid):
@@ -2667,26 +2676,30 @@ def switch_model(state, name):
               f"Start saltServe {cfg['alias']} on another port and relaunch "
               f"saltChat with --server-url pointing at it.")
         return
-    prev_cfg = state.runner.cfg
-    state.runner.unload()  # free before load: never two LLMs on the GPU
+    prev_cfg = state.runner.cfg if state.runner is not None else None
+    if state.runner is not None:
+        state.runner.unload()  # free before load: never two LLMs on the GPU
     state.runner = None
     try:
         state.runner = make_runner(cfg, device=state.device,
                                    backend=state.backend,
                                    **state.backend_opts)
         warn_prompt_budget(state)  # new model may have a smaller window
-    except Exception as exc:
-        print(f"Failed to load {cfg['alias']}: {exc}")
+    except (Exception, KeyboardInterrupt) as exc:
+        support.report_failure(cfg, exc, state.backend)
         gc.collect()  # drop the failed load's partial allocations first
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        if prev_cfg is None:
+            print("No model loaded - use /model <name> when ready.")
+            return
         print(f"Reloading previous model {prev_cfg['alias']} ...")
         try:
             state.runner = make_runner(prev_cfg, device=state.device,
                                        backend=state.backend,
                                        **state.backend_opts)
-        except Exception as exc2:
-            print(f"Also failed to reload {prev_cfg['alias']}: {exc2}")
+        except (Exception, KeyboardInterrupt) as exc2:
+            print(support.failure_line(prev_cfg["alias"], exc2))
             print("No model loaded - use /model <name> when ready.")
 
 
@@ -4517,6 +4530,8 @@ def main(argv=None):
     # same reason for the roster: a bad entry, or a worker whose weights
     # are missing, must fail before the chat model is loaded
     roster = None
+    fresh = not (args.conversation_id
+                 and (SESSIONS_DIR / args.conversation_id).exists())
     if args.roster == provision.AUTO:
         # the fitted file is named after the session it was fitted for,
         # so the id is settled here and the launch below reuses it
@@ -4611,8 +4626,14 @@ def main(argv=None):
     else:
         print(f"New session {conversation_id!r}.")
 
-    runner = make_runner(cfg, device=args.device, backend=args.backend,
-                         **backend_opts(args))
+    try:
+        runner = make_runner(cfg, device=args.device, backend=args.backend,
+                             **backend_opts(args))
+    except (Exception, KeyboardInterrupt) as exc:
+        support.report_failure(cfg, exc, args.backend, file=sys.stderr)
+        if fresh and not trie.is_loaded:
+            drop_empty_session(SESSIONS_DIR / conversation_id)
+        return 1
     state = ChatState(args, bge_tok, bge_model, runner, trie, roster,
                       personas)
     if state.full_attachments:
