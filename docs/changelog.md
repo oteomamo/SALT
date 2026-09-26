@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.14
+## 3.0.0 - 3.0.16
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -47,6 +47,13 @@ the details, and the 2.11 section below lists each step.
   Qwen3.5, which cost a served chat all of its reuse from one turn to
   the next. Ending the command with `-- --no-enable-prefix-caching`
   still turns it off.
+- **3.0.16** A helper's server is trusted to hold replies to a schema
+  only when it shows it. Newer vLLM releases answer a request in the
+  old `guided_json` spelling and ignore the schema, so schema-bound
+  agent calls went out unchecked. The probe now asks for a schema that
+  allows one reply, first as `guided_json` and then as
+  `structured_outputs`, and keeps the spelling whose reply comes back
+  held to it.
 
 ## 2.11.0 - 2.11.123
 

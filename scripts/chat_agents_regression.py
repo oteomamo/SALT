@@ -128,8 +128,8 @@ from salt.engine.session_trie import (CONVERSATION_ROLES,        # noqa: E402
                                       VALID_ROLES, SessionTrie)
 
 import _agent_fixtures as F                                      # noqa: E402
-from _agent_stub import (CannedReplies, Stub, closed_port,        # noqa: E402
-                         stub_server)
+from _agent_stub import (HONOR, IGNORE, REFUSE,                  # noqa: E402
+                         CannedReplies, Stub, closed_port, stub_server)
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
 SAMPLE = REPO / "salt" / "agents" / "roster_sample.json"
@@ -3276,7 +3276,7 @@ def check_deep_probe(tmp, tok, mdl):
     cfg = {"alias": "stub", "hf_id": "some/model", "path": BGE_MODEL}
     cards = [{"id": "some/model", "max_model_len": 4096}]
     perfect = [json.dumps(want) for _, want in SCHEMA_SMOKE]
-    with Stub(cards=cards, guided=True) as s:
+    with Stub(cards=cards, guided=HONOR) as s:
         entry_ = R.RosterEntry(name="w", alias="stub", role="worker",
                                server_url=s.url, model=cfg)
         roster = R.Roster(path="<test>", entries=(entry_,))
@@ -3606,15 +3606,17 @@ def check_guided_probe(tok_path):
 
     cfg = {"alias": "stub", "hf_id": "some/model", "path": tok_path}
     cards = [{"id": "some/model", "max_model_len": 4096}]
-    with Stub(cards=cards, guided=True) as yes:
+    with Stub(cards=cards, guided=HONOR) as yes:
         h = WorkerHandle(entry(yes.url, model=cfg))
         assert h.guided == RR.GUIDED_UNKNOWN, "a fresh handle claims to know"
         assert h.probe_capabilities() == RR.GUIDED_CAPABLE, h.guided_detail
         sent = yes.httpd.last_payload
         assert sent["guided_json"] == RR.GUIDED_SCHEMA, sent
-        assert sent["max_tokens"] == 1, (
-            f"the capability probe generated {sent['max_tokens']} tokens "
-            f"when one is enough")
+        assert (sent["max_tokens"], sent["temperature"], sent["stream"]) == \
+            (16, 0, False), (
+            f"the capability probe asked for {sent['max_tokens']} tokens "
+            f"at {sent['temperature']}, streamed {sent['stream']}, rather "
+            f"than a fixed 16 greedy tokens in one body")
         posts = yes.posts
         assert h.probe_capabilities() == RR.GUIDED_CAPABLE
         assert yes.posts == posts, "the answer was not cached"
@@ -3633,7 +3635,7 @@ def check_guided_probe(tok_path):
     # that alias, and asking under the full id is a 404 about the name
     # rather than an answer about schemas
     served = [{"id": "served-as-this", "max_model_len": 4096}]
-    with Stub(cards=served, guided=True) as aliased:
+    with Stub(cards=served, guided=HONOR) as aliased:
         h = WorkerHandle(entry(aliased.url,
                                model={"alias": "served-as-this",
                                       "hf_id": "some/org/some-model-AWQ",
@@ -3654,7 +3656,7 @@ def check_guided_probe(tok_path):
     # worker that died forgets what it learned
     gone = WorkerHandle(entry(f"http://127.0.0.1:{closed_port()}", model=cfg))
     assert gone.probe_capabilities(timeout=2) == RR.GUIDED_UNKNOWN
-    with Stub(cards=cards, guided=True) as revived:
+    with Stub(cards=cards, guided=HONOR) as revived:
         h = WorkerHandle(entry(revived.url, model=cfg))
         h.probe_capabilities()
         assert h.guided == RR.GUIDED_CAPABLE
@@ -5694,10 +5696,10 @@ def check_roster_orchestrator(tmp, tok, mdl):
     said = "Nine kilowatt hours of storage covers the evening draw."
     ask = "what size battery does that argue for"
 
-    # the capability probe is a completion like any other, so it takes
-    # the first canned answer and the plan takes the second
-    with Stub(cards=CARDS, guided=True,
-              canned=CannedReplies(["{", "ok", plan_json, final])) as boss, \
+    # the capability probe comes back bound to its one reply and takes no
+    # canned answer
+    with Stub(cards=CARDS, guided=HONOR,
+              canned=CannedReplies(["ok", plan_json, final])) as boss, \
             Stub(cards=CARDS, pieces=(said,)) as w:
         roster = boss_roster(boss.url, tmp, max_tokens=2048, temperature=0.6)
         roster = R.Roster(path=roster.path, entries=(
@@ -7046,7 +7048,7 @@ def check_main_schema(tmp, tok, mdl):
             self.sink.append(dict(over))
             yield '{"action": "answer", "answer": "x"}'
 
-    for guided, capability, carries in ((True, RR.GUIDED_CAPABLE, True),
+    for guided, capability, carries in ((HONOR, RR.GUIDED_CAPABLE, True),
                                         (False, RR.GUIDED_PLAIN, False)):
         with Stub(cards=CARDS, guided=guided) as s:
             state = quiet_state(tmp, f"main_wire_{guided}", tok, mdl)
@@ -7785,8 +7787,8 @@ def check_round_cost(tmp, tok, mdl):
 
     # a round planned and written up by a roster endpoint: its own two
     # calls, kept as they were made
-    with Stub(cards=CARDS, guided=True, usage=True,
-              canned=CannedReplies(["{", "ok", plan_json, final])) as boss, \
+    with Stub(cards=CARDS, guided="honor", usage=True,
+              canned=CannedReplies(["ok", plan_json, final])) as boss, \
             Stub(cards=CARDS, pieces=(said,), usage=True) as w:
         roster = boss_roster(boss.url, tmp)
         roster = R.Roster(path=roster.path, entries=(
@@ -9374,7 +9376,7 @@ def check_structured_probe(tok_path):
 
     cfg = {"alias": "stub", "hf_id": "some/model", "path": tok_path}
     cards = [{"id": "some/model", "max_model_len": 4096}]
-    with Stub(cards=cards, guided=False, structured=True) as newer:
+    with Stub(cards=cards, guided=False, structured=HONOR) as newer:
         h = WorkerHandle(entry(newer.url, model=cfg))
         assert h.probe_capabilities() == RR.GUIDED_STRUCTURED, \
             h.guided_detail
@@ -9390,7 +9392,7 @@ def check_structured_probe(tok_path):
         assert "400" in h.guided_detail, h.guided_detail
 
     # a server that takes the old spelling is measured exactly as before
-    with Stub(cards=cards, guided=True) as older:
+    with Stub(cards=cards, guided=HONOR) as older:
         h = WorkerHandle(entry(older.url, model=cfg))
         assert h.probe_capabilities() == RR.GUIDED_CAPABLE, h.guided_detail
         assert "guided_json" in older.httpd.last_payload
@@ -9601,6 +9603,88 @@ def check_stub_spellings():
           "for no stream answered in one body")
 
 
+def check_probe_by_output(tmp, tok, mdl):
+    """A schema spelling counts only when the reply comes back bound by
+    it, never because the server answered."""
+    import salt.agents.roster as RR
+    from salt.agents import protocol as P
+
+    assert RR.GUIDED_SCHEMA == {"enum": [RR.GUIDED_PROOF]}, RR.GUIDED_SCHEMA
+    cfg = {"alias": "stub", "hf_id": "some/model", "path": BGE_MODEL}
+    keys = {"guided_json", "structured_outputs"}
+    for guided, structured, want, posts, key in (
+            (HONOR, HONOR, RR.GUIDED_CAPABLE, 1, "guided_json"),
+            (HONOR, IGNORE, RR.GUIDED_CAPABLE, 1, "guided_json"),
+            (IGNORE, HONOR, RR.GUIDED_STRUCTURED, 2, "structured_outputs"),
+            (REFUSE, HONOR, RR.GUIDED_STRUCTURED, 2, "structured_outputs"),
+            (IGNORE, IGNORE, RR.GUIDED_PLAIN, 2, "structured_outputs"),
+            (IGNORE, REFUSE, RR.GUIDED_PLAIN, 2, "structured_outputs")):
+        with Stub(cards=CARDS, guided=guided, structured=structured) as s:
+            h = WorkerHandle(entry(s.url, model=cfg))
+            got = h.probe_capabilities()
+            assert got == want, (guided, structured, got, h.guided_detail)
+            assert s.posts == posts, (guided, structured, s.posts)
+            sent = s.httpd.last_payload
+            assert set(sent) & keys == {key}, (guided, structured, sent)
+            assert {key: sent[key]} == RR.schema_body(
+                RR.GUIDED_CAPABLE if key == "guided_json"
+                else RR.GUIDED_STRUCTURED, RR.GUIDED_SCHEMA), sent
+            if want == RR.GUIDED_PLAIN and guided == IGNORE:
+                assert "without holding" in h.guided_detail, h.guided_detail
+
+    for pieces, want in (((' "salt-ok"', "\n"), RR.GUIDED_CAPABLE),
+                         (("salt-ok",), RR.GUIDED_PLAIN),
+                         (('"salt-no"',), RR.GUIDED_PLAIN)):
+        with Stub(cards=CARDS, pieces=pieces) as s:
+            h = WorkerHandle(entry(s.url, model=cfg))
+            assert h.probe_capabilities() == want, (pieces, h.guided_detail)
+
+    with Stub(cards=[{"id": "served-as-this"}], guided=HONOR,
+              structured=HONOR, unknown_model=True) as s:
+        h = WorkerHandle(entry(s.url, model=cfg))
+        assert h.probe_capabilities() == RR.GUIDED_UNKNOWN, h.guided_detail
+        assert "does not serve" in h.guided_detail, h.guided_detail
+        assert s.posts == 1, "a 404 about the name was asked again"
+
+    for guided, want, key in ((HONOR, RR.GUIDED_CAPABLE, "guided_json"),
+                              (IGNORE, RR.GUIDED_STRUCTURED,
+                               "structured_outputs")):
+        with Stub(cards=CARDS, guided=guided, structured=HONOR) as s:
+            entry_ = R.RosterEntry(name="w", alias="stub", role="worker",
+                                   server_url=s.url, model=cfg)
+            state = replayed_state(tmp, f"probe_output_{guided}", tok, mdl,
+                                   roster=R.Roster(path="<test>",
+                                                   entries=(entry_,)))
+            try:
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    cli.handle_command("/roster probe --deep w", state)
+                said = out.getvalue()
+                assert "(accepts a schema, " in said, said
+                caps = json.loads((state.trie.cache_dir /
+                                   cli.CAPS_FILE).read_text(encoding="utf-8"))
+                assert caps["w"]["guided"] == want, caps
+                handle = state.worker("w")
+                with redirect_stdout(io.StringIO()):
+                    "".join(handle.call(
+                        [{"role": "user", "content": "hi"}],
+                        max_new_tokens=16,
+                        **RR.schema_body(handle.guided, P.DIRECTIVE_SCHEMA)))
+                sent = s.httpd.last_payload
+                assert set(sent) & keys == {key}, sent
+                assert {key: sent[key]} == RR.schema_body(
+                    want, P.DIRECTIVE_SCHEMA), sent
+            finally:
+                with redirect_stdout(io.StringIO()):
+                    cli.close_ingest(state)
+    print("90. schema probe by output: a spelling is trusted only when the "
+          "one reply its schema allows comes back, guided_json first so a "
+          "server that binds it keeps its wire key and roster line, "
+          "structured_outputs when the old spelling is answered but "
+          "ignored, plain when neither binds, and unknown for a server "
+          "that does not have the model")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -9702,6 +9786,7 @@ def main():
         check_switch_values(tmp, tok, mdl)
         check_piece_switches(tmp, tok, mdl)
         check_stub_spellings()
+        check_probe_by_output(tmp, tok, mdl)
         print("PASS")
     finally:
         if not args.keep:

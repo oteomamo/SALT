@@ -465,13 +465,17 @@ mode: a session loses the delegation, never the reply.
 Two things help before any of that. A helper's server is asked once
 whether it will hold a model to a schema at all, because a version
 number does not answer that question and only the wire does. The ask
-comes in both spellings the serving stacks have used, the deprecated
-`guided_json` and the `structured_outputs` that replaced it, and
-whichever one the server took is the one every later schema rides. A
-model whose server will is told to fill the schema. One whose server
-will not is shown the object to copy instead, which is worth more to
-it than a paragraph about JSON. And `/roster probe --deep NAME` will
-tell you which of the two a given helper is before you rely on it.
+is a schema that allows exactly one reply. It tries the spelling older
+servers take first, `guided_json`, then the newer `structured_outputs`,
+and trusts a spelling only when the reply comes back held to that
+schema, not merely because the server answered. A newer server answers
+a request in the old spelling without complaint and ignores the schema,
+so an answer alone proves nothing. The spelling that held the reply is
+the one every later schema rides. A model whose server will is told to fill
+the schema. One whose server will not is shown the object to copy
+instead, which is worth more to it than a paragraph about JSON. And
+`/roster probe --deep NAME` will tell you which of the two a given
+helper is before you rely on it.
 
 Reasoning stays out of memory throughout. Text between `<think>` tags
 is the model's working, and it is cut before an answer is remembered

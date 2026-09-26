@@ -329,13 +329,13 @@ def probe(entry, url=None, timeout=5):
                        max_model_len=_card_window(card))
 
 
-# what a capability probe sends: the smallest request that can carry a
-# schema at all. One token back is all the answer that is needed
-GUIDED_SCHEMA = {"type": "object"}
+# what a capability probe sends: a schema with one reply in it, which
+# only a server that binds the reply can be counted on to return
+GUIDED_PROOF = "salt-ok"
+GUIDED_SCHEMA = {"enum": [GUIDED_PROOF]}
 GUIDED_CAPABLE = "guided"
-# the newer spelling of the same capability: vLLM deprecated guided_json
-# and newer servers accept only structured_outputs, so which word the
-# server took is part of what the probe learns
+# the newer spelling of the same capability: newer vLLM releases ignore
+# guided_json and hold a reply to a schema only through structured_outputs
 GUIDED_STRUCTURED = "structured"
 GUIDED_PLAIN = "plain"
 GUIDED_UNKNOWN = "unknown"
@@ -355,15 +355,24 @@ def schema_body(capability, schema):
     return {}
 
 
+def _bound(resp):
+    try:
+        text = resp.json()["choices"][0]["text"]
+        return json.loads(text.strip()) == GUIDED_PROOF
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return False
+
+
 def probe_guided(entry, url=None, timeout=10, served_model=None):
     """Whether this endpoint can be made to answer in a schema.
 
-    Asked of the wire, never inferred from a version string: a server
-    that says it is new enough and rejects the parameter anyway is the
-    case this exists for. A tiny completion carrying vLLM's guided_json
-    is sent, and the server's own answer decides. Anything other than
-    an accepted request means the plain protocol, since a capability
-    that cannot be demonstrated is one to plan without.
+    Asked of the wire, never inferred from a version string. A completion
+    held to a schema with one reply in it goes out in vLLM's older
+    guided_json spelling, then in structured_outputs, and a spelling
+    counts only when that one reply comes back: a server that drops a
+    key it does not know still answers 200. Anything else means the
+    plain protocol, since a capability that cannot be demonstrated is one
+    to plan without.
 
     The request goes out under the name the server itself is serving,
     asked for here when the caller does not already know it. A server
@@ -381,37 +390,35 @@ def probe_guided(entry, url=None, timeout=10, served_model=None):
         found = probe(entry, url=url, timeout=timeout)
         served_model = found.served_model
     body = {"model": served_model or cfg.get("hf_id") or entry.alias,
-            "prompt": "{", "max_tokens": 1, "temperature": 0,
-            "guided_json": GUIDED_SCHEMA}
-    try:
-        resp = requests.post(f"{url}/v1/completions", json=body,
-                             timeout=timeout)
-    except requests.RequestException as exc:
-        return GUIDED_UNKNOWN, f"{type(exc).__name__}: {exc}"
-    if resp.status_code == 200:
-        return GUIDED_CAPABLE, "the endpoint accepted a schema"
-    detail = (resp.text or "").strip().replace("\n", " ")[:200]
-    if resp.status_code == 404:
-        # the server does not have this model at all, so it never got as
-        # far as the schema. Saying "plain" here would be a guess wearing
-        # a measurement's clothes
-        return GUIDED_UNKNOWN, (f"the endpoint does not serve "
-                                f"{body['model']!r}, so nothing was asked "
-                                f"about schemas: {detail}")
-    # the old spelling was refused. Newer servers dropped it for
-    # structured outputs, so the same question is asked once more in
-    # that spelling before the endpoint is written down as plain
-    newer = {k: v for k, v in body.items() if k != "guided_json"}
-    newer["structured_outputs"] = {"json": GUIDED_SCHEMA}
-    try:
-        second = requests.post(f"{url}/v1/completions", json=newer,
-                               timeout=timeout)
-    except requests.RequestException:
-        second = None
-    if second is not None and second.status_code == 200:
-        return GUIDED_STRUCTURED, ("the endpoint accepted a schema as "
-                                   "structured outputs")
-    return GUIDED_PLAIN, f"the endpoint refused a schema ({resp.status_code}): {detail}"
+            "prompt": "{", "max_tokens": 16, "temperature": 0,
+            "stream": False}
+    first = None
+    for capability in SCHEMA_CAPABLE:
+        extra = schema_body(capability, GUIDED_SCHEMA)
+        try:
+            resp = requests.post(f"{url}/v1/completions",
+                                 json={**body, **extra}, timeout=timeout)
+        except requests.RequestException as exc:
+            if first is None:
+                return GUIDED_UNKNOWN, f"{type(exc).__name__}: {exc}"
+            break
+        if resp.status_code == 200 and _bound(resp):
+            return capability, (f"the endpoint held its reply to a schema "
+                                f"sent as {next(iter(extra))}")
+        if first is None:
+            first = resp
+            detail = (resp.text or "").strip().replace("\n", " ")[:200]
+            if resp.status_code == 404:
+                # the server does not have this model at all, so it never
+                # got as far as the schema. Saying "plain" here would be a
+                # guess wearing a measurement's clothes
+                return GUIDED_UNKNOWN, (f"the endpoint does not serve "
+                                        f"{body['model']!r}, so nothing was "
+                                        f"asked about schemas: {detail}")
+    if first.status_code == 200:
+        return GUIDED_PLAIN, (f"the endpoint answered without holding its "
+                              f"reply to a schema: {detail}")
+    return GUIDED_PLAIN, f"the endpoint refused a schema ({first.status_code}): {detail}"
 
 
 PLACEMENT_CEILING = 0.95

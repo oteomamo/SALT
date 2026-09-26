@@ -43,7 +43,7 @@ from salt.agents import snapshot as snapshot_module
 from salt.agents.snapshot import snapshot
 from salt.agents.delegate import (DelegationRequest, build_context,
                                   close_quietly, delegate)
-from salt.agents.roster import (GUIDED_CAPABLE, UNPROBED, RosterError,
+from salt.agents.roster import (SCHEMA_CAPABLE, UNPROBED, RosterError,
                                 check_placement, entry_cards,
                                 gpu_free_fractions, load_roster)
 from salt.agents.personas import (CHAT_WORKER, PersonaError, bind,
@@ -987,7 +987,7 @@ def deep_probe_command(state, rest):
     passes, total, notes = schema_smoke(handle)
     line = capability_line(guided, passes, total)
     print(f"  {handle.name}: {line} "
-          f"({'accepts a schema' if guided == GUIDED_CAPABLE else guided}, "
+          f"({'accepts a schema' if guided in SCHEMA_CAPABLE else guided}, "
           f"{passes}/{total} shapes returned exactly)")
     for note in notes:
         print(f"      {note}")
