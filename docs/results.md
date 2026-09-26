@@ -1,7 +1,11 @@
 # 🔬 Results
 
 SALT (coverage/CELF selector) on LongBench with Llama-3.1-8B-Instruct at a 20%
-token budget. The trie these numbers rest on is the subject of the
+token budget. These numbers were produced with torch 2.8.0, transformers
+4.55.2 and vLLM 0.11.0, the stack SALT pinned up to 3.0.26. The current
+stack (torch 2.10, transformers 5.5.3, vLLM 0.19.1) compresses to the same
+text, and rerunning five of the datasets on it moved their average by about
+a tenth of a point. The trie these numbers rest on is the subject of the
 [EMNLP 2026 paper](paper.md), which reports the earlier legacy
 selector. The measurements behind saltChat's memory features, on
 conversation benchmarks rather than documents, are described on the

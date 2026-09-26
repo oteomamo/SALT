@@ -84,7 +84,7 @@ echo "compressed $n_run dataset(s), skipped $n_skip  ->  $OUT_DIR"
 if [ "$RUN_EVAL" = "1" ] && [ "$n_run" -gt 0 ]; then
   if [ "$EVAL_BACKEND" = vllm ] && ! "$SALT_PY" -c "import vllm" 2>/dev/null; then
     echo "ERROR: --backend vllm needs vLLM in the salt env." >&2
-    echo "  install it:  WITH_VLLM=1 bash scripts/setup_env.sh   (or pip install vllm==0.11.0)" >&2
+    echo "  install it:  WITH_VLLM=1 bash scripts/setup_env.sh   (or pip install -e '.[vllm]')" >&2
     echo "  or score with the HF backend:  EVAL_BACKEND=hf bash scripts/run_datasets.sh" >&2
     exit 1
   fi

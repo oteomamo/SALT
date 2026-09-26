@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.26
+## 3.0.0 - 3.0.27
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -108,6 +108,12 @@ the details, and the 2.11 section below lists each step.
   as Qwen3.5, on the HF backend. The vLLM extra keeps vLLM 0.11.0 on
   transformers 4.55.2, since that vLLM release cannot run with
   transformers 5.
+- **3.0.27** The supported stack moves to vLLM 0.19.1, torch 2.10 and
+  transformers 5.5.3, which load model families such as Qwen3.5 on every
+  backend. It needs CUDA 12.8 and an NVIDIA driver 570 or newer, and it
+  still runs on Volta cards. The vLLM backend now installs through the
+  package's extra, `pip install -e ".[vllm]"`. The published results
+  page names the previous stack, which produced its numbers.
 
 ## 2.11.0 - 2.11.123
 

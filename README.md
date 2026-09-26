@@ -180,7 +180,9 @@ Where each stage lives, module by module, is mapped in
 
 ## 📦 Installation
 
-Requires Python 3.10 and a CUDA GPU (CPU works for compression, just slower).
+Requires Python 3.10 and a CUDA GPU with an NVIDIA driver 570 or newer,
+since the pinned torch is built for CUDA 12.8 (CPU works for compression,
+just slower).
 
 **1. Clone the repository**
 
@@ -230,14 +232,15 @@ Or skip the CLI and export the token directly: `export HF_TOKEN=hf_...`.
 **5. (Optional) vLLM backend.** `eval.py` defaults to vLLM,
 `saltChat --backend vllm` uses it for prefix caching, and `saltServe`
 launches a persistent model server with it. Install it into the `salt`
-env:
+env through the package's extra, which pins vLLM 0.19.1 to the
+transformers release it was tested with:
 
 ```bash
-pip install "vllm==0.11.0" "prometheus-fastapi-instrumentator>=8.0.1"
+pip install -e ".[vllm]"
 ```
 
-The second pin keeps the server's routes healthy next to newer fastapi
-releases. Skip this and run `eval.py --backend hf` for a portable run
+The extra also installs a small server package at a version that keeps
+the routes healthy next to newer fastapi releases. Skip this and run `eval.py --backend hf` for a portable run
 that needs no vLLM. `saltChat` already defaults to its HF backend.
 `saltServe` can also run a vLLM installed in a separate environment
 through `--vllm-bin`.

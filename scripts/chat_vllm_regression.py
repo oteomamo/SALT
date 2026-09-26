@@ -76,7 +76,7 @@ def main():
     try:
         import vllm  # noqa: F401
     except ImportError:
-        skip("vllm not installed (pip install vllm==0.11.0)")
+        skip('vllm not installed (pip install -e ".[vllm]")')
     import torch
     if not torch.cuda.is_available():
         skip("no CUDA device")

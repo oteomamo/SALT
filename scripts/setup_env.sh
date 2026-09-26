@@ -14,8 +14,9 @@
 #
 # The eval model (meta-llama/Llama-3.1-8B-Instruct) is gated: run
 #   hf auth login            (or export HF_TOKEN=...)
-# before evaluating. requirements.txt pins a CUDA torch wheel; for a different
-# CUDA build install torch yourself first, then re-run this script.
+# before evaluating. requirements.txt pins a CUDA 12.8 torch wheel (NVIDIA
+# driver 570 or newer); for a different CUDA build install torch yourself
+# first, then re-run this script.
 set -euo pipefail
 
 SALT_ENV="${SALT_ENV:-salt}"
@@ -38,7 +39,7 @@ conda run -n "$SALT_ENV" python -m pip install -e "$REPO_ROOT"
 
 if [ "$WITH_VLLM" = "1" ]; then
   echo ">> installing vLLM eval backend into '$SALT_ENV'"
-  conda run -n "$SALT_ENV" python -m pip install "vllm==0.11.0" "prometheus-fastapi-instrumentator>=8.0.1"
+  conda run -n "$SALT_ENV" python -m pip install -e "$REPO_ROOT[vllm]"
 fi
 
 echo

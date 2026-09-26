@@ -34,7 +34,7 @@ class VLLMChatRunner:
         except ImportError as exc:
             raise RuntimeError(
                 "the vllm backend needs the optional vLLM install: "
-                "pip install vllm==0.11.0 (README step 5)") from exc
+                'pip install -e ".[vllm]" (README step 5)') from exc
         self.cfg = cfg
         self.device = device
         self.alias = cfg["alias"]

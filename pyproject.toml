@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "salt"
-version = "3.0.26"
+version = "3.0.27"
 description = "SALT: Salience-Aware Lexical Trie for Long-Context Compression"
 readme = "README.md"
 license = "MIT"
@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-vllm = ["vllm==0.11.0", "transformers==4.55.2",
+vllm = ["vllm==0.19.1", "transformers==5.5.3", "mcp>=2.0,<2.1",
         "prometheus-fastapi-instrumentator>=8.0.1"]
 mcp = ["mcp>=2.0,<2.1"]
 docs = ["mkdocs-material>=9", "mike>=2"]
