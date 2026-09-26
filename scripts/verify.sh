@@ -10,9 +10,9 @@
 #   SMOKE_BASE=runs/base bash scripts/verify.sh smoke   # compare with a reference run
 #
 # Areas: chat, engine, dedup, keys, evict, incr, tail, text, scope, turns, summary, when,
-# agents, mcp, pdf, docs, smoke, vllm, serve, all. `all` covers everything that runs on CPU
-# with no server (vllm and serve need a GPU or a running server, run them
-# explicitly).
+# agents, mcp, models, pdf, docs, smoke, vllm, serve, all. `all` covers everything that
+# runs on CPU with no server (vllm and serve need a GPU or a running server, run
+# them explicitly).
 #
 # Suites run under the `salt` conda environment when it exists (they need
 # its dependencies, e.g. pypdf), else under the current python. SALT_ENV
@@ -106,6 +106,7 @@ area_summary() { run "summary coverage" "${PY[@]}" scripts/chat_summary_regressi
 area_when()   { run "time windows"    "${PY[@]}" scripts/chat_when_regression.py; }
 area_agents() { run "agent layer"     "${PY[@]}" scripts/chat_agents_regression.py; }
 area_mcp()    { run "mcp server"      "${PY[@]}" scripts/chat_mcp_regression.py; }
+area_models() { run "model loading"   "${PY[@]}" scripts/chat_models_regression.py; }
 area_pdf()    { run "pdf ingestion"   pdf_suite; }
 area_smoke()  { run "eval smoke"      smoke_suite; }
 area_docs()   { run "mkdocs strict"   docs_suite; }
@@ -113,11 +114,11 @@ area_engine() { area_chat; area_smoke; }
 area_vllm()   { run "vllm backend"    "${PY[@]}" scripts/chat_vllm_regression.py; }
 area_serve()  { run "serving"         "${PY[@]}" scripts/chat_serve_regression.py; }
 area_all()    { area_text; area_keys; area_chat; area_dedup; area_evict
-                area_incr; area_tail; area_agents; area_mcp; area_pdf
+                area_incr; area_tail; area_agents; area_mcp; area_models; area_pdf
                 area_smoke; area_docs; }
 
 case "${1:-}" in
-  chat|engine|dedup|keys|evict|incr|tail|text|scope|turns|summary|when|agents|mcp|pdf|docs|smoke|vllm|serve|all)
+  chat|engine|dedup|keys|evict|incr|tail|text|scope|turns|summary|when|agents|mcp|models|pdf|docs|smoke|vllm|serve|all)
     "area_$1" ;;
   *)
     sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'

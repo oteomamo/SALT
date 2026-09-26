@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.16
+## 3.0.0 - 3.0.17
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -54,6 +54,12 @@ the details, and the 2.11 section below lists each step.
   allows one reply, first as `guided_json` and then as
   `structured_outputs`, and keeps the spelling whose reply comes back
   held to it.
+- **3.0.17** saltChat loads the tokenizer a model was trained with.
+  When the installed transformers cannot read a tokenizer saved by a
+  newer release, or builds one that splits text differently from the
+  model's own tokenizer.json, as transformers 5 does for some models,
+  every backend falls back to that tokenizer.json. Tokenizers that
+  already load faithfully are untouched.
 
 ## 2.11.0 - 2.11.123
 

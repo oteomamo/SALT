@@ -12,10 +12,11 @@ closes the connection - the server keeping its model is the point.
 import json
 
 import requests
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoConfig
 
 from salt.chat.runner import (_model_input_limit, input_budget_for,
                               render_prompt, TEMPLATE_KEY)
+from salt.chat.tokload import load_tokenizer
 
 
 # what a caller may put on the request body instead of into sampling:
@@ -60,7 +61,7 @@ class VLLMServeChatRunner:
         self.served_model = card["id"]
         print(f"Connected to vLLM server at {self.server_url} "
               f"[{self.served_model}, prefix cache lives with the server]")
-        self.tokenizer = AutoTokenizer.from_pretrained(cfg["path"])
+        self.tokenizer = load_tokenizer(cfg["path"])
         self.max_input_len = self._resolved_window(card)
         if self.max_input_len:
             print(f"Context window: {self.max_input_len} tokens")

@@ -79,6 +79,7 @@ The table it wraps, for reference:
 | The MCP server (`salt/mcp/`, `salt-mcp`) | `python scripts/chat_mcp_regression.py` |
 | The per-turn work the session trie carries forward | `python scripts/chat_incremental_regression.py` |
 | `salt/chat/pdfio.py` (PDF or text ingestion) | `python scripts/chat_pdf_regression.py` |
+| Chat model loading (`salt/chat/tokload.py` and the runners that use it) | `python scripts/chat_models_regression.py` |
 | The vLLM backend (`--backend vllm`) | `python scripts/chat_vllm_regression.py` |
 | Persistent serving (`saltServe`, `--backend vllm-serve`) | `python scripts/chat_serve_regression.py` |
 | The selection engine (`salt/engine/`) | `python scripts/chat_theme_regression.py` plus a smoke run: `MAX_SAMPLES=5 RUN_EVAL=0 bash scripts/run_datasets.sh` |

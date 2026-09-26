@@ -16,10 +16,11 @@ import queue
 import threading
 
 import torch
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoConfig
 
 from salt.chat.runner import (_model_input_limit, input_budget_for,
                               render_prompt, TEMPLATE_KEY)
+from salt.chat.tokload import load_tokenizer
 
 
 class VLLMChatRunner:
@@ -44,7 +45,7 @@ class VLLMChatRunner:
         print(f"Loading chat model {cfg['hf_id']} on {device} "
               f"[vLLM, {cfg.get('dtype', 'bfloat16')}, prefix caching "
               f"on{note}]")
-        self.tokenizer = AutoTokenizer.from_pretrained(cfg["path"])
+        self.tokenizer = load_tokenizer(cfg["path"])
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(target=self._loop.run_forever,
                                              daemon=True)

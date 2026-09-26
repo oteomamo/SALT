@@ -412,8 +412,8 @@ def thinking_of(model):
     """
     from salt.agents.thinking import UNSET, template_thinking
     try:
-        from transformers import AutoTokenizer
-        tok = AutoTokenizer.from_pretrained(model.path)
+        from salt.chat.tokload import load_tokenizer
+        tok = load_tokenizer(model.path)
         return template_thinking(tok)
     except Exception:
         return UNSET

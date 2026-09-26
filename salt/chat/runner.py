@@ -17,9 +17,10 @@ import gc
 import threading
 
 import torch
-from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                          StoppingCriteria, StoppingCriteriaList,
-                          TextIteratorStreamer)
+from transformers import (AutoModelForCausalLM, StoppingCriteria,
+                          StoppingCriteriaList, TextIteratorStreamer)
+
+from salt.chat.tokload import load_tokenizer
 
 DTYPES = {"bfloat16": torch.bfloat16, "float16": torch.float16,
           "float32": torch.float32}
@@ -169,7 +170,7 @@ class ChatRunner:
         print(f"Loading chat model {cfg['hf_id']} {where} "
               f"[{cfg.get('dtype', 'bfloat16')}, "
               f"attn={cfg.get('attn_implementation', 'sdpa')}]")
-        self.tokenizer = AutoTokenizer.from_pretrained(cfg["path"])
+        self.tokenizer = load_tokenizer(cfg["path"])
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.model = AutoModelForCausalLM.from_pretrained(

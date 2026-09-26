@@ -40,6 +40,9 @@ plain install stays green.
 - `chat_when_regression.py` covers the time a turn searches: the times a
   line can name, the window each resolves to, and the conversation rows
   a window holds out.
+- `chat_models_regression.py` covers chat model loading: the one
+  tokenizer loader every backend uses, checked on small tokenizers it
+  builds itself and on every registered model.
 - `chat_vllm_regression.py` covers the in-process `--backend vllm`.
 - `chat_serve_regression.py` covers persistent serving (`saltServe` and
   `--backend vllm-serve`), including its multi-GPU command construction.
