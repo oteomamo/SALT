@@ -132,6 +132,7 @@ from _agent_stub import (HONOR, IGNORE, REFUSE,                  # noqa: E402
                          CannedReplies, Stub, closed_port, stub_server)
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
+STUB_TOKENIZER = BGE_MODEL
 SAMPLE = REPO / "salt" / "agents" / "roster_sample.json"
 DEMO = REPO / "salt" / "agents" / "demo_turns.json"
 SAMPLE_ALIAS = "qwen05"
@@ -1370,7 +1371,7 @@ def delegation_roster(url, tmp, name="w", **kw):
     entry = R.RosterEntry(name=name, alias="stub", role="worker",
                           server_url=url,
                           model={"alias": "stub", "hf_id": "some/model",
-                                 "path": BGE_MODEL}, **kw)
+                                 "path": STUB_TOKENIZER}, **kw)
     return R.Roster(path=str(Path(tmp) / "r.json"), entries=(entry,))
 
 
@@ -2718,7 +2719,7 @@ def two_worker_roster(tmp, first, second):
         return R.RosterEntry(name=name, alias="stub", role="worker",
                              server_url=url,
                              model={"alias": "stub", "hf_id": "some/model",
-                                    "path": BGE_MODEL})
+                                    "path": STUB_TOKENIZER})
     return R.Roster(path=str(Path(tmp) / "two_workers.json"),
                     entries=(one("a", first), one("b", second)))
 
@@ -3283,7 +3284,7 @@ def check_deep_probe(tmp, tok, mdl):
     assert capability_line(RR.GUIDED_CAPABLE, 2, 3) == "flaky 2/3"
     assert capability_line(RR.GUIDED_UNKNOWN, 0, 3) == "flaky 0/3"
 
-    cfg = {"alias": "stub", "hf_id": "some/model", "path": BGE_MODEL}
+    cfg = {"alias": "stub", "hf_id": "some/model", "path": STUB_TOKENIZER}
     cards = [{"id": "some/model", "max_model_len": 4096}]
     perfect = [json.dumps(want) for _, want in SCHEMA_SMOKE]
     with Stub(cards=cards, guided=HONOR) as s:
@@ -5689,7 +5690,7 @@ def boss_roster(url, tmp, **kw):
     boss = R.RosterEntry(name="boss", alias="stub", role="orchestrator",
                          server_url=url,
                          model={"alias": "stub", "hf_id": "some/model",
-                                "path": BGE_MODEL}, **kw)
+                                "path": STUB_TOKENIZER}, **kw)
     return R.Roster(path=str(tmp / "boss_roster.json"),
                     entries=(worker, boss))
 
@@ -5782,7 +5783,7 @@ def check_roster_orchestrator(tmp, tok, mdl):
             R.RosterEntry(name="boss", alias="stub", role="orchestrator",
                           server_url=f"http://127.0.0.1:{closed_port()}",
                           model={"alias": "stub", "hf_id": "some/model",
-                                 "path": BGE_MODEL})))
+                                 "path": STUB_TOKENIZER})))
         state = canned_state(tmp, "boss_down", tok, mdl, [plan_json, final],
                              roster)
         try:
@@ -5824,7 +5825,7 @@ def three_worker_roster(urls, tmp):
     entries = tuple(
         R.RosterEntry(name=name, alias="stub", role="worker", server_url=url,
                       model={"alias": "stub", "hf_id": "some/model",
-                             "path": BGE_MODEL})
+                             "path": STUB_TOKENIZER})
         for name, url in urls)
     return R.Roster(path=str(Path(tmp) / "many.json"), entries=entries)
 
@@ -6798,7 +6799,7 @@ def check_hardening_fixes(tmp, tok, mdl):
         entry = R.RosterEntry(name="w", alias="stub", role="worker",
                               server_url=stalled.url,
                               model={"alias": "stub", "hf_id": "some/model",
-                                     "path": BGE_MODEL})
+                                     "path": STUB_TOKENIZER})
         handle = W.WorkerHandle(entry)
         try:
             list(handle.call([{"role": "user", "content": "hi"}],
@@ -6817,7 +6818,7 @@ def check_hardening_fixes(tmp, tok, mdl):
     gone = R.RosterEntry(name="w", alias="stub", role="worker",
                          server_url=f"http://127.0.0.1:{W.free_port()}",
                          model={"alias": "stub", "hf_id": "some/model",
-                                "path": BGE_MODEL})
+                                "path": STUB_TOKENIZER})
     cold = W.WorkerHandle(gone)
     assert cold.opened() is None and cold.failures == 0, (
         "looking at a dead worker counted against it")
@@ -7193,11 +7194,11 @@ def check_route_signals(tmp, tok, mdl):
             R.RosterEntry(name="a", alias="stub", role="worker",
                           server_url=s.url, notes="writes prose",
                           model={"alias": "stub", "hf_id": "some/model",
-                                 "path": BGE_MODEL}),
+                                 "path": STUB_TOKENIZER}),
             R.RosterEntry(name="b", alias="stub", role="worker",
                           server_url=s.url, notes="writes prose",
                           model={"alias": "stub", "hf_id": "some/model",
-                                 "path": BGE_MODEL})))
+                                 "path": STUB_TOKENIZER})))
         st = quiet_state(tmp, "route_signals", tok, mdl, roster=roster)
         try:
             sig = RT.route_signals(st, "how far?")
@@ -9620,7 +9621,7 @@ def check_probe_by_output(tmp, tok, mdl):
     from salt.agents import protocol as P
 
     assert RR.GUIDED_SCHEMA == {"enum": [RR.GUIDED_PROOF]}, RR.GUIDED_SCHEMA
-    cfg = {"alias": "stub", "hf_id": "some/model", "path": BGE_MODEL}
+    cfg = {"alias": "stub", "hf_id": "some/model", "path": STUB_TOKENIZER}
     keys = {"guided_json", "structured_outputs"}
     for guided, structured, want, posts, key in (
             (HONOR, HONOR, RR.GUIDED_CAPABLE, 1, "guided_json"),
@@ -9734,7 +9735,7 @@ def check_template_opened(tmp, tok, mdl):
     with Stub(cards=CARDS, pieces=(capped,)) as s:
         kept = R.RosterEntry(
             name="w2", alias="stub", role="worker", server_url=s.url,
-            model={"alias": "stub", "hf_id": "some/model", "path": BGE_MODEL,
+            model={"alias": "stub", "hf_id": "some/model", "path": STUB_TOKENIZER,
                    "gen": {runner_mod.TEMPLATE_KEY: {"enable_thinking":
                                                      False}}})
         roster = delegation_roster(s.url, tmp)
@@ -10218,6 +10219,19 @@ def check_add_config(tmp):
           "and a missing config.json refuses nothing")
 
 
+def local_tokenizer():
+    """The encoder's tokenizer files on disk, so a stub worker opens its
+    tokenizer the way a registered model does, without the network."""
+    global STUB_TOKENIZER
+    from huggingface_hub import snapshot_download
+    try:
+        STUB_TOKENIZER = snapshot_download(
+            BGE_MODEL, allow_patterns=["*.json", "*.txt"])
+    except Exception:
+        STUB_TOKENIZER = BGE_MODEL
+    return STUB_TOKENIZER
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -10233,7 +10247,7 @@ def main():
         check_worker_handle()
         print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
         tok, mdl = load_bge(BGE_MODEL, args.device)
-        tok_path = BGE_MODEL
+        tok_path = local_tokenizer()
         check_worker_calls(tok_path)
         check_abort(tok_path)
         check_spawning(tmp)
