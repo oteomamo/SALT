@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3025" class="md-nav__link">
+  <a href="#300-3026" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.25
+        3.0.0 - 3.0.26
       
     </span>
   </a>
@@ -1300,10 +1300,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3025" class="md-nav__link">
+  <a href="#300-3026" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.25
+        3.0.0 - 3.0.26
       
     </span>
   </a>
@@ -1478,7 +1478,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="300-3025">3.0.0 - 3.0.25</h2>
+<h2 id="300-3026">3.0.0 - 3.0.26</h2>
 <p>The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
 grades the reply it wrote against the material it was written from,
@@ -1575,6 +1575,11 @@ the details, and the 2.11 section below lists each step.</p>
   DeepSeek-R1-Distill-Llama-8B no longer answers with <code>Ġ</code> in place of
   every space under transformers 5. Models whose tokenizer loads
   faithfully start with the same engine settings as before.</li>
+<li><strong>3.0.26</strong> SALT installs next to transformers 4.55.2 through 5.5, so
+  an environment can load model families newer than the 4.55 line, such
+  as Qwen3.5, on the HF backend. The vLLM extra keeps vLLM 0.11.0 on
+  transformers 4.55.2, since that vLLM release cannot run with
+  transformers 5.</li>
 </ul>
 <h2 id="2110-211123">2.11.0 - 2.11.123</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
