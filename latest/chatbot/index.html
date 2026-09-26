@@ -1597,6 +1597,9 @@ cache into <code>salt/models/</code>, never copied (see
 <a href="https://github.com/oteomamo/SALT/blob/main/salt/models/README.md"><code>salt/models/README.md</code></a>):</p>
 <div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--add<span class="w"> </span>Qwen/Qwen2.5-0.5B-Instruct<span class="w"> </span>--alias<span class="w"> </span>qwen05
 </code></pre></div>
+<p><code>--add</code> and <code>/add</code> read the model's own <code>config.json</code> first and print a
+warning when this environment cannot load that model, then download it
+anyway.</p>
 <p>Chat, optionally seeding the trie with a document:</p>
 <div class="highlight"><pre><span></span><code>saltChat<span class="w"> </span>--model<span class="w"> </span>qwen05<span class="w"> </span>--conversation-id<span class="w"> </span>demo1<span class="w"> </span>--doc<span class="w"> </span>report.txt
 </code></pre></div>
