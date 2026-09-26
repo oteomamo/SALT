@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.20
+## 3.0.0 - 3.0.21
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -78,6 +78,12 @@ the details, and the 2.11 section below lists each step.
   before the download and warn when this environment cannot load that
   model, then register it anyway, so a multi-gigabyte download no longer
   ends in a model that fails only at its first start.
+- **3.0.21** `eval.py --backend vllm` starts on a cold vLLM model cache
+  when numpy is built on Intel MKL, as in the Anaconda defaults channel.
+  vLLM's model check runs in a child process that aborted on an MKL
+  threading clash there, so the first evaluation of a model on a fresh
+  machine failed. A value the user sets for `MKL_THREADING_LAYER` still
+  wins.
 
 ## 2.11.0 - 2.11.123
 

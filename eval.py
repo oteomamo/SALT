@@ -404,6 +404,7 @@ class VLLMBackend:
         else:
             os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 
+        os.environ.setdefault("MKL_THREADING_LAYER", "GNU")
         from vllm import LLM, SamplingParams  # lazy: only vllm users need it
         self._SamplingParams = SamplingParams
 
