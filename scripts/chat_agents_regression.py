@@ -10087,6 +10087,127 @@ def check_load_failures(tmp, tok, mdl):
           "loads again after two failures in a row")
 
 
+def check_add_config(tmp):
+    """--add reads config.json before the download and warns about a
+    model this environment cannot load, then registers it all the same."""
+    from types import SimpleNamespace
+
+    import huggingface_hub as HH
+    from huggingface_hub import constants
+    from huggingface_hub.errors import LocalEntryNotFoundError
+    from transformers.models.auto.configuration_auto import \
+        CONFIG_MAPPING_NAMES
+
+    from salt.chat import registry as REG
+
+    root = tmp / "add_config"
+    configs = {
+        "fixture/future": {"model_type": "salt_future_arch",
+                           "transformers_version": "4.0.0"},
+        "Qwen/Qwen3.5-9B": {"model_type": "qwen3_5",
+                            "text_config": {"model_type": "qwen3_5_text"},
+                            "transformers_version": "5.2.0.dev0"},
+        "fixture/plain": {"model_type": "qwen2",
+                          "transformers_version": "99.0.0"},
+        "fixture/gated": "401 Client Error: gated repo",
+    }
+    events = []
+
+    def fake_file(repo_id, filename, **kw):
+        events.append(("config", repo_id, filename,
+                       kw.get("local_files_only")))
+        config = configs.get(repo_id)
+        if config is None:
+            raise LocalEntryNotFoundError("no config.json here")
+        if isinstance(config, str):
+            raise OSError(config)
+        folder = root / "hub" / repo_id.replace("/", "--")
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "config.json").write_text(json.dumps(config))
+        return str(folder / "config.json")
+
+    def fake_snapshot(repo_id, **kw):
+        events.append(("snapshot", repo_id, sys.stdout.getvalue()))
+        folder = root / "snap" / repo_id.replace("/", "--")
+        folder.mkdir(parents=True, exist_ok=True)
+        return str(folder)
+
+    def add(hf_id, *flags):
+        events.clear()
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = cli.main(["--add", hf_id, *flags])
+        return rc, out.getvalue(), err.getvalue()
+
+    with patched(HH, hf_hub_download=fake_file,
+                 snapshot_download=fake_snapshot), \
+            patched(REG, MODELS_DIR=root / "models"):
+        # a type this transformers does not know warns before the download
+        # starts, and the download goes ahead
+        rc, out, err = add("fixture/future")
+        assert rc == 0, err
+        warned = [ln for ln in out.splitlines() if ln.startswith("warning:")]
+        assert len(warned) == 1 and "'salt_future_arch'" in warned[0], out
+        assert warned[0].endswith("Registering it anyway."), warned
+        assert [e[0] for e in events] == ["config", "snapshot"], events
+        assert events[0][1:3] == ("fixture/future", "config.json"), events
+        assert warned[0] in events[1][2], (
+            "the warning came after the download started")
+        assert (root / "models" / "future" / "weights").is_symlink()
+        assert "Registered fixture/future as 'future'" in out, out
+
+        # a Qwen3.5 checkpoint, on whatever transformers runs here
+        rc, out, _ = add("Qwen/Qwen3.5-9B", "--alias", "qwen3.5-9b")
+        assert rc == 0 and events[-1][0] == "snapshot", events
+        if "qwen3_5" in CONFIG_MAPPING_NAMES:
+            assert "warning:" not in out, out
+        else:
+            assert "warning:" in out and "'qwen3_5'" in out, out
+
+        # a model this environment loads is registered as quietly as
+        # before, whatever transformers version its config names
+        rc, out, _ = add("fixture/plain")
+        assert rc == 0 and "warning:" not in out, out
+        assert [e[0] for e in events] == ["config", "snapshot"], events
+
+        # a repo with no config.json is not refused for it
+        rc, out, _ = add("fixture/bare")
+        assert rc == 0 and "warning:" not in out, out
+        assert [e[0] for e in events] == ["config", "snapshot"], events
+
+        # a repo the config fetch cannot reach says so the way the
+        # download always has, and nothing is downloaded
+        rc, out, err = add("fixture/gated")
+        assert rc == 1 and "This repo is gated" in err, err
+        assert [e[0] for e in events] == ["config"], events
+        assert not (root / "models" / "gated").exists()
+
+        # offline stays offline
+        assert events[0][3] is False, events
+        with patched(constants, HF_HUB_OFFLINE=True):
+            add("fixture/offline")
+        assert events[0][3] is True, events
+
+        # the REPL's /add warns the same way
+        events.clear()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.handle_command("/add fixture/future fut2",
+                               SimpleNamespace(backend="hf"))
+        assert "warning:" in buf.getvalue(), buf.getvalue()
+        assert "Registered fixture/future as 'fut2'." in buf.getvalue()
+
+        # and the library call alone fetches nothing more than it did
+        events.clear()
+        with redirect_stdout(io.StringIO()):
+            REG.register_model("fixture/plain", alias="lib")
+        assert [e[0] for e in events] == ["snapshot"], events
+    print("93. --add reads config.json first: a model type this environment "
+          "cannot load warns before the download and is registered anyway, "
+          "a loadable one stays quiet whatever version its config names, "
+          "and a missing config.json refuses nothing")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu", help="device for the encoder")
@@ -10191,6 +10312,7 @@ def main():
         check_probe_by_output(tmp, tok, mdl)
         check_template_opened(tmp, tok, mdl)
         check_load_failures(tmp, tok, mdl)
+        check_add_config(tmp)
         print("PASS")
     finally:
         if not args.keep:

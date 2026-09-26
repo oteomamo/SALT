@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.19
+## 3.0.0 - 3.0.20
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -74,6 +74,10 @@ the details, and the 2.11 section below lists each step.
   only the vLLM backend can run, or a vLLM release that cannot run next
   to the installed transformers. `/model` keeps working after a switch
   where neither model loads.
+- **3.0.20** `--add` and `/add` read the model's own `config.json`
+  before the download and warn when this environment cannot load that
+  model, then register it anyway, so a multi-gigabyte download no longer
+  ends in a model that fails only at its first start.
 
 ## 2.11.0 - 2.11.123
 

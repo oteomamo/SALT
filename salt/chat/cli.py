@@ -2703,6 +2703,12 @@ def switch_model(state, name):
             print("No model loaded - use /model <name> when ready.")
 
 
+def warn_unloadable(config, backend):
+    hint = support.load_hint(config, backend)
+    if hint:
+        print(f"warning: {hint} Registering it anyway.")
+
+
 def scope_command(state, rest):
     """`/scope` shows the setting. `/scope auto` hands the choice to the
     rule, `/scope off` searches every file, and `/scope <file>[,<file>]`
@@ -2794,8 +2800,9 @@ def handle_command(line, state):
             print("Usage: /add <hf_id> [alias]")
         else:
             try:
-                cfg = register_model(rest[0],
-                                     alias=rest[1] if len(rest) > 1 else None)
+                cfg = register_model(
+                    rest[0], alias=rest[1] if len(rest) > 1 else None,
+                    on_config=lambda c: warn_unloadable(c, state.backend))
                 print(f"Registered {cfg['hf_id']} as {cfg['alias']!r}.")
             except RegistryError as exc:
                 print(exc)
@@ -4421,8 +4428,9 @@ def main(argv=None):
 
     if args.add:
         try:
-            cfg = register_model(args.add, alias=args.alias, dtype=args.dtype,
-                                 force=args.force)
+            cfg = register_model(
+                args.add, alias=args.alias, dtype=args.dtype, force=args.force,
+                on_config=lambda c: warn_unloadable(c, args.backend))
         except RegistryError as exc:
             print(exc, file=sys.stderr)
             return 1

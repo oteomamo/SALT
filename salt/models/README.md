@@ -22,6 +22,10 @@ saltChat --add Qwen/Qwen2.5-0.5B-Instruct --alias qwen05
 saltChat --list
 ```
 
+Before the download, `--add` fetches the model's own `config.json` and
+prints a warning when this environment cannot load that model, then
+registers it anyway.
+
 `config.json` schema:
 
 ```json

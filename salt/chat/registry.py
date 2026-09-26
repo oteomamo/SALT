@@ -57,14 +57,42 @@ def _load_entry(alias):
     return cfg
 
 
+def _download_error(hf_id, exc):
+    msg = f"Download failed for {hf_id!r} ({type(exc).__name__}: {exc})"
+    low = str(exc).lower()
+    if "gated" in low or "401" in low or "403" in low or "restricted" in low:
+        msg += ("\nThis repo is gated: request access on huggingface.co, "
+                "then run `hf auth login` or `export HF_TOKEN=hf_...`.")
+    return msg
+
+
+def fetch_config(hf_id):
+    """The repo's own config.json, or None when it has none."""
+    from huggingface_hub import constants, hf_hub_download
+    from huggingface_hub.errors import EntryNotFoundError
+    try:
+        path = hf_hub_download(hf_id, "config.json",
+                               local_files_only=constants.HF_HUB_OFFLINE)
+    except EntryNotFoundError:
+        return None
+    except Exception as exc:
+        raise RegistryError(_download_error(hf_id, exc)) from exc
+    try:
+        config = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    return config if isinstance(config, dict) else None
+
+
 def register_model(hf_id, alias=None, *, dtype="bfloat16",
                    attn_implementation="sdpa",
                    max_new_tokens=CHAT_REPLY_TOKENS,
-                   temperature=0.7, force=False):
+                   temperature=0.7, force=False, on_config=None):
     """Download ``hf_id`` (into the normal HF cache) and register it.
 
     Creates ``salt/models/<alias>/`` with a ``weights`` symlink to the cached
     snapshot plus a ``config.json``. Returns the entry dict (with ``path``).
+    ``on_config`` is handed the repo's own config.json before the download.
     """
     hf_id = (hf_id or "").strip()
     if "/" not in hf_id:
@@ -88,16 +116,13 @@ def register_model(hf_id, alias=None, *, dtype="bfloat16",
             f"Alias {alias!r} already registered (holds {held}). "
             f"Pick another with --alias, or pass --force to overwrite.")
 
+    if on_config is not None:
+        on_config(fetch_config(hf_id))
     from huggingface_hub import snapshot_download
     try:
         snapshot_path = snapshot_download(repo_id=hf_id)
     except Exception as exc:
-        msg = f"Download failed for {hf_id!r} ({type(exc).__name__}: {exc})"
-        low = str(exc).lower()
-        if "gated" in low or "401" in low or "403" in low or "restricted" in low:
-            msg += ("\nThis repo is gated: request access on huggingface.co, "
-                    "then run `hf auth login` or `export HF_TOKEN=hf_...`.")
-        raise RegistryError(msg) from exc
+        raise RegistryError(_download_error(hf_id, exc)) from exc
 
     entry.mkdir(parents=True, exist_ok=True)
     link = entry / "weights"

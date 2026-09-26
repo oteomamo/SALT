@@ -18,6 +18,10 @@ cache into `salt/models/`, never copied (see
 saltChat --add Qwen/Qwen2.5-0.5B-Instruct --alias qwen05
 ```
 
+`--add` and `/add` read the model's own `config.json` first and print a
+warning when this environment cannot load that model, then download it
+anyway.
+
 Chat, optionally seeding the trie with a document:
 
 ```bash
