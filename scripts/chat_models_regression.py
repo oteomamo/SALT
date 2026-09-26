@@ -11,6 +11,9 @@ CPU only, no model weights. Asserts:
      substitutes hands the model input ids and an attention mask only.
   2. Every registered model's tokenizer stays faithful to its
      tokenizer.json, with any fallback named (SKIP when none is registered).
+  3. The HF runner also stops at the tokenizer's end token: generate gets
+     the union of the model's stop ids and the tokenizer's only when the
+     tokenizer's id is missing, and nothing extra when they agree.
 
 Usage:
     python scripts/chat_models_regression.py
@@ -22,6 +25,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -31,10 +35,11 @@ if not __debug__:
 import transformers
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         trainers)
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
 from salt.chat import tokload
 from salt.chat.registry import list_models
+from salt.chat.runner import ChatRunner, eos_union
 from salt.chat.tokload import (PROBE, faithful, load_tokenizer,
                                resolve_tokenizer)
 
@@ -171,9 +176,55 @@ def check_registered():
     print(f"2. registered models: {len(entries)} tokenizers faithful")
 
 
+class StubModel:
+    def __init__(self, eos):
+        self.generation_config = SimpleNamespace(eos_token_id=eos)
+        self.seen = None
+
+    def generate(self, **kwargs):
+        self.seen = kwargs
+        kwargs["streamer"].end()
+
+
+def generate_kwargs(tokenizer, eos):
+    runner = ChatRunner.__new__(ChatRunner)
+    runner.cfg = {"alias": "stub", "gen": {"max_new_tokens": 4,
+                                           "temperature": 0}}
+    runner.tokenizer = tokenizer
+    runner.model = StubModel(eos)
+    runner.input_device = "cpu"
+    runner.max_input_len = None
+    list(runner.stream_chat(PROBE[:2]))
+    return runner.model.seen
+
+
+def check_eos():
+    assert eos_union(5, 7) == [5, 7]
+    assert eos_union([5, 6], 7) == [5, 6, 7]
+    assert eos_union((5,), 7) == [5, 7]
+    assert eos_union(None, 7) == [7]
+    for same in ((5, 5), ([5, 6], 6), ([6, 5], 6), (5, None),
+                 (None, None), ([5, 6], None)):
+        assert eos_union(*same) is None, same
+
+    tok = PreTrainedTokenizerFast(tokenizer_object=byte_level_bpe(),
+                                  eos_token="<|im_end|>",
+                                  pad_token="<|endoftext|>")
+    tok.chat_template = CHATML
+    end = tok.eos_token_id
+    other = tok.convert_tokens_to_ids("<|endoftext|>")
+    assert generate_kwargs(tok, other).get("eos_token_id") == [other, end]
+    assert generate_kwargs(tok, None).get("eos_token_id") == [end]
+    for own in ([end, other], end, [other, end]):
+        assert "eos_token_id" not in generate_kwargs(tok, own), own
+    print("3. stop ids: the tokenizer's end token joins the model's own "
+          "only when missing, and a model that has it passes nothing new")
+
+
 def main():
     check_fixtures()
     check_registered()
+    check_eos()
     print("PASS")
 
 

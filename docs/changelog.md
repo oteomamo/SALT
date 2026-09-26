@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.21
+## 3.0.0 - 3.0.22
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -84,6 +84,11 @@ the details, and the 2.11 section below lists each step.
   threading clash there, so the first evaluation of a model on a fresh
   machine failed. A value the user sets for `MKL_THREADING_LAYER` still
   wins.
+- **3.0.22** Replies on the HF backend stop at the chat's end-of-turn
+  token. A model whose generation settings name only its end-of-text
+  token, Qwen3.5 among them, ran past the end of its turn and left a
+  trailing newline on every reply. Models whose settings already name
+  that token are unchanged.
 
 ## 2.11.0 - 2.11.123
 

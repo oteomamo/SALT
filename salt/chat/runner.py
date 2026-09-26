@@ -113,6 +113,15 @@ def sampling_for(gen_cfg):
     return temperature, do_sample
 
 
+def eos_union(generation_ids, tokenizer_id):
+    """The model's stop ids plus the tokenizer's, None when already there."""
+    ids = ([] if generation_ids is None else [generation_ids]
+           if isinstance(generation_ids, int) else list(generation_ids))
+    if tokenizer_id is None or tokenizer_id in ids:
+        return None
+    return ids + [tokenizer_id]
+
+
 def _cuda_total_memory(idx):
     return torch.cuda.get_device_properties(idx).total_memory
 
@@ -232,6 +241,10 @@ class ChatRunner:
             gen_kwargs["temperature"] = temperature
             if "top_p" in gen_cfg:
                 gen_kwargs["top_p"] = float(gen_cfg["top_p"])
+        eos = eos_union(self.model.generation_config.eos_token_id,
+                        self.tokenizer.eos_token_id)
+        if eos is not None:
+            gen_kwargs["eos_token_id"] = eos
 
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True,
                                         skip_special_tokens=True)
