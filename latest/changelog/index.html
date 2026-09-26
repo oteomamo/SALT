@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3024" class="md-nav__link">
+  <a href="#300-3025" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.24
+        3.0.0 - 3.0.25
       
     </span>
   </a>
@@ -1300,10 +1300,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3024" class="md-nav__link">
+  <a href="#300-3025" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.24
+        3.0.0 - 3.0.25
       
     </span>
   </a>
@@ -1478,7 +1478,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="300-3024">3.0.0 - 3.0.24</h2>
+<h2 id="300-3025">3.0.0 - 3.0.25</h2>
 <p>The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
 grades the reply it wrote against the material it was written from,
@@ -1568,6 +1568,13 @@ the details, and the 2.11 section below lists each step.</p>
   client off its stderr. Newer <code>huggingface_hub</code> releases log every file
   check at startup, which buried the server's own messages. Warnings
   still show.</li>
+<li><strong>3.0.25</strong> The vLLM backends show a reply the way the model wrote it.
+  When saltChat's tokenizer loader has to replace the tokenizer the
+  installed transformers builds, the in-process engine and <code>saltServe</code>
+  now get the corrected one too, so a model such as
+  DeepSeek-R1-Distill-Llama-8B no longer answers with <code>Ġ</code> in place of
+  every space under transformers 5. Models whose tokenizer loads
+  faithfully start with the same engine settings as before.</li>
 </ul>
 <h2 id="2110-211123">2.11.0 - 2.11.123</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
