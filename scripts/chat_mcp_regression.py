@@ -914,6 +914,52 @@ def check_hub_logging():
           "off the server's stderr, its warnings still show")
 
 
+SHUTDOWN_CHILD = """
+import signal, sys
+from salt.mcp.server import shutdown_once
+
+
+class Pool:
+    saved = False
+
+    def close_all(self):
+        for _ in range(int(sys.argv[1])):
+            signal.raise_signal(signal.SIGTERM)
+        Pool.saved = True
+
+
+class Runtime:
+    def close(self):
+        pass
+
+
+close, on_signal = shutdown_once(Pool(), Runtime())
+signal.signal(signal.SIGTERM, on_signal)
+close()
+print("saved" if Pool.saved else "cut")
+"""
+
+
+def check_shutdown_signal():
+    env = dict(os.environ)
+    env.pop("MKL_THREADING_LAYER", None)
+    seen = {}
+    for kills in (1, 2):
+        out = subprocess.run(
+            [sys.executable, "-c", SHUTDOWN_CHILD, str(kills)],
+            capture_output=True, text=True, cwd=REPO, env=env)
+        assert out.returncode == 0, out.stderr[-400:]
+        seen[kills] = out.stdout.strip()
+    assert seen[1] == "saved", (
+        f"a signal during the close cut the write short: {seen[1]!r}")
+    assert seen[2] == "", (
+        f"a second signal during the close did not stop the server: "
+        f"{seen[2]!r}")
+    print("17. shutdown: a signal that lands while the conversations are "
+          "being written lets the write finish, and a second one stops "
+          "at once")
+
+
 TALK = [("user", "The house has 9 kW of solar panels and a 5 kW inverter."),
         ("assistant", "In December the panels produce almost nothing, so "
                       "the battery carries the evening on its own."),
@@ -1134,6 +1180,7 @@ def main():
         check_serial_and_sync(sessions)
         asyncio.run(drive_doc_root(sessions))
         check_hub_logging()
+        check_shutdown_signal()
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
     print("PASS")

@@ -738,14 +738,15 @@ def shutdown_once(pool, runtime):
     A client hanging up, a Ctrl-C and a kill all mean the same thing:
     every open conversation drained and written, every worker connection
     let go. Idempotent because more than one of those paths can fire,
-    and a second close must not undo the first one's work.
+    and a second close must neither undo the first one's work nor cut
+    it short.
     """
-    state = {"done": False}
+    state = {"done": False, "running": False, "deferred": False}
 
     def close(*_args):
         if state["done"]:
             return
-        state["done"] = True
+        state["done"] = state["running"] = True
         # a tool call may still be running on the SDK's thread. Waiting a
         # bounded moment for it keeps the save off a trie mid-mutation;
         # past the bound the close goes ahead, because a kill that never
@@ -758,10 +759,26 @@ def shutdown_once(pool, runtime):
             try:
                 runtime.close()
             finally:
+                state["running"] = False
                 if held:
                     SERIAL.release()
 
-    return close
+    def on_signal(*_args):
+        # a signal that lands while the close is writing lets it finish,
+        # and a second one stops at once. Otherwise the stop is hard on
+        # purpose: the transport reads stdin on a thread of its own that
+        # will not return until the client hangs up, and waiting for it
+        # would turn a kill into a hang. The exit rides a finally, because
+        # a close that failed on one session must still end the process
+        if state["running"] and not state["deferred"]:
+            state["deferred"] = True
+            return
+        try:
+            close()
+        finally:
+            os._exit(0)
+
+    return close, on_signal
 
 
 def main(argv=None):
@@ -783,21 +800,8 @@ def main(argv=None):
                           doc_root=doc_root)
     # the last word a session gets is written when this server ends, so
     # every way of ending has to reach the same close
-    closing = shutdown_once(pool, server.runtime)
+    closing, on_signal = shutdown_once(pool, server.runtime)
     atexit.register(closing)
-
-    def on_signal(*_args):
-        # the close is the part that matters and it has already happened
-        # by the time this exits. The stop is hard on purpose: the
-        # transport reads stdin on a thread of its own that will not
-        # return until the client hangs up, and waiting for it would
-        # turn a kill into a hang. The exit rides a finally, because a
-        # close that failed on one session must still end the process
-        try:
-            closing()
-        finally:
-            os._exit(0)
-
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, on_signal)
     try:

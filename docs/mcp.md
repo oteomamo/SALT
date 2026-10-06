@@ -206,7 +206,9 @@ last complete state as it opens, the dropped text is kept in
 
 However the server ends, it ends the same way. A client hanging up, a
 Ctrl-C or a kill all drain every open conversation and write the ones
-that changed before the process stops.
+that changed before the process stops. A Ctrl-C or kill that arrives
+while that write is running waits for it, and a second one stops the
+server at once.
 
 ## Documents in a conversation
 

@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.32
+## 3.0.0 - 3.0.33
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -119,6 +119,11 @@ the details, and the 2.11 section below lists each step.
   family does, instead of the answer vanishing without a word. It
   suggests turning thinking off only when the model's template has that
   switch.
+- **3.0.33** `salt-mcp` finishes writing its conversations when a
+  Ctrl-C or kill arrives while it is already writing them on the way
+  out, as a client that waits a moment and then sends one can do,
+  instead of stopping partway through. A second one still stops the
+  server at once.
 
 ## 2.11.0 - 2.11.123
 
