@@ -70,7 +70,7 @@ Context Protocol, so an editor or an agent runtime can compress text
 and keep conversation memory through it. Install the extra:
 
 ```bash
-pip install "salt[mcp]"
+pip install -e ".[mcp]"
 ```
 
 Then point a client at the `salt-mcp` command, see

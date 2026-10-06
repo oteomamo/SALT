@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.29
+## 3.0.0 - 3.0.32
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -425,7 +425,7 @@ Patch releases, grouped where several versions shipped one thing:
   middle of a conversation without ending it, including under
   `--backend vllm-serve`, where the server holds one model and
   `/model` cannot switch it.
-- **2.10.44 - 2.10.52** MCP server. `pip install "salt[mcp]"` adds a
+- **2.10.44 - 2.10.52** MCP server. `pip install -e ".[mcp]"` adds a
   `salt-mcp` command that speaks the Model Context Protocol over
   stdio, so an editor or an agent runtime reaches SALT directly.
   `salt_compress` compresses one text under a budget, optionally

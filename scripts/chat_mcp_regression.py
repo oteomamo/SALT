@@ -78,7 +78,7 @@ try:
     from mcp.client.stdio import stdio_client
 except ImportError:
     print("SKIP: the mcp extra is not installed "
-          "(pip install 'salt[mcp]') - nothing to drive")
+          '(pip install -e ".[mcp]") - nothing to drive')
     sys.exit(0)
 
 from _agent_stub import Stub                                    # noqa: E402

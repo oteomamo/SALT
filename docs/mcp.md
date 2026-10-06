@@ -7,10 +7,11 @@ client, not by you.
 
 ## Install
 
-The server ships with the optional extra:
+The server ships with the optional extra. Install it from the cloned
+`SALT` folder:
 
 ```bash
-pip install "salt[mcp]"
+pip install -e ".[mcp]"
 ```
 
 Check it:
