@@ -1166,7 +1166,7 @@ through <code>--vllm-bin</code>.</p>
 <p><strong>6. (Optional) MCP server.</strong> <code>salt-mcp</code> puts SALT behind the Model
 Context Protocol, so an editor or an agent runtime can compress text
 and keep conversation memory through it. Install the extra:</p>
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"salt[mcp]"</span>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[mcp]"</span>
 </code></pre></div>
 <p>Then point a client at the <code>salt-mcp</code> command, see
 <a href="../mcp/">MCP server</a>. It needs no GPU.</p>

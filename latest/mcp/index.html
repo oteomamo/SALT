@@ -1503,8 +1503,9 @@ an agent runtime can compress text through the same engine <code>salt</code> and
 <code>saltChat</code> use. It speaks JSON-RPC over stdio and is started by the
 client, not by you.</p>
 <h2 id="install">Install</h2>
-<p>The server ships with the optional extra:</p>
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"salt[mcp]"</span>
+<p>The server ships with the optional extra. Install it from the cloned
+<code>SALT</code> folder:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[mcp]"</span>
 </code></pre></div>
 <p>Check it:</p>
 <div class="highlight"><pre><span></span><code>salt-mcp<span class="w"> </span>--version
@@ -1755,7 +1756,9 @@ last complete state as it opens, the dropped text is kept in
 <code>load_repairs.jsonl</code> beside it, and the reply says what was dropped.</p>
 <p>However the server ends, it ends the same way. A client hanging up, a
 Ctrl-C or a kill all drain every open conversation and write the ones
-that changed before the process stops.</p>
+that changed before the process stops. A Ctrl-C or kill that arrives
+while that write is running waits for it, and a second one stops the
+server at once.</p>
 <h2 id="documents-in-a-conversation">Documents in a conversation</h2>
 <p><code>salt_ingest_document</code> puts a file into a session's memory. Give it a
 <code>path</code> and it reads the file itself, PDF or plain text, or give it
