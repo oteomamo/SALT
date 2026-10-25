@@ -127,8 +127,8 @@ plain language.
 ## 📝 Paper
 
 SALT is described in a Main Conference paper at EMNLP 2026, held in
-Budapest, and available on
-[OpenReview](https://openreview.net/forum?id=UTJqOhkSqi) and as
+Budapest, and available in
+the [ACL Anthology](https://aclanthology.org/2026.emnlp-main.1723/) and as
 [arXiv:2607.17486](https://arxiv.org/abs/2607.17486). The
 [Paper](paper.md) page carries the abstract and the citation, and
 explains how the selector the paper describes, tagged

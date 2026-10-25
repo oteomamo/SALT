@@ -7,7 +7,7 @@
     Methods in Natural Language Processing, held in Budapest.
 
 <div class="salt-buttons" markdown>
-[Read it on OpenReview](https://openreview.net/forum?id=UTJqOhkSqi){ .md-button .md-button--primary }
+[Read it in the ACL Anthology](https://aclanthology.org/2026.emnlp-main.1723/){ .md-button .md-button--primary }
 [arXiv preprint](https://arxiv.org/abs/2607.17486){ .md-button }
 </div>
 
@@ -84,10 +84,13 @@ on that same index.
 ## 📌 How to cite
 
 ```bibtex
-@article{mamo2026salt,
-  title={SALT: Salience-Aware Lexical Trie for Long-Context Compression},
-  author={Mamo, Oteo and Yi, Hyunjin and Choudhury, Joydhriti and Gao, Shangqian and Yu, Weikuan},
-  journal={arXiv preprint arXiv:2607.17486},
-  year={2026}
+@inproceedings{mamo2026salt,
+  author    = {Mamo, Oteo and Yi, Hyunjin and Choudhury, Joydhriti and Gao, Shangqian and Yu, Weikuan},
+  title     = {{SALT}: Salience-Aware Lexical Trie for Long-Context Compression},
+  booktitle = {Proceedings of the 2026 Conference on Empirical Methods in Natural Language Processing},
+  month     = {October},
+  year      = {2026},
+  publisher = {Association for Computational Linguistics},
+  url       = {https://aclanthology.org/2026.emnlp-main.1723/}
 }
 ```

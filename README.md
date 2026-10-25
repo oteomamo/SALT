@@ -324,11 +324,14 @@ SALT is a Main Conference paper at EMNLP 2026. If you find this project
 useful for your research, please consider citing it:
 
 ```bibtex
-@article{mamo2026salt,
-  title={SALT: Salience-Aware Lexical Trie for Long-Context Compression},
-  author={Mamo, Oteo and Yi, Hyunjin and Choudhury, Joydhriti and Gao, Shangqian and Yu, Weikuan},
-  journal={arXiv preprint arXiv:2607.17486},
-  year={2026}
+@inproceedings{mamo2026salt,
+  author    = {Mamo, Oteo and Yi, Hyunjin and Choudhury, Joydhriti and Gao, Shangqian and Yu, Weikuan},
+  title     = {{SALT}: Salience-Aware Lexical Trie for Long-Context Compression},
+  booktitle = {Proceedings of the 2026 Conference on Empirical Methods in Natural Language Processing},
+  month     = {October},
+  year      = {2026},
+  publisher = {Association for Computational Linguistics},
+  url       = {https://aclanthology.org/2026.emnlp-main.1723/}
 }
 ```
 
@@ -342,7 +345,7 @@ SALT is released under the [MIT License](LICENSE).
 [docs-shield]: https://img.shields.io/badge/docs-oteomamo.github.io%2FSALT-blue
 [docs-link]: https://oteomamo.github.io/SALT/
 [emnlp-shield]: https://img.shields.io/badge/EMNLP-2026-b85c45
-[emnlp-link]: https://openreview.net/forum?id=UTJqOhkSqi
+[emnlp-link]: https://aclanthology.org/2026.emnlp-main.1723/
 [arxiv-shield]: https://img.shields.io/badge/arXiv-2607.17486-b31b1b.svg
 [arxiv-link]: https://arxiv.org/abs/2607.17486
 [version-shield]: https://img.shields.io/github/v/tag/oteomamo/SALT?label=version&sort=semver
