@@ -82,6 +82,20 @@ class VLLMServeChatRunner:
         return input_budget_for(self.max_input_len, self.cfg.get("gen"),
                                 max_new_tokens)
 
+    def gate_probe(self, payload, timeout=(5, 10)):
+        """One short chat completion for a caller that reads the answer's
+        log probabilities rather than its text: `payload` is the request
+        without the model name. Returns the server's JSON."""
+        body = {"model": self.served_model, **payload}
+        template_kwargs = (self.cfg.get("gen") or {}).get(TEMPLATE_KEY)
+        if template_kwargs:
+            body[TEMPLATE_KEY] = template_kwargs
+        resp = self.http.post(f"{self.server_url}/v1/chat/completions",
+                              json=body, timeout=timeout)
+        if resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.json()
+
     def stream_chat(self, messages, **overrides):
         gen_cfg = dict(self.cfg.get("gen") or {})
         gen_cfg.update(overrides)

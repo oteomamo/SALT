@@ -18,8 +18,13 @@ decision leaves. Groups:
      answer searches and says why; an interrupt is not swallowed; the
      record and the census carry the asserted keys and print as
      promised.
+  D. THE SERVED RUNNER - against a stub server: the request carries the
+     served model's name, the fixed fields and the model's template
+     settings, and nothing else; a Yes answer skips and a No answer
+     searches; a server error, an answer without log probabilities and
+     a server that does not answer all search and say why.
 
-No encoder and no model; the run takes a second.
+No encoder and no model; the run takes a few seconds.
 
 Usage:
     python scripts/chat_gate_regression.py
@@ -34,6 +39,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from salt.chat import gate as G
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _agent_stub import Stub, closed_port                          # noqa: E402
 
 if not __debug__:
     sys.exit("run without -O: this harness is assert-based")
@@ -158,10 +166,50 @@ def check_decision():
           "promised")
 
 
+def served(url, gen=None):
+    import requests
+    from salt.chat.runner_serve import VLLMServeChatRunner
+    r = object.__new__(VLLMServeChatRunner)
+    r.cfg = {"alias": "m", "gen": gen or {}}
+    r.server_url, r.served_model, r.http = url, "some/model", requests.Session()
+    return r
+
+
+def check_served():
+    yes = [("Yes", math.log(0.9999)), ("No", math.log(0.0001))]
+    with Stub(cards=[{"id": "some/model"}], logprobs=yes) as s:
+        skip, rec = G.decide("auto", "What is 2 + 2?", served(s.url))
+        assert skip and rec["error"] is None, rec
+        body = s.httpd.last_payload
+        assert body == {"model": "some/model", **G.payload("What is 2 + 2?")}, body
+        G.decide("auto", "x", served(s.url, {"chat_template_kwargs":
+                                              {"enable_thinking": False},
+                                              "temperature": 0.7}))
+        body = s.httpd.last_payload
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
+        assert body["temperature"] == 0 and "top_p" not in body, body
+    no = [("No", math.log(0.98)), ("Yes", math.log(0.02))]
+    with Stub(cards=[{"id": "some/model"}], logprobs=no) as s:
+        skip, rec = G.decide("auto", "What did I say about Paris?", served(s.url))
+        assert not skip and abs(rec["p_skip"] - 0.02) < 1e-9, rec
+    with Stub(cards=[{"id": "some/model"}]) as s:
+        skip, rec = G.decide("auto", "x", served(s.url))
+        assert not skip and rec["p_skip"] == 0.0 and rec["error"] is None
+    with Stub(cards=[{"id": "some/model"}], post_status=503, logprobs=yes) as s:
+        skip, rec = G.decide("auto", "x", served(s.url))
+        assert not skip and rec["error"].startswith("RuntimeError: HTTP 503"), rec
+    skip, rec = G.decide("auto", "x", served(f"http://127.0.0.1:{closed_port()}"))
+    assert not skip and rec["error"].startswith("ConnectionError"), rec
+    print("D. served runner: the request is the fixed one under the served "
+          "model's name, Yes skips and No searches, an error, a bare answer "
+          "and a silent server all search")
+
+
 def main():
     check_question()
     check_answer()
     check_decision()
+    check_served()
     print("PASS")
 
 

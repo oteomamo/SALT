@@ -173,6 +173,23 @@ class _StubHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _chat(self):
+        """A one-token chat completion carrying the scripted first
+        position's log probabilities, when the stub has any."""
+        top = [{"token": t, "logprob": lp} for t, lp in self.server.logprobs or ()]
+        choice = {"index": 0, "finish_reason": "length",
+                  "message": {"role": "assistant",
+                              "content": top[0]["token"] if top else ""}}
+        if top:
+            choice["logprobs"] = {"content": [dict(top[0], top_logprobs=top)]}
+        body = json.dumps({"object": "chat.completion",
+                           "choices": [choice]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _reuse(self, prompt):
         """How much of this prompt the previous one already covered."""
         prior, self.server.last_prompt = self.server.last_prompt, list(prompt)
@@ -229,6 +246,9 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            if self.path.endswith("/chat/completions"):
+                self._chat()
+                return
             pieces = self._pieces()
             if self.server.last_payload.get("stream") is False:
                 self._completion(pieces)
@@ -265,7 +285,9 @@ class _StubHandler(BaseHTTPRequestHandler):
 
 
 class Stub:
-    """One /v1/models plus /v1/completions endpoint with a scripted answer.
+    """One /v1/models plus /v1/completions endpoint with a scripted answer,
+    and a /v1/chat/completions one whose first position offers the
+    scripted `logprobs` pairs of (token, log probability).
 
     Port 0 by default so a real server on the sample roster's port never
     collides with, or silently satisfies, one of these checks. A fixed
@@ -281,7 +303,7 @@ class Stub:
                  status=200, raw=None, port=0, stall=0.0, drop=False,
                  serving=True, post_status=200, usage=False, guided=True,
                  canned=None, unknown_model=False, structured=False,
-                 spellings=None):
+                 spellings=None, logprobs=None):
         modes = dict.fromkeys(SPELLINGS, IGNORE)
         modes.update(guided_json=_mode(guided),
                      structured_outputs=_mode(structured))
@@ -292,7 +314,8 @@ class Stub:
         self.cfg = dict(cards=list(cards), pieces=list(pieces), delay=delay,
                         status=status, raw=raw, stall=stall, drop=drop,
                         post_status=post_status, usage=usage, modes=modes,
-                        canned=canned, unknown_model=unknown_model)
+                        canned=canned, unknown_model=unknown_model,
+                        logprobs=logprobs)
         self.port = port
         self.httpd = None
         self.aborted = threading.Event()
