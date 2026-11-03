@@ -40,6 +40,9 @@ plain install stays green.
 - `chat_when_regression.py` covers the time a turn searches: the times a
   line can name, the window each resolves to, and the conversation rows
   a window holds out.
+- `chat_gate_regression.py` covers whether a turn searches memory at all:
+  the question the chat model is asked, how its answer becomes a skip
+  probability, the fixed threshold, and what every failure does.
 - `chat_models_regression.py` covers chat model loading: the one
   tokenizer loader every backend uses, checked on small tokenizers it
   builds itself and on every registered model. It also checks the stop
