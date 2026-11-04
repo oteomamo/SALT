@@ -122,7 +122,7 @@ case "${1:-}" in
   chat|engine|dedup|keys|evict|incr|tail|text|scope|turns|summary|when|gate|agents|mcp|models|pdf|docs|smoke|vllm|serve|all)
     "area_$1" ;;
   *)
-    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+    awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' "$0"
     exit 2 ;;
 esac
 
