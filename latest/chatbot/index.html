@@ -774,6 +774,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#whether-a-turn-searches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Whether a turn searches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-pdfs-are-cleaned" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1476,6 +1487,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#whether-a-turn-searches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Whether a turn searches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-pdfs-are-cleaned" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1688,6 +1710,10 @@ can be resumed here. The <a href="../mcp/">MCP server</a> page has the setup.</p
 <tr>
 <td><code>/when</code></td>
 <td>which time a turn searches: <code>auto</code> reads a day, month, year or span off the question, <code>off</code> searches every row, <code>&lt;time&gt;</code> pins a window until the next <code>/when</code></td>
+</tr>
+<tr>
+<td><code>/gate</code></td>
+<td>whether a turn searches memory at all: <code>auto</code> asks the chat model first and skips the search on a request it can answer alone, <code>off</code> always searches</td>
 </tr>
 <tr>
 <td><code>/stats</code></td>
@@ -1934,6 +1960,28 @@ many rows it held in and out, and a census of how the session's turns
 came out. The ledger carries the window's label and the rows held out
 on such turns. A scripted turn's <code>timestamp</code> is the moment of asking
 for its relative spans.</p>
+<h2 id="whether-a-turn-searches">Whether a turn searches</h2>
+<p>Some turns carry everything they need: a passage to summarize, a sum
+to work, a fact anyone knows. With <code>--gate auto</code> the chat model is
+asked once before the search, with the request alone and none of the
+recent messages, whether it can be answered without the memory of
+earlier conversations. Only a Yes with a probability of at least 0.999
+skips the search: that turn carries no memory block, nothing takes its
+place, and it commits no coverage, while the conversation, the recent messages and the ingest
+go on as usual. A <code>/summary next</code> mark waits for the next turn that
+searches. Anything that goes wrong searches as usual: an error, a
+timeout, or an answer that is neither Yes nor No. Off by default.</p>
+<p>The question needs the probabilities of the model's first answer
+token, which only the served backend (<code>--backend vllm-serve</code>) returns.
+Other backends say so once and search every turn. The threshold was
+set on Llama-3.1-8B-Instruct, and a session on another chat model says
+so once.
+Turns that another model answers, <code>@NAME</code> and planned turns, always
+search.</p>
+<p><code>/gate auto</code> and <code>/gate off</code> set the mode for the session. <code>/stats</code>
+shows the turn's decision with its probability and a census of the
+session's decisions, and the ledger carries the decision on every turn
+that asked.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole and cleaned into proper sentences before
 they reach the trie: headers, footers and reference lists go, broken
@@ -1955,7 +2003,9 @@ keep their previously stored text as is.</p>
 plus an inventory of attached files, and the compressed memory arrives
 at the top of the newest user message, grouped by origin: <code>[from
 attached file 'paper.pdf' - 42 of 358 indexed sentences]</code> versus
-<code>[from the earlier conversation - turn 12, user, 2h ago]</code>.</p>
+<code>[from the earlier conversation - turn 12, user, 2h ago]</code>. On a turn
+<code>--gate auto</code> skips, the newest user message carries the question
+alone.</p>
 <p>Conversation excerpts carry their <strong>provenance</strong>: the turn, the
 speaker, and how long ago. The model can tell your words from its own,
 see which of two conflicting statements came later, and answer "what
@@ -1977,7 +2027,8 @@ that turn's strongest keywords:</p>
 <p><code>--conversation-map</code> puts the map into the prompt as the first section
 of the memory block, so the model can see a topic came up even on a
 turn none of its sentences were selected. The map is a signal, never a
-gate: it changes nothing about which sentences are picked.</p>
+gate: it changes nothing about which sentences are picked. A turn
+<code>--gate auto</code> skips carries no block and so no map.</p>
 <h2 id="the-prompt-layout">The prompt layout</h2>
 <p>The prompt is <strong>KV-cache shaped</strong>: everything stable comes first
 (system prompt, <code>attach@</code> texts, the verbatim tail, compacting in
@@ -2004,7 +2055,8 @@ page lists them all with when to reach for each. In concept:</p>
   meaning, so a short reversal built from the same words as the answer
   it corrects ("no, use PostgreSQL" against "yes, use PostgreSQL") can
   read as a restatement and be skipped. Fused acknowledgements
-  (<code>--short-turns fuse</code>) are exempt, and the gate stays off by default.</li>
+  (<code>--short-turns fuse</code>) are exempt, and the near-duplicate check stays
+  off by default.</li>
 <li><strong>Recent messages.</strong> The last exchanges ride in the prompt verbatim,
   and selection skips those same sentences while they are visible, so
   the budget buys older context instead of repeating what is on
@@ -2029,6 +2081,10 @@ page lists them all with when to reach for each. In concept:</p>
 <li><strong>Summary turns.</strong> <code>--summary auto</code> profiles more themes and spreads
   the budget wider on a turn that asks for a summary. Off by default.
   See <a href="#summary-turns">Summary turns</a>.</li>
+<li><strong>Whether a turn searches.</strong> <code>--gate auto</code> asks the chat model
+  whether a request needs memory at all and skips the search when it
+  is sure it does not. Off by default, served backend only. See
+  <a href="#whether-a-turn-searches">Whether a turn searches</a>.</li>
 <li><strong>Session bounds.</strong> <code>--max-sentences</code> caps how many conversation
   sentences stay in memory. Past the cap the oldest are masked out of
   selection rather than deleted, so their text and their numbering
