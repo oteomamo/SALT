@@ -23,14 +23,30 @@ decision leaves. Groups:
      settings, and nothing else; a Yes answer skips and a No answer
      searches; a server error, an answer without log probabilities and
      a server that does not answer all search and say why.
+  E. THE FLAG - real sessions through the chat turn against a fake
+     runner: the default is off and asks nothing; a searching answer
+     leaves the turn byte-identical to off (prompts, stats); a skipping
+     answer builds no block, runs no search and commits nothing, keeps
+     a summary mark for the next turn and ledgers the decision; an
+     empty session and a turn another model answers ask nothing; a
+     backend that cannot score and an uncalibrated model are said once
+     and the turn searches.
+  F. THE COMMAND AND THE CENSUS - /gate shows and sets, refuses
+     anything else, the census counts every decision, /stats prints the
+     decision and the census, and a new conversation starts from the
+     launch setting.
 
-No encoder and no model; the run takes a few seconds.
+Groups A to D need no encoder; E and F need the BGE encoder
+(downloaded to the HF cache on first use). CPU is the default device;
+the run takes under a minute.
 
 Usage:
-    python scripts/chat_gate_regression.py
+    python scripts/chat_gate_regression.py [--device cpu]
 """
 
+import argparse
 import hashlib
+import io
 import json
 import math
 import sys
@@ -42,6 +58,17 @@ from salt.chat import gate as G
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent_stub import Stub, closed_port                          # noqa: E402
+
+BGE_MODEL = "BAAI/bge-small-en-v1.5"
+HISTORY = [
+    ("Caroline: The camping trip to the lake is booked for July.",
+     "Melanie: Bring the good tent and the camp stove."),
+    ("Caroline: The kayak rental at the lake costs forty dollars.",
+     "Melanie: Forty dollars for a kayak day is fair."),
+]
+LINE = "Which tent did Melanie recommend?"
+YES = [("Yes", math.log(0.9999)), ("No", math.log(0.0001))]
+NO = [("No", math.log(0.98)), ("Yes", math.log(0.02))]
 
 if not __debug__:
     sys.exit("run without -O: this harness is assert-based")
@@ -205,11 +232,211 @@ def check_served():
           "and a silent server all search")
 
 
+class FakeChat:
+    kind = "fake"
+
+    def __init__(self, tokenizer, logprobs=None, hf_id="meta-llama/Llama-3.1-8B-Instruct"):
+        self.tokenizer = tokenizer
+        self.alias = "fake"
+        self.cfg = {"alias": "fake", "hf_id": hf_id, "path": "-"}
+        self.max_input_len = 4096
+        self.last_prompt_tokens = None
+        self.last_engine_stats = None
+        self.prompts, self.asked = [], []
+        if logprobs is not None:
+            self.logprobs = logprobs
+            self.gate_probe = self._probe
+
+    def _probe(self, payload):
+        self.asked.append(payload)
+        return answer([(t, math.exp(lp)) for t, lp in self.logprobs])
+
+    def input_budget(self, max_new_tokens=None):
+        return self.max_input_len
+
+    def stream_chat(self, messages, **overrides):
+        self.prompts.append(json.loads(json.dumps(messages)))
+        yield "Noted."
+
+
+def session(root, tok, mdl, device, flags, runner, empty=False):
+    from salt.chat import cli
+    from salt.engine.session_trie import SessionTrie
+    args = cli.build_parser().parse_args(
+        ["--device", device, "--sync-ingest", "--budget-pct", "0.9", *flags])
+    trie = SessionTrie("gate_flag", cache_dir=root, model_name=BGE_MODEL,
+                       budget_pct_default=args.budget_pct)
+    if not empty:
+        for user, assistant in HISTORY:
+            trie.add_turn(user, "user", tokenizer=tok, model=mdl,
+                          device=device, save=False)
+            trie.add_turn(assistant, "assistant", tokenizer=tok, model=mdl,
+                          device=device, save=False)
+    return cli.ChatState(args, tok, mdl, runner, trie)
+
+
+def turn(state, line=LINE, **kw):
+    from contextlib import redirect_stdout
+    from salt.chat import cli
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.chat_turn(state, line, **kw)
+    stats = {k: v for k, v in (state.last_stats or {}).items()
+             if not any(t in k for t in ("time", "elapsed", "seconds"))}
+    notes = [ln for ln in buf.getvalue().splitlines() if ln.startswith("search gate:")]
+    return state.runner.prompts[-1] if state.runner.prompts else None, stats, notes
+
+
+def counting(state):
+    calls = {"compress": 0, "commit": 0}
+    real = state.trie.compress
+
+    def compress(*a, **k):
+        calls["compress"] += 1
+        out = real(*a, **k)
+        inner = out.get("commit")
+        if inner is not None:
+            def commit(*ca, **ck):
+                calls["commit"] += 1
+                return inner(*ca, **ck)
+            out["commit"] = commit
+        return out
+    state.trie.compress = compress
+    return calls
+
+
+def ledger(state):
+    from salt.chat import cli
+    return cli.build_stats(state)["kv"]["last_event"] or {}
+
+
+def check_flag(tmp, tok, mdl, device):
+    from salt.chat import cli
+    assert cli.build_parser().parse_args([]).gate == "off"
+    for bad in (["--gate", "on"], ["--gate-threshold", "0.5"]):
+        try:
+            with __import__("contextlib").redirect_stderr(io.StringIO()):
+                cli.build_parser().parse_args(bad)
+            raise AssertionError(f"{bad} parsed")
+        except SystemExit:
+            pass
+    off = session(tmp / "off", tok, mdl, device, [], FakeChat(tok, YES))
+    p_off, s_off, _ = turn(off)
+    assert off.runner.asked == [] and off.last_gate is None
+    assert not any(k.startswith("gate_") for k in ledger(off))
+    searched = session(tmp / "no", tok, mdl, device, ["--gate", "auto"], FakeChat(tok, NO))
+    p_no, s_no, _ = turn(searched)
+    assert searched.runner.asked == [G.payload(LINE)]
+    assert p_no == p_off and s_no == s_off, "a searching answer changed the turn"
+    assert searched.last_gate["fired"] is False
+    on = session(tmp / "yes", tok, mdl, device, ["--gate", "auto"], FakeChat(tok, YES))
+    calls = counting(on)
+    on.summary_next = True
+    p_on, s_on, out = turn(on)
+    assert calls == {"compress": 0, "commit": 0}, calls
+    assert on.last_gate["fired"] and on.last_stats is None and s_on == {}
+    assert p_on[-1] == {"role": "user", "content": LINE}, p_on[-1]
+    assert p_on[:-1] == p_off[:-1], "a skip changed the system prompt or the history"
+    assert on.summary_next is True, "a skip consumed the summary mark"
+    lg = ledger(on)
+    assert lg["gate_fired"] is True and lg["gate_mode"] == "auto"
+    assert lg["gate_p_skip"] > 0.999 and lg["gate_seconds"] >= 0
+    assert lg["gate_error"] is None
+    assert out == [], out
+    on.runner.logprobs = NO
+    _, _, _ = turn(on, "And what did the kayak cost?")
+    assert calls["compress"] == 1 and calls["commit"] == 1 and on.summary_next is False
+    empty = session(tmp / "empty", tok, mdl, device, ["--gate", "auto"],
+                    FakeChat(tok, YES), empty=True)
+    turn(empty)
+    assert empty.runner.asked == [] and empty.last_gate is None
+    other = session(tmp / "other", tok, mdl, device, ["--gate", "auto"], FakeChat(tok, YES))
+
+    def reply_fn(state, messages, block):
+        yield "From another model."
+    turn(other, reply_fn=reply_fn)
+    assert other.runner.asked == [] and other.last_gate is None
+    blind = session(tmp / "blind", tok, mdl, device, ["--gate", "auto"], FakeChat(tok))
+    calls = counting(blind)
+    _, _, out1 = turn(blind)
+    _, _, out2 = turn(blind, "And the kayak?")
+    assert calls["compress"] == 2 and blind.last_gate["mode"] == G.UNAVAILABLE
+    assert ledger(blind)["gate_error"] == G.NO_SCORING
+    assert out1 == ["search gate: this backend cannot score the answer, "
+                    "so every turn searches (--backend vllm-serve can)"], out1
+    assert out2 == [], "the backend note was said twice"
+    qwen = session(tmp / "qwen", tok, mdl, device, ["--gate", "auto"],
+                   FakeChat(tok, YES, hf_id="Qwen/Qwen3-4B"))
+    _, _, out1 = turn(qwen)
+    _, _, out2 = turn(qwen, "And the kayak?")
+    assert out1 == ["search gate: the threshold was set on "
+                    "meta-llama/Llama-3.1-8B-Instruct, not on fake"], out1
+    assert out2 == [] and qwen.last_gate["fired"], "the model note was said twice"
+    assert G.calibrated({"hf_id": "meta-llama/Llama-3.1-8B-Instruct"})
+    assert not G.calibrated({"hf_id": "Qwen/Qwen3-4B"}) and not G.calibrated({})
+    print("E. flag: off by default and asks nothing, a searching answer is "
+          "byte-identical to off, a skip builds no block, searches and commits "
+          "nothing and keeps the summary mark, an empty session and another "
+          "model's turn ask nothing, an unscoring backend and an uncalibrated "
+          "model are said once")
+
+
+def check_command_census(tmp, tok, mdl, device):
+    from contextlib import redirect_stdout
+    from salt.chat import cli
+    st = session(tmp / "f", tok, mdl, device, [], FakeChat(tok, YES))
+    assert cli.gate_command(st, []) == "search gate: off"
+    assert cli.build_stats(st)["gate_census"] is None
+    assert cli.gate_command(st, ["sometimes"]) == "search gate: 'sometimes' is not one of off, auto"
+    assert cli.gate_command(st, ["AUTO"]) == "search gate: auto"
+    turn(st)
+    st.runner.logprobs = NO
+    turn(st, "And the kayak?")
+    assert st.gate_stats == {"asked": 2, "fired": 1, "consulted": 1,
+                             "errors": 0, "unavailable": 0}, st.gate_stats
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.print_stats(st)
+    text = buf.getvalue().splitlines()
+    assert any(ln.startswith("search (auto): searched, P(skip) 0.020000 against 0.999")
+               for ln in text), text
+    assert ("search census: 2 turns decided, 1 answered without memory, "
+            "1 searched, 0 questions failed, 0 not askable on this backend") in text, text
+    assert cli.gate_command(st, ["off"]) == "search gate: off"
+    turn(st, "And the stove?")
+    assert st.last_gate is None and st.gate_stats["asked"] == 2
+    assert cli.build_stats(st)["gate_census"] == st.gate_stats
+    st.gate_mode = "auto"
+    with redirect_stdout(io.StringIO()):
+        st.new_trie("gate_other")
+    assert st.gate_mode == "off" and st.gate_stats["asked"] == 0 and st.last_gate is None
+    assert "/gate" in cli.COMMANDS and "/gate" in cli.HELP
+    print("F. command and census: /gate shows, sets and refuses, the census "
+          "counts every decision, /stats prints both, and a new conversation "
+          "starts from the launch setting")
+
+
 def main():
+    import shutil
+    import tempfile
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--device", default="cpu")
+    args = ap.parse_args()
     check_question()
     check_answer()
     check_decision()
     check_served()
+    tmp = Path(tempfile.mkdtemp(prefix="salt_gate_"))
+    try:
+        from transformers import AutoModel, AutoTokenizer
+        print(f"Loading BGE encoder {BGE_MODEL} on {args.device} ...")
+        tok = AutoTokenizer.from_pretrained(BGE_MODEL)
+        mdl = AutoModel.from_pretrained(BGE_MODEL, output_attentions=True).eval()
+        mdl.to(args.device)
+        check_flag(tmp, tok, mdl, args.device)
+        check_command_census(tmp, tok, mdl, args.device)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     print("PASS")
 
 

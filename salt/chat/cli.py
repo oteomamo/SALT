@@ -62,6 +62,7 @@ from salt.chat.registry import (RegistryError, list_models, register_model,
 from salt.chat.runner import TEMPLATE_KEY, make_runner, render_prompt
 from salt.chat import scope as scope_module
 from salt.chat import summary as summary_module
+from salt.chat import gate as gate_module
 from salt.chat import when as when_module
 from salt.chat import scoring
 from salt.chat import support
@@ -176,6 +177,9 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 /when              which time a turn searches: /when auto reads a day,
                    month, year or span off the question, /when off
                    searches every row, /when <time> pins a window
+/gate              whether a turn searches memory at all: /gate auto asks
+                   the chat model first and skips the search on a request
+                   it can answer alone, /gate off always searches
 /stats             session, attachments, compression, and GPU memory stats
 /new [id]          start (or resume) another conversation
 /clear             wipe and restart the current conversation
@@ -184,7 +188,7 @@ attach@<file>      attach IN FULL: the whole text rides in every prompt,
 # what TAB offers: every command HELP lists, so the two cannot drift
 COMMANDS = ["/help", "/model", "/add", "/roster", "/worker", "/offload",
             "/offload!", "/agent", "/doc", "/budget", "/scope", "/summary",
-            "/when", "/stats", "/new",
+            "/when", "/gate", "/stats", "/new",
             "/clear", "/exit"]
 
 
@@ -363,6 +367,8 @@ class ChatState:
         self.summary_next = False
         self.when_mode = self.when_launch_mode = args.when
         self.when_pinned = None
+        self.gate_mode = self.gate_launch_mode = args.gate
+        self.gate_warned = set()
         self.tokens_per_word = TOKENS_PER_WORD_SEED
         # coverage-decay, shift-damping + near-dup knobs live here and
         # travel as per-call kwargs to compress()/add_turn(): SessionTrie
@@ -401,11 +407,13 @@ class ChatState:
         self.last_scope = None
         self.last_summary = None
         self.last_when = None
+        self.last_gate = None
         self.last_reply_raw = None
         self.think_opened = weakref.WeakKeyDictionary()
         self.scope_stats = scope_module.census()
         self.summary_stats = summary_module.census()
         self.when_stats = when_module.census()
+        self.gate_stats = gate_module.census()
         self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
@@ -529,6 +537,9 @@ class ChatState:
         self.last_when = None
         self.when_stats = when_module.census()
         self.when_mode, self.when_pinned = self.when_launch_mode, None
+        self.last_gate = None
+        self.gate_stats = gate_module.census()
+        self.gate_mode = self.gate_launch_mode
         # ids and totals belong to the session, not to the process: a new
         # one starts from its own ledger or from nothing
         self.delegation_seq, self.delegation_stats = resume_delegations(
@@ -2120,6 +2131,9 @@ def build_stats(state):
         "when": state.last_when,
         "when_census": (state.when_stats if state.when_mode != "off"
                         or state.when_stats["asked"] else None),
+        "gate": state.last_gate,
+        "gate_census": (state.gate_stats if state.gate_mode != "off"
+                        or state.gate_stats["asked"] else None),
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -2272,6 +2286,10 @@ def print_stats(state, payload=None):
     for ln in when_module.lines(d.get("when")):
         print(ln)
     for ln in when_module.census_lines(d.get("when_census")):
+        print(ln)
+    for ln in gate_module.lines(d.get("gate")):
+        print(ln)
+    for ln in gate_module.census_lines(d.get("gate_census")):
         print(ln)
     if d["signals"]:
         print(f"signals: {d['signals']['lines']} turns recorded "
@@ -2754,6 +2772,37 @@ def summary_command(state, rest):
     return "Usage: /summary [auto|off|next]"
 
 
+def gate_command(state, rest):
+    """`/gate` shows the setting. `/gate auto` asks the chat model before
+    each turn whether the request needs memory, and `/gate off` always
+    searches."""
+    if not rest:
+        return f"search gate: {state.gate_mode}"
+    arg = " ".join(rest).lower()
+    if arg not in gate_module.MODES:
+        return f"search gate: {arg!r} is not one of {', '.join(gate_module.MODES)}"
+    state.gate_mode = arg
+    return f"search gate: {state.gate_mode}"
+
+
+def gate_notes(state):
+    """What a session asking the gate question should know about its
+    chat model, said once per model."""
+    cfg = state.runner.cfg
+    alias = state.runner.alias
+    if getattr(state.runner, "gate_probe", None) is None:
+        note = ("search gate: this backend cannot score the answer, so every "
+                "turn searches (--backend vllm-serve can)")
+    elif not gate_module.calibrated(cfg):
+        note = (f"search gate: the threshold was set on "
+                f"{gate_module.CALIBRATED}, not on {alias}")
+    else:
+        return
+    if (alias, note) not in state.gate_warned:
+        state.gate_warned.add((alias, note))
+        print(note)
+
+
 def when_command(state, rest):
     """`/when` shows the setting. `/when auto` reads the time off each
     question, `/when off` searches every row, and `/when <time>` pins a
@@ -2851,6 +2900,8 @@ def handle_command(line, state):
         print(summary_command(state, rest))
     elif cmd == "/when":
         print(when_command(state, rest))
+    elif cmd == "/gate":
+        print(gate_command(state, rest))
     elif cmd == "/stats":
         print_stats(state)
     elif cmd == "/new":
@@ -3093,6 +3144,17 @@ def when_extra(state):
     return {"when_label": rec["label"], "when_rows_out": rec["rows_out"]}
 
 
+def gate_extra(state):
+    """The search decision a turn made, for the ledger; nothing on a turn
+    that asked nothing, so the event keeps its shape."""
+    rec = state.last_gate
+    if not rec:
+        return {}
+    return {"gate_mode": rec["mode"], "gate_fired": rec["fired"],
+            "gate_p_skip": rec["p_skip"], "gate_seconds": rec["seconds"],
+            "gate_error": rec["error"]}
+
+
 def compress_kwargs(state, line, excl, switches, query_embedding=None,
                     scope_sources=None, theme_percentile=None, lam=None):
     """Everything this turn asks the compressor for. Assembled in one
@@ -3180,13 +3242,27 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     state.last_overrides, state.last_audit = {}, ()
     state.turn_switches = None
     state.last_branch_scores = state.last_scope = state.last_summary = None
-    state.last_when = None
+    state.last_when = state.last_gate = None
+    skipped = False
     if state.trie.n_sentences > 0:
         switches, state.last_overrides, state.last_audit = turn_switches(state)
         # what anything this turn does inside itself selects under. A
         # round's pieces read it; a delegation belonging to no turn
         # finds None here and selects under the session's own settings
         state.turn_switches = switches
+        if state.gate_mode != "off" and reply_fn is None:
+            gate_notes(state)
+            try:
+                skipped, state.last_gate = gate_module.decide(
+                    state.gate_mode, line, state.runner)
+            except KeyboardInterrupt:
+                state.turn_switches = state.pending_route = None
+                raise
+            gate_module.count(state.gate_stats, state.last_gate)
+            if skipped:
+                state.last_stats = None
+                state.last_overrides, state.last_audit = {}, ()
+    if state.trie.n_sentences > 0 and not skipped:
         excl = (tail_resident_sent_idx(state.trie, state.tail)
                 if switches["tail_exclude"] else None)
         held, when_rec = when_module.decide(
@@ -3322,6 +3398,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     extra.update(scope_extra(state))
     extra.update(summary_extra(state))
     extra.update(when_extra(state))
+    extra.update(gate_extra(state))
     try:
         state.kvtrace.record_turn(
             tokenizer=reply_tokenizer or state.runner.tokenizer,
@@ -3940,6 +4017,12 @@ def build_parser():
                    help="under --summary auto, the coverage discount a "
                         "summary turn selects with; lower spreads the budget "
                         "across more branches (default: %(default)s)")
+    p.add_argument("--gate", default="off", choices=list(gate_module.MODES),
+                   help="whether a turn searches memory at all: 'auto' asks "
+                        "the chat model first, with the request alone, and "
+                        "skips the search on a turn it can answer without "
+                        "memory (served backend only), 'off' always searches "
+                        "(default: off)")
     p.add_argument("--when", default="auto", choices=list(when_module.MODES),
                    help="which time a turn searches: 'auto' reads a day, "
                         "month, year or span off the question and holds the "

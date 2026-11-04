@@ -87,6 +87,7 @@ can be resumed here. The [MCP server](mcp.md) page has the setup.
 | `/scope` | which attached files a turn searches: `auto` lets the rule choose, `off` searches every file, `<file>[,<file>]` names them |
 | `/summary` | whether a turn that asks for a summary selects as one: `auto` reads the wording, `off` never does, `next` marks the next turn by hand |
 | `/when` | which time a turn searches: `auto` reads a day, month, year or span off the question, `off` searches every row, `<time>` pins a window until the next `/when` |
+| `/gate` | whether a turn searches memory at all: `auto` asks the chat model first and skips the search on a request it can answer alone, `off` always searches |
 | `/stats` | session, attachments, compression, and GPU-memory stats |
 | `/roster` | list the models `--roster` names, `/roster probe` contacts them, `/roster probe --deep NAME` reports what one serves |
 | `/worker` | show each worker's connection, calls and mean latency |
@@ -331,6 +332,32 @@ came out. The ledger carries the window's label and the rows held out
 on such turns. A scripted turn's `timestamp` is the moment of asking
 for its relative spans.
 
+## Whether a turn searches
+
+Some turns carry everything they need: a passage to summarize, a sum
+to work, a fact anyone knows. With `--gate auto` the chat model is
+asked once before the search, with the request alone and none of the
+recent messages, whether it can be answered without the memory of
+earlier conversations. Only a Yes with a probability of at least 0.999
+skips the search: that turn carries no memory block, nothing takes its
+place, and it commits no coverage, while the conversation, the recent messages and the ingest
+go on as usual. A `/summary next` mark waits for the next turn that
+searches. Anything that goes wrong searches as usual: an error, a
+timeout, or an answer that is neither Yes nor No. Off by default.
+
+The question needs the probabilities of the model's first answer
+token, which only the served backend (`--backend vllm-serve`) returns.
+Other backends say so once and search every turn. The threshold was
+set on Llama-3.1-8B-Instruct, and a session on another chat model says
+so once.
+Turns that another model answers, `@NAME` and planned turns, always
+search.
+
+`/gate auto` and `/gate off` set the mode for the session. `/stats`
+shows the turn's decision with its probability and a census of the
+session's decisions, and the ledger carries the decision on every turn
+that asked.
+
 ## How PDFs are cleaned
 
 Attached PDFs are read whole and cleaned into proper sentences before
@@ -357,7 +384,9 @@ The system prompt carries a reading guide
 plus an inventory of attached files, and the compressed memory arrives
 at the top of the newest user message, grouped by origin: `[from
 attached file 'paper.pdf' - 42 of 358 indexed sentences]` versus
-`[from the earlier conversation - turn 12, user, 2h ago]`.
+`[from the earlier conversation - turn 12, user, 2h ago]`. On a turn
+`--gate auto` skips, the newest user message carries the question
+alone.
 
 Conversation excerpts carry their **provenance**: the turn, the
 speaker, and how long ago. The model can tell your words from its own,
@@ -385,7 +414,8 @@ conversation map (all 4 turns):
 `--conversation-map` puts the map into the prompt as the first section
 of the memory block, so the model can see a topic came up even on a
 turn none of its sentences were selected. The map is a signal, never a
-gate: it changes nothing about which sentences are picked.
+gate: it changes nothing about which sentences are picked. A turn
+`--gate auto` skips carries no block and so no map.
 
 ## The prompt layout
 
@@ -416,7 +446,8 @@ page lists them all with when to reach for each. In concept:
   meaning, so a short reversal built from the same words as the answer
   it corrects ("no, use PostgreSQL" against "yes, use PostgreSQL") can
   read as a restatement and be skipped. Fused acknowledgements
-  (`--short-turns fuse`) are exempt, and the gate stays off by default.
+  (`--short-turns fuse`) are exempt, and the near-duplicate check stays
+  off by default.
 - **Recent messages.** The last exchanges ride in the prompt verbatim,
   and selection skips those same sentences while they are visible, so
   the budget buys older context instead of repeating what is on
@@ -441,6 +472,10 @@ page lists them all with when to reach for each. In concept:
 - **Summary turns.** `--summary auto` profiles more themes and spreads
   the budget wider on a turn that asks for a summary. Off by default.
   See [Summary turns](#summary-turns).
+- **Whether a turn searches.** `--gate auto` asks the chat model
+  whether a request needs memory at all and skips the search when it
+  is sure it does not. Off by default, served backend only. See
+  [Whether a turn searches](#whether-a-turn-searches).
 - **Session bounds.** `--max-sentences` caps how many conversation
   sentences stay in memory. Past the cap the oldest are masked out of
   selection rather than deleted, so their text and their numbering

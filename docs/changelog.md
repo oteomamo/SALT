@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.33
+## 3.0.0 - 3.0.37
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -124,6 +124,12 @@ the details, and the 2.11 section below lists each step.
   out, as a client that waits a moment and then sends one can do,
   instead of stopping partway through. A second one still stops the
   server at once.
+- **3.0.35 - 3.0.37** `--gate auto` lets a turn skip the memory search.
+  The chat model is asked once, with the request alone, whether the
+  turn needs the memory of earlier conversations, and a Yes at a
+  probability of 0.999 or more skips the search for that turn. Off by
+  default, served backend only, `/gate` sets it per session and
+  `/stats` counts the decisions.
 
 ## 2.11.0 - 2.11.123
 

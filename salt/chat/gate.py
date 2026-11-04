@@ -43,6 +43,14 @@ RECORD_KEYS = ("mode", "fired", "p_skip", "seconds", "error")
 # the census of a session's decisions, one counter per outcome
 CENSUS_KEYS = ("asked", "fired", "consulted", "errors", "unavailable")
 NO_SCORING = "the backend cannot score a next token"
+# the chat model the threshold was set on
+CALIBRATED = "meta-llama/Llama-3.1-8B-Instruct"
+
+
+def calibrated(cfg):
+    """Whether a model's registry entry is the one the threshold was set
+    on."""
+    return str(cfg.get("hf_id") or "").lower() == CALIBRATED.lower()
 
 
 def prompt_sha256():
@@ -104,7 +112,7 @@ def record(mode, fired=False, p_skip=None, seconds=0.0, error=None):
 def decide(mode, line, runner):
     """Whether this turn skips the search, as (skip, record); the record
     is None under `off`. `runner` asks the question through its
-    gate_probe(messages); a runner without one cannot, and the turn
+    gate_probe(payload); a runner without one cannot, and the turn
     searches. Never raises into a turn but on an interrupt."""
     if mode != "auto":
         return False, None
