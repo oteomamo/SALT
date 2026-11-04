@@ -550,6 +550,28 @@ from the right one, so the switch stays opt-in: what decided the
 answer was where the block was drawn from, not how it was spread, the
 third time that shape has appeared in this record.
 
+## Whether a turn searches
+
+Every turn searched memory, even a request that carries everything it
+needs. `--gate auto` asks the chat model first, in one scored token,
+whether the request can be answered without the memory of earlier
+conversations, and a Yes at 0.999 or more skips the search for that
+turn. The question is asked with the request alone. Shown the recent
+messages too, the model grew unsure about almost every request and
+the skips all but vanished.
+
+A skipped turn builds no memory block and commits no coverage. The
+conversation, the recent messages and the ingest go on as usual, and
+anything that goes wrong searches. The question needs the
+probabilities of the first answer token, so only the served backend
+can ask it.
+
+What it is worth. Measured on Llama-3.1-8B-Instruct over a labeled
+set of requests, a third of the turns that need no memory skipped the
+search, and no turn that needed memory skipped it. The threshold was
+set on that model, so the switch stays opt-in, and `/stats` counts
+the decisions.
+
 Where each stage lives:
 
 | Stage | Code |
@@ -567,6 +589,7 @@ Where each stage lives:
 | Scoped search (branch scores, the rule, `/scope`) | `salt/chat/scope.py`, `salt/engine/session_trie.py` |
 | Time windows (the parser, `/when`) | `salt/chat/when.py` |
 | Summary turns (the lexicon, `/summary`) | `salt/chat/summary.py`, `salt/engine/session_trie.py` |
+| Search gate (the question, `/gate`) | `salt/chat/gate.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |

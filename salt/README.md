@@ -20,6 +20,7 @@ page.
 | Scoped search (branch scores, the rule, `/scope`) | `salt/chat/scope.py`, `salt/engine/session_trie.py` |
 | Time windows (the parser, `/when`) | `salt/chat/when.py` |
 | Summary turns (the lexicon, `/summary`) | `salt/chat/summary.py`, `salt/engine/session_trie.py` |
+| Search gate (the question, `/gate`) | `salt/chat/gate.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |
