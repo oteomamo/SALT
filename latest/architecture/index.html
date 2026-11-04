@@ -970,6 +970,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#whether-a-turn-searches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Whether a turn searches
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1381,6 +1392,17 @@
     <span class="md-ellipsis">
       
         When a turn searches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whether-a-turn-searches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Whether a turn searches
       
     </span>
   </a>
@@ -1891,6 +1913,24 @@ the knobs changed nothing, with the block drawn from the wrong day or
 from the right one, so the switch stays opt-in: what decided the
 answer was where the block was drawn from, not how it was spread, the
 third time that shape has appeared in this record.</p>
+<h2 id="whether-a-turn-searches">Whether a turn searches</h2>
+<p>Every turn searched memory, even a request that carries everything it
+needs. <code>--gate auto</code> asks the chat model first, in one scored token,
+whether the request can be answered without the memory of earlier
+conversations, and a Yes at 0.999 or more skips the search for that
+turn. The question is asked with the request alone. Shown the recent
+messages too, the model grew unsure about almost every request and
+the skips all but vanished.</p>
+<p>A skipped turn builds no memory block and commits no coverage. The
+conversation, the recent messages and the ingest go on as usual, and
+anything that goes wrong searches. The question needs the
+probabilities of the first answer token, so only the served backend
+can ask it.</p>
+<p>What it is worth. Measured on Llama-3.1-8B-Instruct over a labeled
+set of requests, a third of the turns that need no memory skipped the
+search, and no turn that needed memory skipped it. The threshold was
+set on that model, so the switch stays opt-in, and <code>/stats</code> counts
+the decisions.</p>
 <p>Where each stage lives:</p>
 <table>
 <thead>
@@ -1951,6 +1991,10 @@ third time that shape has appeared in this record.</p>
 <tr>
 <td>Summary turns (the lexicon, <code>/summary</code>)</td>
 <td><code>salt/chat/summary.py</code>, <code>salt/engine/session_trie.py</code></td>
+</tr>
+<tr>
+<td>Search gate (the question, <code>/gate</code>)</td>
+<td><code>salt/chat/gate.py</code></td>
 </tr>
 <tr>
 <td>Chat REPL + model registry</td>
