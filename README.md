@@ -304,8 +304,11 @@ roster, the round, and the flags that turn it on.
 
 ## 🔬 Results
 
-The full per-dataset table is on the
-[Results](https://oteomamo.github.io/SALT/latest/results/) page.
+The full per-dataset tables are on the
+[Results](https://oteomamo.github.io/SALT/latest/results/) page. The
+legacy selector's table, run with vLLM 0.19.1 for Llama-3.1-8B-Instruct and
+Ministral-8B-Instruct-2410, is in [results/](results/) with the script that
+reproduces it.
 
 ## 🔭 Roadmap
 
