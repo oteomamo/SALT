@@ -76,3 +76,6 @@ python eval.py \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --gpu 0 --max-input-len 14000
 ```
+
+Under vLLM 0.19, score Ministral with `--tokenizer-mode hf`. The default
+`auto` loads Mistral's own tokenizer there, which leaves many answers empty.

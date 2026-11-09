@@ -44,7 +44,7 @@ conversation without re-reading the document.
 
 > The legacy selector described in the paper now defaults to the coverage/CELF
 > selector described below. The EMNLP 2026 SALT results can be reproduced
-> [here]() once the environment is set up.
+> [here](results/) once the environment is set up.
 
 ## 📑 Table of contents
 

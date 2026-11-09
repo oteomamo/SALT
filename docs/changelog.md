@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.37
+## 3.0.0 - 3.0.41
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -130,6 +130,14 @@ the details, and the 2.11 section below lists each step.
   probability of 0.999 or more skips the search for that turn. Off by
   default, served backend only, `/gate` sets it per session and
   `/stats` counts the decisions.
+- **3.0.41** A script in the results folder reproduces the legacy
+  selector's LongBench table for Llama or Ministral, one model per run,
+  and the folder's page shows the table. `eval.py --tokenizer-mode`
+  picks the tokenizer the vLLM backend loads. Newer vLLM loads Ministral
+  with Mistral's own tokenizer, which reads the chat template's markers
+  as plain text and leaves many answers empty, and `hf` keeps it on its
+  Hugging Face tokenizer. The default `auto` leaves the backend as it
+  was.
 
 ## 2.11.0 - 2.11.123
 

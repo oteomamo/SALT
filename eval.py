@@ -417,12 +417,16 @@ class VLLMBackend:
         devices = os.environ.get("CUDA_VISIBLE_DEVICES", str(args.gpu))
         print(f"Loading model (vLLM): {args.model} "
               f"(tensor_parallel_size={args.tensor_parallel_size}, GPUs=[{devices}])")
+        extra = {}
+        tokenizer_mode = getattr(args, "tokenizer_mode", "auto")
+        if tokenizer_mode != "auto":
+            extra["tokenizer_mode"] = tokenizer_mode
         self.llm = LLM(model=args.model, dtype="auto",
                        tensor_parallel_size=args.tensor_parallel_size,
                        max_model_len=max_model_len,
                        gpu_memory_utilization=args.gpu_mem_util,
                        enable_chunked_prefill=True,
-                       trust_remote_code=True, enforce_eager=True)
+                       trust_remote_code=True, enforce_eager=True, **extra)
         self.tokenizer = self.llm.get_tokenizer()
 
     def generate(self, user_prompts, ds_name):
@@ -668,6 +672,9 @@ def main():
     vllm_grp.add_argument("--tensor-parallel-size", type=int, default=1,
                           help="GPUs to shard the model across (vLLM).")
     vllm_grp.add_argument("--gpu-mem-util", type=float, default=0.9)
+    vllm_grp.add_argument("--tokenizer-mode", type=str, default="auto",
+                          help="vLLM tokenizer_mode. 'hf' keeps Ministral on "
+                               "its Hugging Face tokenizer under newer vLLM.")
 
     hf_grp = parser.add_argument_group("HF backend")
     hf_grp.add_argument("--device", type=str, default="cuda",
