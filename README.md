@@ -43,7 +43,8 @@ Because the theme map is built once, it can be reused across the turns of a
 conversation without re-reading the document.
 
 > The legacy selector described in the paper now defaults to the coverage/CELF
-> selector described below.
+> selector described below. The EMNLP 2026 SALT results can be reproduced
+> [here]() once the environment is set up.
 
 ## 📑 Table of contents
 
