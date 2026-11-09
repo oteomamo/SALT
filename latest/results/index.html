@@ -912,6 +912,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -928,6 +946,47 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#coverage-selector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🧮 Coverage selector
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legacy-selector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📜 Legacy selector
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -1102,6 +1161,36 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#coverage-selector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🧮 Coverage selector
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legacy-selector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📜 Legacy selector
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -1132,6 +1221,7 @@ selector. The measurements behind saltChat's memory features, on
 conversation benchmarks rather than documents, are described on the
 <a href="../architecture/">Architecture</a> page beside the feature each one
 decided.</p>
+<h2 id="coverage-selector">🧮 Coverage selector</h2>
 <table>
 <thead>
 <tr>
@@ -1279,6 +1369,188 @@ decided.</p>
 <td></td>
 <td></td>
 <td style="text-align: right;"><strong>44.60</strong></td>
+</tr>
+</tbody>
+</table>
+<h2 id="legacy-selector">📜 Legacy selector</h2>
+<p>The legacy selector described in the <a href="../paper/">EMNLP 2026 paper</a>, run on
+the current stack with vLLM 0.19.1 at the same 20% budget, for
+Llama-3.1-8B-Instruct and Ministral-8B-Instruct-2410. The paper's own
+numbers were produced with vLLM 0.11.0. The two code tasks run the
+coverage selector, because the code reader works only with it. The
+<a href="https://github.com/oteomamo/SALT/tree/main/results">results folder</a> holds
+the script that reproduces this table, one model per run.</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Dataset</th>
+<th>Metric</th>
+<th style="text-align: right;">Llama</th>
+<th style="text-align: right;">Ministral</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Single-Doc QA</td>
+<td><code>narrativeqa</code></td>
+<td>qa_f1</td>
+<td style="text-align: right;">23.00</td>
+<td style="text-align: right;">23.65</td>
+</tr>
+<tr>
+<td></td>
+<td><code>qasper</code></td>
+<td>qa_f1</td>
+<td style="text-align: right;">39.38</td>
+<td style="text-align: right;">39.39</td>
+</tr>
+<tr>
+<td></td>
+<td><code>multifieldqa_en</code></td>
+<td>qa_f1</td>
+<td style="text-align: right;">51.99</td>
+<td style="text-align: right;">49.99</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>average</strong></td>
+<td></td>
+<td style="text-align: right;"><strong>38.12</strong></td>
+<td style="text-align: right;"><strong>37.68</strong></td>
+</tr>
+<tr>
+<td>Multi-Doc QA</td>
+<td><code>hotpotqa</code></td>
+<td>qa_f1</td>
+<td style="text-align: right;">54.68</td>
+<td style="text-align: right;">57.70</td>
+</tr>
+<tr>
+<td></td>
+<td><code>2wikimqa</code></td>
+<td>qa_f1</td>
+<td style="text-align: right;">37.78</td>
+<td style="text-align: right;">43.63</td>
+</tr>
+<tr>
+<td></td>
+<td><code>musique</code></td>
+<td>qa_f1</td>
+<td style="text-align: right;">24.90</td>
+<td style="text-align: right;">31.95</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>average</strong></td>
+<td></td>
+<td style="text-align: right;"><strong>39.12</strong></td>
+<td style="text-align: right;"><strong>44.43</strong></td>
+</tr>
+<tr>
+<td>Summarization</td>
+<td><code>gov_report</code></td>
+<td>rouge</td>
+<td style="text-align: right;">32.40</td>
+<td style="text-align: right;">30.13</td>
+</tr>
+<tr>
+<td></td>
+<td><code>qmsum</code></td>
+<td>rouge</td>
+<td style="text-align: right;">23.86</td>
+<td style="text-align: right;">22.89</td>
+</tr>
+<tr>
+<td></td>
+<td><code>multi_news</code></td>
+<td>rouge</td>
+<td style="text-align: right;">23.70</td>
+<td style="text-align: right;">23.01</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>average</strong></td>
+<td></td>
+<td style="text-align: right;"><strong>26.65</strong></td>
+<td style="text-align: right;"><strong>25.34</strong></td>
+</tr>
+<tr>
+<td>Few-Shot</td>
+<td><code>trec</code></td>
+<td>classification</td>
+<td style="text-align: right;">74.00</td>
+<td style="text-align: right;">76.50</td>
+</tr>
+<tr>
+<td></td>
+<td><code>triviaqa</code></td>
+<td>qa_f1</td>
+<td style="text-align: right;">82.44</td>
+<td style="text-align: right;">90.38</td>
+</tr>
+<tr>
+<td></td>
+<td><code>samsum</code></td>
+<td>rouge</td>
+<td style="text-align: right;">43.46</td>
+<td style="text-align: right;">44.09</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>average</strong></td>
+<td></td>
+<td style="text-align: right;"><strong>66.63</strong></td>
+<td style="text-align: right;"><strong>70.32</strong></td>
+</tr>
+<tr>
+<td>Synthetic</td>
+<td><code>passage_count</code></td>
+<td>count</td>
+<td style="text-align: right;">10.50</td>
+<td style="text-align: right;">12.50</td>
+</tr>
+<tr>
+<td></td>
+<td><code>passage_retrieval_en</code></td>
+<td>retrieval</td>
+<td style="text-align: right;">99.50</td>
+<td style="text-align: right;">97.00</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>average</strong></td>
+<td></td>
+<td style="text-align: right;"><strong>55.00</strong></td>
+<td style="text-align: right;"><strong>54.75</strong></td>
+</tr>
+<tr>
+<td>Code</td>
+<td><code>lcc</code></td>
+<td>code_sim</td>
+<td style="text-align: right;">48.50</td>
+<td style="text-align: right;">46.91</td>
+</tr>
+<tr>
+<td></td>
+<td><code>repobench-p</code></td>
+<td>code_sim</td>
+<td style="text-align: right;">41.85</td>
+<td style="text-align: right;">50.67</td>
+</tr>
+<tr>
+<td></td>
+<td><strong>average</strong></td>
+<td></td>
+<td style="text-align: right;"><strong>45.17</strong></td>
+<td style="text-align: right;"><strong>48.79</strong></td>
+</tr>
+<tr>
+<td><strong>Overall</strong></td>
+<td></td>
+<td></td>
+<td style="text-align: right;"><strong>44.50</strong></td>
+<td style="text-align: right;"><strong>46.27</strong></td>
 </tr>
 </tbody>
 </table>
