@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/favicon.svg">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
     
     
       
@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3037" class="md-nav__link">
+  <a href="#300-3041" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.37
+        3.0.0 - 3.0.41
       
     </span>
   </a>
@@ -1300,10 +1300,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3037" class="md-nav__link">
+  <a href="#300-3041" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.37
+        3.0.0 - 3.0.41
       
     </span>
   </a>
@@ -1478,7 +1478,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="300-3037">3.0.0 - 3.0.37</h2>
+<h2 id="300-3041">3.0.0 - 3.0.41</h2>
 <p>The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
 grades the reply it wrote against the material it was written from,
@@ -1602,6 +1602,14 @@ the details, and the 2.11 section below lists each step.</p>
   probability of 0.999 or more skips the search for that turn. Off by
   default, served backend only, <code>/gate</code> sets it per session and
   <code>/stats</code> counts the decisions.</li>
+<li><strong>3.0.41</strong> A script in the results folder reproduces the legacy
+  selector's LongBench table for Llama or Ministral, one model per run,
+  and the folder's page shows the table. <code>eval.py --tokenizer-mode</code>
+  picks the tokenizer the vLLM backend loads. Newer vLLM loads Ministral
+  with Mistral's own tokenizer, which reads the chat template's markers
+  as plain text and leaves many answers empty, and <code>hf</code> keeps it on its
+  Hugging Face tokenizer. The default <code>auto</code> leaves the backend as it
+  was.</li>
 </ul>
 <h2 id="2110-211123">2.11.0 - 2.11.123</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:
@@ -2270,7 +2278,7 @@ plus the <code>salt</code> console command.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
       
         <script src="../assets/versions.js"></script>
       
