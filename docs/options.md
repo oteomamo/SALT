@@ -190,6 +190,7 @@ the [MCP](mcp.md) page.
 | `--max-open-sessions N` | `8` | how many conversations stay open at once |
 | `--max-ingest-chars N` | `400000` | longest text one call may carry |
 | `--doc-root DIR` | any file the server can read | read documents by path only from under this folder |
+| `--memory-cap N\|auto\|off` | `auto` | ceiling on the block a memory read returns, in tokens counted at 1.6 a word: `auto` is 4096, `off` sizes the block by the budget alone |
 | `--read-only` | off | answer reads and refuse every write, leaving every conversation exactly as it was found |
 | `--roster FILE` | none | roster of helper models this server may delegate to |
 | `--device D` | `cuda` when there is one | encoder device |

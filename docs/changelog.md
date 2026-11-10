@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.44
+## 3.0.0 - 3.0.45
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -143,6 +143,11 @@ the details, and the 2.11 section below lists each step.
   session holds less. The block is a fifth of what is remembered, and a
   fifth of a young session was a few lines. The default `off` sizes the
   block as before.
+- **3.0.45** A memory read over MCP has a ceiling. `session_memory`
+  stops at the 4096 tokens a chat turn stops at, counted as 2560 words,
+  where it returned a fifth of the conversation however long that was.
+  `salt-mcp --memory-cap` moves the ceiling or turns it off, and the
+  reply says when a block was cut to it.
 
 ## 2.11.0 - 2.11.123
 

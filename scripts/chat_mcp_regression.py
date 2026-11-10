@@ -365,10 +365,18 @@ async def drive(sessions):
             assert "December" in mem["memory"], mem["memory"]
             assert mem["stats"]["n_selected"] >= 1, mem["stats"]
             assert mem["stats"]["budget_pct"] == 0.5, mem["stats"]
+            assert mem["stats"]["word_budget"] > 0 and (
+                mem["stats"]["word_budget_capped"] is False), (
+                f"a short conversation was read as cut to the ceiling: "
+                f"{mem['stats']}")
             empty = payload(await session.call_tool("session_memory", {
                 "conversation_id": "mcp-two", "query": "anything"}))
             assert empty["memory"] == "" and empty["stats"][
                 "n_selected"] == 0, empty
+            assert set(empty["stats"]) == set(mem["stats"]), (
+                f"an empty conversation's read carries other fields than "
+                f"an answered one: "
+                f"{sorted(set(empty['stats']) ^ set(mem['stats']))}")
             no_query = await session.call_tool("session_memory", {
                 "conversation_id": "mcp-turns", "query": "   "})
             assert no_query.is_error, "a memory read with no query was taken"
@@ -1166,6 +1174,108 @@ def check_serial_and_sync(root):
           "the session's worker")
 
 
+CEILING_TOKENS = 160
+
+
+async def wire_read(sessions, cid, query):
+    """One read of a whole conversation from a read-only server started
+    with its own ceiling."""
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "salt.mcp.server", "--device", "cpu",
+              "--sessions-dir", str(sessions), "--read-only",
+              "--memory-cap", str(CEILING_TOKENS)])
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            return payload(await session.call_tool("session_memory", {
+                "conversation_id": cid, "query": query, "budget_pct": 1.0}))
+
+
+def check_ceiling(root):
+    """A memory read stops at the ceiling a chat turn has, and the launch
+    flag moves it."""
+    import inspect
+    from salt.chat.cli import MEMORY_CAP_AUTO_TOKENS, TOKENS_PER_WORD_SEED
+    from salt.mcp.pool import SessionPool
+    from salt.mcp.server import (Engine, add_turns, build_parser,
+                                 build_server, create_session, read_ceiling,
+                                 session_memory)
+
+    auto = read_ceiling("auto")
+    assert auto == int(MEMORY_CAP_AUTO_TOKENS / TOKENS_PER_WORD_SEED), auto
+    assert read_ceiling("off") is None, read_ceiling("off")
+    tight = read_ceiling(CEILING_TOKENS)
+    assert tight == int(CEILING_TOKENS / TOKENS_PER_WORD_SEED), tight
+    for fn in (session_memory, build_server):
+        default = inspect.signature(fn).parameters["memory_cap"].default
+        assert default == "auto", (
+            f"{fn.__name__} reads under {default!r} unless told otherwise")
+    parser = build_parser()
+    assert parser.parse_args([]).memory_cap == "auto", (
+        "a server started without the flag has another ceiling")
+    said = " ".join(parser.format_help().split())
+    assert f"'auto' is {MEMORY_CAP_AUTO_TOKENS}" in said and (
+        f"{TOKENS_PER_WORD_SEED:g} a word" in said), (
+        "the flag's help names other numbers than the chat turn's")
+
+    engine = Engine("cpu").ready()
+    cid, query = "mcp-ceiling", "what happens to the panels in December"
+    pool = SessionPool(root)
+    create_session(pool, cid)
+    add_turns(engine, pool, cid, [{"role": "user", "text": TEXT},
+                                  {"role": "assistant", "text": DOC}],
+              sync=True)
+    pool.close_all()
+
+    def read(cap):
+        # a read-only pool of its own, so each read opens the conversation
+        # from disk exactly as the one before it found it
+        reader = SessionPool(root, read_only=True)
+        try:
+            return session_memory(engine, reader, cid, query,
+                                  budget_pct=1.0, memory_cap=cap)
+        finally:
+            reader.close_all()
+
+    free, usual, cut = read("off"), read("auto"), read(CEILING_TOKENS)
+    whole = free["stats"]["word_budget"]
+    assert tight < whole < auto, (
+        f"the conversation has to sit between the two ceilings to tell "
+        f"them apart: {whole} words against {tight} and {auto}")
+    assert free["stats"]["word_budget_capped"] is False, free["stats"]
+    assert usual == free, (
+        f"the default ceiling changed a read far under it: "
+        f"{usual['stats']} against {free['stats']}")
+    assert cut["stats"]["word_budget"] == tight and (
+        cut["stats"]["word_budget_capped"] is True), cut["stats"]
+    assert cut["stats"]["n_selected"] < free["stats"]["n_selected"], (
+        f"a read cut to {tight} words selected as much as an uncut one: "
+        f"{cut['stats']}")
+    assert len(cut["memory"]) < len(free["memory"]), (
+        "a read cut to the ceiling came back as long as an uncut one")
+
+    wired = asyncio.run(wire_read(root, cid, query))["stats"]
+    assert wired["word_budget"] == tight and (
+        wired["word_budget_capped"] is True), (
+        f"--memory-cap did not reach the read: {wired}")
+
+    env = dict(os.environ)
+    env.pop("MKL_THREADING_LAYER", None)
+    for bad in ("window", "plenty"):
+        out = subprocess.run(
+            [sys.executable, "-m", "salt.mcp.server", "--memory-cap", bad],
+            capture_output=True, text=True, timeout=180, cwd=REPO, env=env)
+        assert out.returncode == 2 and "--memory-cap" in out.stderr, (
+            f"--memory-cap {bad} started anyway: {out.returncode}\n"
+            f"{out.stderr[-2000:]}")
+    print(f"18. ceiling: a read stops at {auto} words unless the server "
+          f"was started otherwise, a conversation of {whole} words reads "
+          f"the same under it as with none, a ceiling of {tight} words "
+          f"cuts the read and says so, the flag reaches the tool, and 2 "
+          f"values it does not take exit 2")
+
+
 def main():
     sessions = Path(tempfile.mkdtemp(prefix="salt_mcp_regression_"))
     try:
@@ -1181,6 +1291,7 @@ def main():
         asyncio.run(drive_doc_root(sessions))
         check_hub_logging()
         check_shutdown_signal()
+        check_ceiling(sessions)
     finally:
         shutil.rmtree(sessions, ignore_errors=True)
     print("PASS")

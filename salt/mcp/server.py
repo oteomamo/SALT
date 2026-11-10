@@ -347,14 +347,30 @@ def add_turns(engine, pool, conversation_id, exchange, sync=False,
             "sync": bool(sync)}
 
 
+def read_ceiling(memory_cap):
+    """The most words a memory read returns, or None for no ceiling.
+
+    The chat turn's own rule. No model in this process has a window to
+    fit or a tokenizer to count with, so tokens become words at the
+    ratio a chat session starts from.
+    """
+    from types import SimpleNamespace
+    from salt.chat.cli import TOKENS_PER_WORD_SEED, memory_word_cap
+    return memory_word_cap(SimpleNamespace(
+        memory_cap=memory_cap, runner=None,
+        tokens_per_word=TOKENS_PER_WORD_SEED))
+
+
 def session_memory(engine, pool, conversation_id, query,
-                   budget_pct=None, max_chars=DEFAULT_MAX_CHARS):
+                   budget_pct=None, max_chars=DEFAULT_MAX_CHARS,
+                   memory_cap="auto"):
     """What this conversation remembers about a question.
 
     The block is the labeled one a saltChat turn is given, headed by
-    where each excerpt came from. Reading is a turn here: the selection
-    is committed, so the next call sees the coverage this one moved,
-    exactly as a chat turn would.
+    where each excerpt came from, and it stops at the ceiling a chat
+    turn has. Reading is a turn here: the selection is committed, so
+    the next call sees the coverage this one moved, exactly as a chat
+    turn would.
     """
     from salt.chat.cli import format_memory_block
     query = need_text("session_memory's query", query, max_chars)
@@ -377,11 +393,15 @@ def session_memory(engine, pool, conversation_id, query,
                           "budget_pct": (
                               trie.config.get("budget_pct_default")
                               if budget_pct is None else budget_pct),
+                          "word_budget": 0,
+                          "word_budget_capped": False,
                           "committed": False,
                           "query": query}}
     comp = trie.compress(query=query, budget_pct=budget_pct,
                          tokenizer=engine.tokenizer, model=engine.model,
-                         device=engine.device, defer_commit=True)
+                         device=engine.device,
+                         max_words=read_ceiling(memory_cap),
+                         defer_commit=True)
     selected = comp["selected_sent_idx"]
     block = format_memory_block(trie, selected)
     # a read is a turn, and commits like one. A read-only server drops
@@ -400,6 +420,9 @@ def session_memory(engine, pool, conversation_id, query,
                       "budget_pct": (
                           trie.config.get("budget_pct_default")
                           if budget_pct is None else budget_pct),
+                      "word_budget": stats.get("word_budget"),
+                      "word_budget_capped": bool(
+                          stats.get("word_budget_capped")),
                       "committed": not pool.read_only,
                       "query": query}}
 
@@ -509,7 +532,8 @@ def stamped(server, expected):
 
 
 def build_server(engine, pool=None, roster=None,
-                 max_chars=DEFAULT_MAX_CHARS, doc_root=None):
+                 max_chars=DEFAULT_MAX_CHARS, doc_root=None,
+                 memory_cap="auto"):
     """The MCP server and its tools, with the engine they compress on."""
     from mcp.server import MCPServer
     from salt.mcp.agents import AgentRuntime, roster_payload, run_delegation
@@ -641,7 +665,8 @@ def build_server(engine, pool=None, roster=None,
     def session_memory_tool(conversation_id: str, query: str,
                             budget_pct: float = None) -> dict[str, Any]:
         return guarded(session_memory, engine, pool, conversation_id,
-                       query, budget_pct, max_chars=max_chars)
+                       query, budget_pct, max_chars=max_chars,
+                       memory_cap=memory_cap)
 
     @server.tool(name="salt_ingest_document",
                  description="Read a document into a conversation's "
@@ -697,6 +722,20 @@ def document_root(path):
     return root
 
 
+def memory_cap_arg(val):
+    """--memory-cap as this server takes it: a token count, 'auto' or
+    'off'. Anything else stops the server here, before the encoder
+    loads. 'window' is refused too, since no model in this process has
+    one to fit."""
+    from salt.chat.cli import parse_memory_cap
+    cap = parse_memory_cap(val)
+    if cap is None or cap == "window":
+        print(f"salt-mcp: --memory-cap takes a number of tokens, 'auto' "
+              f"or 'off', got {val!r}", file=sys.stderr)
+        raise SystemExit(2)
+    return cap
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="salt-mcp", description=__doc__.splitlines()[0])
@@ -726,6 +765,11 @@ def build_parser():
     p.add_argument("--doc-root", default=None, metavar="DIR",
                    help="read documents by path only from under this "
                         "folder (default: any file this server can read)")
+    p.add_argument("--memory-cap", default="auto", metavar="N|auto|off",
+                   help="ceiling on the block a memory read returns, in "
+                        "tokens counted at 1.6 a word: 'auto' is 4096, a "
+                        "number sets it, 'off' sizes the block by the "
+                        "budget alone (default: auto)")
     p.add_argument("--read-only", action="store_true",
                    help="answer reads and refuse every write, leaving "
                         "every conversation exactly as it was found")
@@ -791,13 +835,14 @@ def main(argv=None):
     # every way of starting wrong is answered before the encoder loads,
     # so a mistyped flag costs a moment rather than a model
     doc_root = document_root(args.doc_root)
+    memory_cap = memory_cap_arg(args.memory_cap)
     pool = SessionPool(args.sessions_dir or sessions_root(),
                        capacity=args.max_open_sessions,
                        read_only=args.read_only)
     roster = load_roster(args.roster) if args.roster else None
     server = build_server(Engine(resolve_device(args)), pool, roster,
                           max_chars=args.max_ingest_chars,
-                          doc_root=doc_root)
+                          doc_root=doc_root, memory_cap=memory_cap)
     # the last word a session gets is written when this server ends, so
     # every way of ending has to reach the same close
     closing, on_signal = shutdown_once(pool, server.runtime)

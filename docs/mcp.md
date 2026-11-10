@@ -95,6 +95,7 @@ there is one.
 | `--max-open-sessions` | how many conversations stay open at once (default: 8) |
 | `--max-ingest-chars` | longest text one call may carry (default: 400000) |
 | `--doc-root` | read documents by path only from under this folder (default: any file the server can read) |
+| `--memory-cap` | ceiling on the block a memory read returns, in tokens counted at 1.6 a word (default: `auto`, which is 4096) |
 | `--roster` | roster of helper models this server may delegate to |
 | `--read-only` | answer reads and refuse every write |
 
@@ -181,6 +182,14 @@ labeled memory block a chat turn would be given: excerpts grouped by
 where they came from, each conversation excerpt marked with the turn
 and the speaker. `budget_pct` sets how much of the conversation the
 block may spend, defaulting to the session's own budget.
+
+The block stops at the ceiling a chat turn has, however long the
+conversation is and whatever `budget_pct` asks for. The server has no
+model to count tokens with, so it counts 1.6 tokens a word, which puts
+the default of 4096 tokens at 2560 words. `--memory-cap` sets another
+ceiling or turns it off. The reply's `word_budget` says how many words
+the block could spend, and `word_budget_capped` says whether the
+ceiling cut it.
 
 A read is a turn. The selection is committed the way a chat turn
 commits it, so what the conversation has already surfaced shapes what
