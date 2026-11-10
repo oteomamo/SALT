@@ -785,6 +785,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-much-a-turn-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How much a turn reads
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-pdfs-are-cleaned" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1498,6 +1509,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-much-a-turn-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How much a turn reads
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-pdfs-are-cleaned" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1982,6 +2004,33 @@ search.</p>
 shows the turn's decision with its probability and a census of the
 session's decisions, and the ledger carries the decision on every turn
 that asked.</p>
+<h2 id="how-much-a-turn-reads">How much a turn reads</h2>
+<p>The memory block is a fifth of what the session remembers, under the
+ceiling. Two numbers, both off by default, size it where a fraction
+does badly.</p>
+<p><code>--memory-floor auto</code> is the least a turn reads. A fifth of a young
+session, or of one short attached file, is a few lines, so the block is
+raised to 400 words, or to everything the turn may select from while
+that is less. It asks nothing of the question, and it stops mattering
+once 2000 words are remembered. A number in place of <code>auto</code> sets
+another floor.</p>
+<p><code>--memory-hold auto</code> is the most a turn reads when memory holds
+nothing for it. A request that stands on its own in a long session, a
+sum to work or a passage to rewrite, reads 400 words in place of the
+full block. Those are still the closest sentences the session has, so
+the block is never empty. The session decides by how close its three
+closest sentences sit to the question and how much of the question's
+wording they contain. It judges only once it holds 5000 words, and it
+never holds a turn about the memory itself: a summary, a time window,
+files named by hand, or a short line in the first person or about what
+was said before.</p>
+<p><code>/stats</code> says when the last block was raised or held, shows the two
+measures a turn was judged on, and counts how the session's turns
+divided. The ledger carries the hold on the turns it cut. Both numbers
+are switches a rule or the model policy can set for one turn, covered
+on the <a href="../agents/">Agents</a> page, and the
+<a href="../architecture/#how-much-a-turn-reads">Architecture</a> page has what
+each was worth when measured.</p>
 <h2 id="how-pdfs-are-cleaned">How PDFs are cleaned</h2>
 <p>Attached PDFs are read whole and cleaned into proper sentences before
 they reach the trie: headers, footers and reference lists go, broken
@@ -2124,7 +2173,8 @@ page lists them all with when to reach for each. In concept:</p>
 <li><strong>Floor.</strong> A fifth of a young session is only a few lines. With
   <code>--memory-floor auto</code> a turn reads at least 400 words of memory, or
   all of it while the session holds less, and <code>/stats</code> says when the
-  last block was raised.</li>
+  last block was raised. See
+  <a href="#how-much-a-turn-reads">How much a turn reads</a>.</li>
 <li><strong>Hold.</strong> A fifth of a long session is thousands of words, read
   whether or not any of them bear on the question. With
   <code>--memory-hold auto</code> a turn that memory holds nothing for reads at
@@ -2132,7 +2182,8 @@ page lists them all with when to reach for each. In concept:</p>
   holds 5000 words, and never on a turn about the memory itself: a
   summary, a time window, files named by hand, or a short line in the
   first person or about what was said before. <code>/stats</code> says when the
-  last block was held and how the session's turns divided.</li>
+  last block was held and how the session's turns divided. See
+  <a href="#how-much-a-turn-reads">How much a turn reads</a>.</li>
 <li><strong>Short turns.</strong> Terse decisions like "go with option B" stay in
   memory by default, and <code>--short-turns fuse</code> stores a bare "yes"
   together with the question it answers, so the decision is findable
