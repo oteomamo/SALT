@@ -30,6 +30,8 @@ real session before it is trusted.
 | `--coverage-max-keys 500` | hard limit on remembered theme keys | you want a strict bound no matter what else is on |
 | `--max-sentences 400` | keeps the most recent conversation sentences in memory and masks older ones instead of deleting them | a long session keeps slowing down as its memory grows |
 | `--short-turns fuse` | stores a bare "yes" together with the question it answers | terse decisions should be findable by the question's own words |
+| `--memory-floor auto` | reads at least 400 words of memory, or all of it while the session holds less | a young session answers from a few lines of what it remembers |
+| `--memory-hold auto` | reads at most 400 words on a turn the memory holds nothing for | a long session spends its whole memory block on requests that stand on their own |
 
 ## saltChat reference
 

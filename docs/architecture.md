@@ -616,7 +616,10 @@ third of the prompt tokens in under half the time. The requests scored
 right or wrong, sums and text operations, came out right more often,
 36.5 percent against 32.0, and the questions about the conversation
 scored the same: of 1508 the hold cut one. An operation that quotes
-the conversation is not held, since its words are in memory. Both
+the conversation is not held, since its words are in memory. Asked of
+an attached document the two change nothing: over 750 questions from
+four LongBench sets the hold cut none, and the floor raised the 60
+documents under 2000 words and left the score where it was. Both
 numbers stay opt-in, and `/stats` says when a block was raised or held
 and counts the hold's decisions.
 

@@ -358,6 +358,38 @@ shows the turn's decision with its probability and a census of the
 session's decisions, and the ledger carries the decision on every turn
 that asked.
 
+## How much a turn reads
+
+The memory block is a fifth of what the session remembers, under the
+ceiling. Two numbers, both off by default, size it where a fraction
+does badly.
+
+`--memory-floor auto` is the least a turn reads. A fifth of a young
+session, or of one short attached file, is a few lines, so the block is
+raised to 400 words, or to everything the turn may select from while
+that is less. It asks nothing of the question, and it stops mattering
+once 2000 words are remembered. A number in place of `auto` sets
+another floor.
+
+`--memory-hold auto` is the most a turn reads when memory holds
+nothing for it. A request that stands on its own in a long session, a
+sum to work or a passage to rewrite, reads 400 words in place of the
+full block. Those are still the closest sentences the session has, so
+the block is never empty. The session decides by how close its three
+closest sentences sit to the question and how much of the question's
+wording they contain. It judges only once it holds 5000 words, and it
+never holds a turn about the memory itself: a summary, a time window,
+files named by hand, or a short line in the first person or about what
+was said before.
+
+`/stats` says when the last block was raised or held, shows the two
+measures a turn was judged on, and counts how the session's turns
+divided. The ledger carries the hold on the turns it cut. Both numbers
+are switches a rule or the model policy can set for one turn, covered
+on the [Agents](agents.md) page, and the
+[Architecture](architecture.md#how-much-a-turn-reads) page has what
+each was worth when measured.
+
 ## How PDFs are cleaned
 
 Attached PDFs are read whole and cleaned into proper sentences before
@@ -515,7 +547,8 @@ page lists them all with when to reach for each. In concept:
 - **Floor.** A fifth of a young session is only a few lines. With
   `--memory-floor auto` a turn reads at least 400 words of memory, or
   all of it while the session holds less, and `/stats` says when the
-  last block was raised.
+  last block was raised. See
+  [How much a turn reads](#how-much-a-turn-reads).
 - **Hold.** A fifth of a long session is thousands of words, read
   whether or not any of them bear on the question. With
   `--memory-hold auto` a turn that memory holds nothing for reads at
@@ -523,7 +556,8 @@ page lists them all with when to reach for each. In concept:
   holds 5000 words, and never on a turn about the memory itself: a
   summary, a time window, files named by hand, or a short line in the
   first person or about what was said before. `/stats` says when the
-  last block was held and how the session's turns divided.
+  last block was held and how the session's turns divided. See
+  [How much a turn reads](#how-much-a-turn-reads).
 - **Short turns.** Terse decisions like "go with option B" stay in
   memory by default, and `--short-turns fuse` stores a bare "yes"
   together with the question it answers, so the decision is findable
