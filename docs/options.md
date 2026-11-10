@@ -96,6 +96,7 @@ Memory sizing:
 | `--budget-pct P` | `0.20` | share of the remembered words the memory block may use |
 | `--memory-cap N\|auto\|window\|off` | `auto` | absolute ceiling on the block, fitted to the model's window and never above 4096 tokens |
 | `--memory-floor N\|auto\|off` | `off` | the least a turn reads of memory, in words: a young session is read through at least that many, or all of it when it holds less, `auto` is 400 |
+| `--memory-hold N\|auto\|off` | `off` | the most a turn reads when memory holds nothing for it, in words: a turn the remembered rows do not bear on reads a block of that size in place of the full one, on a memory of 5000 words or more and never on a turn about the memory itself, `auto` is 400 |
 | `--branch-stats` | off | show in `/stats` how each branch of the memory trie, every attached file and the conversation, relates to the last question |
 | `--scope off\|auto` | `auto` | `auto` searches only the attached files a question is about, plus the conversation, and sizes the block from the words in that scope, `off` searches every file |
 | `--scope-margin M` | `0.02` | under `--scope auto`, how far below the best file's whole-file similarity a file may sit and stay in scope |

@@ -63,6 +63,7 @@ from salt.chat.runner import TEMPLATE_KEY, make_runner, render_prompt
 from salt.chat import scope as scope_module
 from salt.chat import summary as summary_module
 from salt.chat import gate as gate_module
+from salt.chat import hold as hold_module
 from salt.chat import when as when_module
 from salt.chat import scoring
 from salt.chat import support
@@ -71,7 +72,8 @@ from salt.chat.shortturn import (acknowledgement_only, fuse_with_question,
                                  is_short_user_unit)
 from salt.engine.chat_text import is_protected_chat_unit
 from salt.engine.compressor import load_bge
-from salt.engine.session_trie import (BRANCH_KEYS, VALID_ROLES, SessionTrie,
+from salt.engine.session_trie import (BRANCH_KEYS, HOLD_MIN_WORDS,
+                                      VALID_ROLES, SessionTrie,
                                       extract_query_identifiers)
 from salt.engine.trie_core import (embed_query, extract_proper_nouns_in_query,
                                    extract_query_keywords)
@@ -358,6 +360,7 @@ class ChatState:
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
         self.memory_floor = args.memory_floor
+        self.memory_hold = args.memory_hold
         self.branch_stats = args.branch_stats
         self.scope_mode = self.scope_launch_mode = args.scope
         self.scope_names = None
@@ -410,12 +413,14 @@ class ChatState:
         self.last_summary = None
         self.last_when = None
         self.last_gate = None
+        self.last_hold = None
         self.last_reply_raw = None
         self.think_opened = weakref.WeakKeyDictionary()
         self.scope_stats = scope_module.census()
         self.summary_stats = summary_module.census()
         self.when_stats = when_module.census()
         self.gate_stats = gate_module.census()
+        self.hold_stats = hold_module.census()
         self._fixed_tokens_cache = None
         self.full_attachments = {}      # name -> whole text (attach@)
         self.load_full_attachments()
@@ -542,6 +547,8 @@ class ChatState:
         self.last_gate = None
         self.gate_stats = gate_module.census()
         self.gate_mode = self.gate_launch_mode
+        self.last_hold = None
+        self.hold_stats = hold_module.census()
         # ids and totals belong to the session, not to the process: a new
         # one starts from its own ledger or from nothing
         self.delegation_seq, self.delegation_stats = resume_delegations(
@@ -2114,6 +2121,7 @@ def build_stats(state):
         "prompt": {"fixed_tokens": prompt_fixed_tokens(state),
                    "input_budget": limit},
         "switches": {"memory_floor": state.memory_floor,
+                     "memory_hold": state.memory_hold,
                      "coverage_half_life": state.coverage_half_life,
                      "coverage_decay_docs": state.coverage_decay_docs,
                      "tail_exclude": state.tail_exclude,
@@ -2151,6 +2159,9 @@ def build_stats(state):
         "gate": state.last_gate,
         "gate_census": (state.gate_stats if state.gate_mode != "off"
                         or state.gate_stats["asked"] else None),
+        "hold": state.last_hold,
+        "hold_census": (state.hold_stats
+                        if state.memory_hold is not None else None),
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -2209,6 +2220,8 @@ def print_stats(state, payload=None):
         print(f"memory floor: {sw['memory_floor']} words"
               + (" - the last block was raised to it"
                  if s.get("word_budget_raised") else ""))
+    for ln in hold_module.lines(sw["memory_hold"], d.get("hold")):
+        print(ln)
     if sw["coverage_half_life"]:
         keys = s.get("coverage_keys")
         print(f"coverage decay: half-life "
@@ -2311,6 +2324,8 @@ def print_stats(state, payload=None):
     for ln in gate_module.lines(d.get("gate")):
         print(ln)
     for ln in gate_module.census_lines(d.get("gate_census")):
+        print(ln)
+    for ln in hold_module.census_lines(d.get("hold_census")):
         print(ln)
     if d["signals"]:
         print(f"signals: {d['signals']['lines']} turns recorded "
@@ -3176,8 +3191,19 @@ def gate_extra(state):
             "gate_error": rec["error"]}
 
 
+def hold_extra(state):
+    """What a held turn was held to and on what evidence, for the ledger;
+    nothing on a turn that was not held, so the event keeps its shape."""
+    rec = state.last_hold
+    if not rec or not rec["held"]:
+        return {}
+    return {"hold_words": rec["words"], "hold_top3": rec["top3"],
+            "hold_match": rec["match"]}
+
+
 def compress_kwargs(state, line, excl, switches, query_embedding=None,
-                    scope_sources=None, theme_percentile=None, lam=None):
+                    scope_sources=None, theme_percentile=None, lam=None,
+                    hold_ok=True):
     """Everything this turn asks the compressor for. Assembled in one
     place so what a turn selects under is a thing that can be read,
     decided about and pinned, rather than a call site."""
@@ -3189,6 +3215,8 @@ def compress_kwargs(state, line, excl, switches, query_embedding=None,
             **policy.selection_kwargs(switches.__getitem__),
             "max_words": memory_word_cap(state, line),
             "memory_floor": state.memory_floor,
+            "memory_hold": state.memory_hold,
+            "hold_ok": hold_ok,
             "query_embedding": query_embedding,
             "scope_sources": scope_sources,
             "theme_percentile": theme_percentile,
@@ -3264,7 +3292,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     state.last_overrides, state.last_audit = {}, ()
     state.turn_switches = None
     state.last_branch_scores = state.last_scope = state.last_summary = None
-    state.last_when = state.last_gate = None
+    state.last_when = state.last_gate = state.last_hold = None
     skipped = False
     if state.trie.n_sentences > 0:
         switches, state.last_overrides, state.last_audit = turn_switches(state)
@@ -3306,12 +3334,18 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         state.summary_next = False
         knobs = ((state.summary_themes, state.summary_lam) if summary_on
                  else (None, None))
+        hold_ok, hold_why = hold_module.may_hold(
+            line, summary=summary_on, windowed=bool(held),
+            named=state.scope_mode == scope_module.NAMED)
         comp = state.trie.compress(
             **compress_kwargs(state, line, excl, switches, q_vec,
-                              scope_sources, *knobs))
+                              scope_sources, *knobs, hold_ok=hold_ok))
         selected_idx = comp["selected_sent_idx"]
         commit = comp.get("commit")
         state.last_stats = comp["stats"]
+        state.last_hold = hold_module.record(state.memory_hold,
+                                             comp["stats"], hold_why)
+        hold_module.count(state.hold_stats, state.last_hold)
         state.last_scope = scope_module.record(
             state.scope_mode, rows, scope_sources, scope_note, comp["stats"])
         if state.scope_mode != "off" and rows is not None:
@@ -3421,6 +3455,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
     extra.update(summary_extra(state))
     extra.update(when_extra(state))
     extra.update(gate_extra(state))
+    extra.update(hold_extra(state))
     try:
         state.kvtrace.record_turn(
             tokenizer=reply_tokenizer or state.runner.tokenizer,
@@ -4014,6 +4049,16 @@ def build_parser():
                         "session is not read through a few lines. 'auto' "
                         f"is {MEMORY_FLOOR_WORDS} words, 'off' sizes the "
                         "block by the budget alone (default: off)")
+    p.add_argument("--memory-hold", type=hold_module.parse, default=None,
+                   metavar="N|auto|off",
+                   help="the most a turn reads when memory holds nothing "
+                        "for it, in words: a turn the remembered rows do "
+                        "not bear on reads a block of that size in place "
+                        "of the full one. It acts on a memory of "
+                        f"{HOLD_MIN_WORDS} words or more and never on a "
+                        "turn about the memory itself. 'auto' is "
+                        f"{hold_module.HOLD_WORDS} words, 'off' reads the "
+                        "full block (default: off)")
     p.add_argument("--branch-stats", action="store_true",
                    help="score every branch of the memory trie, each "
                         "attached file and the conversation, against each "

@@ -37,9 +37,21 @@ floor raises the first and the hold cuts the second. Groups:
      and a query the rows hold evidence for are never cut, the last
      selecting exactly as with no hold; the cut never goes under the
      floor, and a ceiling already under the hold leaves nothing to cut.
+  F. HOLD FLAG - `--memory-hold` parses off, auto and a number of words
+     and refuses anything else at launch; a short line that asks for a
+     summary, refers to the shared past or speaks in the first person
+     is claimed and a long one is not, and a summary turn, a windowed
+     turn and a turn over files named by hand may not be held; through
+     the real chat turn against a fake runner, a session launched
+     without the flag records nothing, prints nothing and writes no
+     ledger field; a session under the size the hold needs is never
+     judged and sends the same prompts; past that size an unrelated
+     request is held, /stats prints the turn and the census, the ledger
+     carries the hold on that turn, every earlier prompt is unchanged,
+     and a short first-person line is never held.
 
-Groups A to C and E need the BGE encoder (downloaded to the HF cache on
-first use). CPU is the default device; the run takes about a minute.
+Groups A to C, E and F need the BGE encoder (downloaded to the HF cache
+on first use). CPU is the default device; the run takes about a minute.
 
 Usage:
     python scripts/chat_floor_regression.py [--device cpu] [--budget 0.2]
@@ -89,6 +101,7 @@ EXCHANGES = [
 ]
 QUERY = "Which inverter suits the solar array on the roof?"
 UNRELATED = "Name the capital city of Australia and the river that crosses it."
+PERSONAL = "Tell me the capital city of Australia."
 
 
 def build_session(name, tmp, tok, mdl, device):
@@ -194,7 +207,7 @@ class _FakeRunner:
         pass
 
 
-def chat_session(root, tok, mdl, device, flags):
+def chat_session(root, tok, mdl, device, flags, last=(QUERY,)):
     from salt.chat import cli
     args = cli.build_parser().parse_args(
         ["--device", device, "--sync-ingest", "--tail", "2", *flags])
@@ -204,7 +217,8 @@ def chat_session(root, tok, mdl, device, flags):
     with redirect_stdout(io.StringIO()):
         for user, _ in EXCHANGES:
             cli.chat_turn(state, user)
-        cli.chat_turn(state, QUERY)
+        for line in last:
+            cli.chat_turn(state, line)
     return state
 
 
@@ -412,6 +426,108 @@ def check_held(tmp, tok, mdl, device, budget):
           "ceiling under the hold leaves nothing to cut")
 
 
+def check_hold_flag(tmp, tok, mdl, device):
+    from salt.chat import cli
+    from salt.chat import hold
+    parse = cli.build_parser().parse_args
+    assert parse([]).memory_hold is None
+    assert parse(["--memory-hold", "off"]).memory_hold is None
+    assert parse(["--memory-hold", "auto"]).memory_hold == (
+        hold.HOLD_WORDS) == 400
+    assert parse(["--memory-hold", "250"]).memory_hold == 250
+    for bad in ("0", "-3", "many", "1.5"):
+        try:
+            with redirect_stderr(io.StringIO()):
+                parse(["--memory-hold", bad])
+        except SystemExit:
+            continue
+        raise AssertionError(f"--memory-hold accepted {bad!r}")
+
+    assert hold.claimed("Summarize what we covered.") == hold.SUMMARY
+    assert hold.claimed("What was that name again?") == hold.PAST
+    assert hold.claimed("Which roof was it you suggested?") == hold.PAST
+    assert hold.claimed(PERSONAL) == hold.PERSONAL
+    assert hold.claimed("Translate 'good morning' into French.") is None
+    assert hold.claimed("") is None
+    long_line = "Summarize the passage my colleague sent. " + "word " * 30
+    assert len(long_line.split()) > hold.SHORT_WORDS
+    assert hold.claimed(long_line) is None
+    assert hold.may_hold(UNRELATED) == (True, None)
+    assert hold.may_hold(PERSONAL) == (False, hold.PERSONAL)
+    assert hold.may_hold(UNRELATED, summary=True) == (False, hold.SUMMARY)
+    assert hold.may_hold(UNRELATED, windowed=True) == (False, hold.WINDOW)
+    assert hold.may_hold(UNRELATED, named=True) == (False, hold.NAMED)
+    assert hold.record(None, {}, None) is None
+    assert hold.lines(None, None) == [] and hold.census_lines(None) == []
+    assert hold.lines(400, None) == ["memory hold: 400 words"]
+
+    off = chat_session(tmp / "off", tok, mdl, device, [], [UNRELATED])
+    assert off.memory_hold is None and off.last_hold is None
+    d = cli.build_stats(off)
+    assert d["hold"] is None and d["hold_census"] is None
+    assert [off.last_stats[k] for k in HOLD_STATS] == [False, None, None]
+    assert not any(k.startswith("hold_") for k in d["kv"]["last_event"])
+    assert not any(ln.startswith(("memory hold", "hold census"))
+                   for ln in stats_text(off))
+
+    young = chat_session(tmp / "young", tok, mdl, device,
+                         ["--memory-hold", "12"], [UNRELATED])
+    rec = young.last_hold
+    assert tuple(rec) == hold.RECORD_KEYS, rec
+    assert rec["held"] is False and rec["top3"] is None, (
+        "a session under the size the hold needs was judged", rec)
+    assert young.runner.prompts == off.runner.prompts
+    # every turn but the first has memory to select from, and three of
+    # the fixture's lines speak in the first person
+    assert young.hold_stats == {"asked": len(EXCHANGES), "judged": 0,
+                                "held": 0, "claimed": 3}, young.hold_stats
+
+    real = session_trie.HOLD_MIN_WORDS
+    try:
+        session_trie.HOLD_MIN_WORDS = 0
+        small = chat_session(tmp / "small", tok, mdl, device,
+                             ["--memory-hold", "12"], [UNRELATED])
+        rec = small.last_hold
+        assert rec["held"] is True and rec["claimed"] is None, rec
+        assert rec["top3"] < EVIDENCE_TOP3 and rec["match"] < EVIDENCE_MATCH
+        assert small.last_stats["words_used"] <= 12 < (
+            off.last_stats["words_used"])
+        assert small.runner.prompts[-1] != off.runner.prompts[-1]
+        assert small.runner.prompts[:-1] == off.runner.prompts[:-1], (
+            "the hold changed a turn that memory holds evidence for")
+        event = cli.build_stats(small)["kv"]["last_event"]
+        assert (event["hold_words"], event["hold_top3"],
+                event["hold_match"]) == (12, rec["top3"], rec["match"]), event
+        text = stats_text(small)
+        assert "memory hold: 12 words - the last block was held to it" in (
+            text), text
+        assert any(ln.startswith("  closest rows ") for ln in text), text
+        assert any(ln.startswith("hold census: ") for ln in text), text
+        census = small.hold_stats
+        assert tuple(census) == hold.CENSUS_KEYS, census
+        assert census["held"] == 1 and census["judged"] >= 1, census
+
+        mine = chat_session(tmp / "mine", tok, mdl, device,
+                            ["--memory-hold", "12"], [PERSONAL])
+        rec = mine.last_hold
+        assert rec["top3"] < EVIDENCE_TOP3 and rec["match"] < EVIDENCE_MATCH, (
+            "the first-person request finds evidence in the fixture", rec)
+        assert rec["held"] is False and rec["claimed"] == hold.PERSONAL, rec
+        assert mine.last_stats["word_budget"] > 12, mine.last_stats
+        assert not any(k.startswith("hold_")
+                       for k in cli.build_stats(mine)["kv"]["last_event"])
+        assert "  never held: the turn speaks in the first person" in (
+            stats_text(mine))
+    finally:
+        session_trie.HOLD_MIN_WORDS = real
+    print("F. --memory-hold: off, auto and a word count parse and anything "
+          "else is refused at launch; short lines about the memory itself "
+          "are claimed and long ones are not; without the flag nothing is "
+          "recorded or printed; a session under the size is never judged; "
+          "past it an unrelated request is held, /stats and the ledger say "
+          "so, and a short first-person line is never held")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu")
@@ -426,6 +542,7 @@ def main():
         check_flag(tmp / "c", tok, mdl, args.device)
         check_evidence(tmp / "d")
         check_held(tmp / "e", tok, mdl, args.device, args.budget)
+        check_hold_flag(tmp / "f", tok, mdl, args.device)
     print("PASS")
 
 

@@ -516,6 +516,14 @@ page lists them all with when to reach for each. In concept:
   `--memory-floor auto` a turn reads at least 400 words of memory, or
   all of it while the session holds less, and `/stats` says when the
   last block was raised.
+- **Hold.** A fifth of a long session is thousands of words, read
+  whether or not any of them bear on the question. With
+  `--memory-hold auto` a turn that memory holds nothing for reads at
+  most 400 words, the best of what is there. It acts once the session
+  holds 5000 words, and never on a turn about the memory itself: a
+  summary, a time window, files named by hand, or a short line in the
+  first person or about what was said before. `/stats` says when the
+  last block was held and how the session's turns divided.
 - **Short turns.** Terse decisions like "go with option B" stay in
   memory by default, and `--short-turns fuse` stores a bare "yes"
   together with the question it answers, so the decision is findable
