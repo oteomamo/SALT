@@ -49,8 +49,15 @@ floor raises the first and the hold cuts the second. Groups:
      request is held, /stats prints the turn and the census, the ledger
      carries the hold on that turn, every earlier prompt is unchanged,
      and a short first-person line is never held.
+  G. SWITCHES - both numbers are in the switch inventory under their
+     flags and a decision is held to null or a whole number of words
+     above zero; a policy sets either for one turn of a session
+     launched without it, the turn is raised or held, and the next turn
+     is not; /stats and the census show a decided hold; a piece of a
+     turn selects under the numbers its turn decided and is held or not
+     by its own task line.
 
-Groups A to C, E and F need the BGE encoder (downloaded to the HF cache
+Groups A to C and E to G need the BGE encoder (downloaded to the HF cache
 on first use). CPU is the default device; the run takes about a minute.
 
 Usage:
@@ -102,6 +109,8 @@ EXCHANGES = [
 QUERY = "Which inverter suits the solar array on the roof?"
 UNRELATED = "Name the capital city of Australia and the river that crosses it."
 PERSONAL = "Tell me the capital city of Australia."
+OTHER = "List three prime numbers larger than one hundred."
+OTHER_MINE = "Give me three prime numbers larger than one hundred."
 
 
 def build_session(name, tmp, tok, mdl, device):
@@ -528,6 +537,97 @@ def check_hold_flag(tmp, tok, mdl, device):
           "so, and a short first-person line is never held")
 
 
+def check_switches(tmp, tok, mdl, device):
+    from salt.agents import policy, snapshot
+    from salt.agents.delegate import DelegationRequest, build_context
+    from salt.chat import cli
+
+    listed = {sw.name: sw for sw in snapshot.SWITCHES}
+    for name, flag, stat in (
+            ("memory_floor", "--memory-floor", "word_budget_raised"),
+            ("memory_hold", "--memory-hold", "word_budget_held")):
+        sw = listed[name]
+        assert (sw.flag, sw.default, sw.stats_key) == (flag, None, stat), sw
+        assert policy.SELECTION[name] == name, policy.SELECTION
+        for good in (None, 1, 400):
+            assert policy.value_error(name, good) is None, (name, good)
+        for bad in (0, -5, True, 2.5, "400"):
+            assert policy.value_error(name, bad), (name, bad)
+        try:
+            policy.check({name: 0})
+        except policy.PolicyError:
+            pass
+        else:
+            raise AssertionError(f"a decision set {name} to 0 words")
+
+    class Fixed(policy.SwitchPolicy):
+        name = "fixed"
+
+        def __init__(self, then):
+            self.then = then
+
+        def decide(self, snap):
+            return dict(self.then)
+
+    def turn(state, line, then=None):
+        state.switch_policy = Fixed(then) if then else policy.NullPolicy()
+        with redirect_stdout(io.StringIO()):
+            cli.chat_turn(state, line)
+        return state.last_stats
+
+    state = chat_session(tmp / "decided", tok, mdl, device, [], last=())
+    assert state.memory_floor is None and state.memory_hold is None
+    raised = turn(state, QUERY, {"memory_floor": 400})
+    assert raised["word_budget_raised"] is True, raised
+    assert state.last_overrides == {"memory_floor": 400}, state.last_overrides
+    assert turn(state, QUERY)["word_budget_raised"] is False, (
+        "a floor decided for one turn was still there on the next")
+
+    real = session_trie.HOLD_MIN_WORDS
+    try:
+        session_trie.HOLD_MIN_WORDS = 0
+        held = turn(state, UNRELATED, {"memory_hold": 12})
+        assert held["word_budget_held"] is True, held
+        rec = state.last_hold
+        assert rec["words"] == 12 and rec["held"] is True, rec
+        assert state.hold_stats["held"] == 1, state.hold_stats
+        text = stats_text(state)
+        assert "memory hold: 12 words - the last block was held to it" in (
+            text), text
+        assert any(ln.startswith("hold census: ") for ln in text), text
+        turn(state, QUERY)
+        assert state.last_hold is None and (
+            state.last_stats["word_budget_held"] is False), (
+            "a hold decided for one turn was still there on the next")
+
+        # a piece of a turn selects under the numbers its turn decided,
+        # and is held or not by its own task line
+        piece = build_context(state, DelegationRequest(
+            task=OTHER, switches={"memory_hold": 12}))
+        assert piece.stats["evidence_top3"] < EVIDENCE_TOP3 and (
+            piece.stats["evidence_match"] < EVIDENCE_MATCH), (
+            "the piece's task finds evidence in the fixture", piece.stats)
+        assert piece.stats["word_budget_held"] is True, piece.stats
+        assert piece.words_used <= 12, piece.stats
+        mine = build_context(state, DelegationRequest(
+            task=OTHER_MINE, switches={"memory_hold": 12}))
+        assert mine.stats["word_budget_held"] is False, mine.stats
+        assert mine.stats["evidence_top3"] is not None, mine.stats
+        plain = build_context(state, DelegationRequest(task=OTHER))
+        assert [plain.stats[k] for k in HOLD_STATS] == [False, None, None]
+        floored = build_context(state, DelegationRequest(
+            task=QUERY, switches={"memory_floor": 400}))
+        assert floored.stats["word_budget_raised"] is True, floored.stats
+    finally:
+        session_trie.HOLD_MIN_WORDS = real
+    print("G. switches: both numbers are in the inventory under their "
+          "flags and held to whole words above zero; a decision sets "
+          "either for one turn of a session launched without and it is "
+          "gone on the next; /stats and the census show a decided hold; "
+          "a piece of a turn selects under the turn's numbers and is "
+          "held or not by its own task line")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu")
@@ -543,6 +643,7 @@ def main():
         check_evidence(tmp / "d")
         check_held(tmp / "e", tok, mdl, args.device, args.budget)
         check_hold_flag(tmp / "f", tok, mdl, args.device)
+        check_switches(tmp / "g", tok, mdl, args.device)
     print("PASS")
 
 

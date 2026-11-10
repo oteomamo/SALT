@@ -160,6 +160,7 @@ def build_context(state, req):
     # stack, and importing the agent layer has to stay free
     from salt.chat.cli import (format_memory_block, memory_word_cap,
                                report_ingest_failures)
+    from salt.chat.hold import may_hold
     # the ingest worker owns add_turn on its own thread, and in async mode a
     # turn submits its user line before generation, so a delegation raised
     # mid-turn would read the trie while that write is still in flight
@@ -186,6 +187,7 @@ def build_context(state, req):
                                max_words=min(caps) if caps else None,
                                defer_commit=True,
                                exclude_sent_idx=None,
+                               hold_ok=may_hold(query)[0],
                                **selection_kwargs(switch))
     # the commit is deliberately dropped on the floor: dropping it is what
     # keeps a delegation invisible to the session's own memory

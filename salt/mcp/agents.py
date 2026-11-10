@@ -66,6 +66,8 @@ class DelegationState:
         # fit the block to: the budget and the auto ceiling bound it
         self.runner = None
         self.memory_cap = args.memory_cap
+        self.memory_floor = args.memory_floor
+        self.memory_hold = args.memory_hold
         self.tokens_per_word = 1.0
         self.budget = (self.trie.config.get("budget_pct_default")
                        if self.trie is not None else args.budget_pct)

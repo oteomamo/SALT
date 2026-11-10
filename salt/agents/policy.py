@@ -39,6 +39,8 @@ SELECTION = {"coverage_half_life": "coverage_half_life",
              "stable_coverage_keys": "stable_keys",
              "coverage_gc": "coverage_gc",
              "coverage_max_keys": "coverage_max_keys",
+             "memory_floor": "memory_floor",
+             "memory_hold": "memory_hold",
              "tail_exclude": None}
 KWARGS = tuple(SELECTION)
 # the rest of the inventory acts when a sentence is written down rather
@@ -65,6 +67,9 @@ def _off_or(test):
 
 
 _YES_NO = (lambda value: isinstance(value, bool), "true or false")
+_WORDS = (lambda value: value is None or (
+    isinstance(value, int) and not isinstance(value, bool) and value > 0),
+    "null or a whole number of words above 0")
 
 VALUES = {
     "coverage_half_life": (_off_or(lambda v: v > 0),
@@ -88,6 +93,8 @@ VALUES = {
     "coverage_max_keys": (lambda v: v is None or (
         isinstance(v, int) and not isinstance(v, bool)),
         "null or a whole number of keys"),
+    "memory_floor": _WORDS,
+    "memory_hold": _WORDS,
     "tail_exclude": _YES_NO,
 }
 if set(VALUES) != set(SELECTION):

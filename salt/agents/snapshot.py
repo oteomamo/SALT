@@ -90,6 +90,11 @@ SWITCHES = (
            "cap how many conversation sentences stay selectable"),
     Switch("tail_exclude", "--no-tail-exclude", True, "excluded_sent",
            "leave out what the model is already reading verbatim"),
+    Switch("memory_floor", "--memory-floor", None, "word_budget_raised",
+           "read at least this many words while the session is young"),
+    Switch("memory_hold", "--memory-hold", None, "word_budget_held",
+           "read at most this many words when memory holds nothing for "
+           "the turn"),
 )
 
 

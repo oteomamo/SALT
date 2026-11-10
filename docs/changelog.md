@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.48
+## 3.0.0 - 3.0.49
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -154,6 +154,11 @@ the details, and the 2.11 section below lists each step.
   block was a fifth of everything remembered whatever the question. It
   acts on a memory of 5000 words or more and never on a turn about the
   memory itself. The default `off` reads the full block as before.
+- **3.0.49** The floor and the hold are switches a turn decides. A
+  switch rule or the model policy sets `memory_floor` or `memory_hold`
+  for the turns it applies to, held to a whole number of words above
+  zero. The pieces of a planned turn and an `/offload` select under
+  the same two numbers, where they selected without them.
 
 ## 2.11.0 - 2.11.123
 

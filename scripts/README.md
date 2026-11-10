@@ -46,7 +46,8 @@ plain install stays green.
 - `chat_floor_regression.py` covers how much a selection reads: the
   floor a young session is raised to, what a session reports about how
   much its rows bear on a query, the hold a selection is cut to when
-  they bear on nothing, and the ceiling over both.
+  they bear on nothing, the ceiling over both, and the two flags and
+  switches that set them.
 - `chat_models_regression.py` covers chat model loading: the one
   tokenizer loader every backend uses, checked on small tokenizers it
   builds itself and on every registered model. It also checks the stop

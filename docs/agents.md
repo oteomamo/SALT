@@ -820,6 +820,22 @@ A decision lasts one turn. The session's own settings are the starting
 point every time, so nothing a rule did last turn survives into this
 one, and nothing a rule decides is written into the session.
 
+Two of the switches are word counts instead of on or off.
+`memory_floor` is the least a turn reads and `memory_hold` the most it
+reads when memory holds nothing for it, the numbers `--memory-floor`
+and `--memory-hold` set for a whole session. A rule sets either for
+the turns its sentence is true of:
+
+```json
+{"id": "floor-while-young",
+ "when": "live_words < 2000",
+ "then": {"memory_floor": 400}}
+```
+
+The pieces of a planned turn and an `/offload` select under the same
+two numbers the turn does, and each piece is held or not by its own
+task line.
+
 ### What the sample ships
 
 `salt/agents/switch_rules_sample.json` carries one rule there is a

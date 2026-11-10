@@ -2160,8 +2160,8 @@ def build_stats(state):
         "gate_census": (state.gate_stats if state.gate_mode != "off"
                         or state.gate_stats["asked"] else None),
         "hold": state.last_hold,
-        "hold_census": (state.hold_stats
-                        if state.memory_hold is not None else None),
+        "hold_census": (state.hold_stats if state.memory_hold is not None
+                        or state.hold_stats["asked"] else None),
         "ingest": {"jobs": ing["jobs"], "busy_s": ing["busy_s"],
                    "failures": ing["failures"],
                    "pending": state.ingest.pending,
@@ -2220,7 +2220,10 @@ def print_stats(state, payload=None):
         print(f"memory floor: {sw['memory_floor']} words"
               + (" - the last block was raised to it"
                  if s.get("word_budget_raised") else ""))
-    for ln in hold_module.lines(sw["memory_hold"], d.get("hold")):
+    # the last turn's own hold where it had one: a decision can set it
+    # for a turn of a session launched without
+    held_to = (d.get("hold") or {}).get("words") or sw["memory_hold"]
+    for ln in hold_module.lines(held_to, d.get("hold")):
         print(ln)
     if sw["coverage_half_life"]:
         keys = s.get("coverage_keys")
@@ -3214,8 +3217,6 @@ def compress_kwargs(state, line, excl, switches, query_embedding=None,
             "device": state.bge_device,
             **policy.selection_kwargs(switches.__getitem__),
             "max_words": memory_word_cap(state, line),
-            "memory_floor": state.memory_floor,
-            "memory_hold": state.memory_hold,
             "hold_ok": hold_ok,
             "query_embedding": query_embedding,
             "scope_sources": scope_sources,
@@ -3343,7 +3344,7 @@ def chat_turn(state, line, reply_fn=None, reply_model_id=None,
         selected_idx = comp["selected_sent_idx"]
         commit = comp.get("commit")
         state.last_stats = comp["stats"]
-        state.last_hold = hold_module.record(state.memory_hold,
+        state.last_hold = hold_module.record(switches["memory_hold"],
                                              comp["stats"], hold_why)
         hold_module.count(state.hold_stats, state.last_hold)
         state.last_scope = scope_module.record(
