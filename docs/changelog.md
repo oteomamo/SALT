@@ -5,7 +5,7 @@ match the git tags on the
 [repository](https://github.com/oteomamo/SALT). The patch versions
 listed under them are not tagged.
 
-## 3.0.0 - 3.0.41
+## 3.0.0 - 3.0.44
 
 The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
@@ -138,6 +138,11 @@ the details, and the 2.11 section below lists each step.
   as plain text and leaves many answers empty, and `hf` keeps it on its
   Hugging Face tokenizer. The default `auto` leaves the backend as it
   was.
+- **3.0.43 - 3.0.44** A memory floor. `--memory-floor auto` makes a
+  turn read at least 400 words of memory, or all of it while the
+  session holds less. The block is a fifth of what is remembered, and a
+  fifth of a young session was a few lines. The default `off` sizes the
+  block as before.
 
 ## 2.11.0 - 2.11.123
 

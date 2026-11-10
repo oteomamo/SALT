@@ -15,16 +15,25 @@ floor raises that budget. Groups:
      raise; a fraction already at or above the floor is left alone and
      selects exactly as it does with no floor; a floor of zero is no
      floor.
+  C. FLAG - `--memory-floor` parses off, auto and a number of words and
+     refuses anything else at launch; through the real chat turn
+     against a fake runner, a session launched without it never raises
+     a block and prints no floor line, and a session launched with it
+     raises the block of a young session, says so in the turn's stats
+     and prints the floor in /stats.
 
-Both groups need the BGE encoder (downloaded to the HF cache on first
-use). CPU is the default device; the run takes under a minute.
+Every group needs the BGE encoder (downloaded to the HF cache on first
+use). CPU is the default device; the run takes about a minute.
 
 Usage:
     python scripts/chat_floor_regression.py [--device cpu] [--budget 0.2]
 """
 import argparse
+import io
+import json
 import sys
 import tempfile
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -136,6 +145,95 @@ def check_raised(tmp, tok, mdl, device, budget):
           "nothing")
 
 
+class _FakeRunner:
+    """Answers from the script above and keeps every prompt."""
+
+    kind = "fake"
+
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.alias = "fake"
+        self.cfg = {"alias": "fake", "hf_id": "test/fake", "path": "-"}
+        self.max_input_len = 4096
+        self.last_prompt_tokens = None
+        self.last_engine_stats = None
+        self.prompts = []
+
+    def input_budget(self, max_new_tokens=None):
+        return self.max_input_len
+
+    def stream_chat(self, messages, **overrides):
+        self.prompts.append(json.loads(json.dumps(messages)))
+        n = len(self.prompts)
+        yield EXCHANGES[n - 1][1] if n <= len(EXCHANGES) else f"noted {n}."
+
+    def unload(self):
+        pass
+
+
+def chat_session(root, tok, mdl, device, flags):
+    from salt.chat import cli
+    args = cli.build_parser().parse_args(
+        ["--device", device, "--sync-ingest", "--tail", "2", *flags])
+    trie = SessionTrie("fl_flag", cache_dir=root, model_name=BGE_MODEL,
+                       budget_pct_default=args.budget_pct)
+    state = cli.ChatState(args, tok, mdl, _FakeRunner(tok), trie)
+    with redirect_stdout(io.StringIO()):
+        for user, _ in EXCHANGES:
+            cli.chat_turn(state, user)
+        cli.chat_turn(state, QUERY)
+    return state
+
+
+def stats_text(state):
+    from salt.chat import cli
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.print_stats(state)
+    return buf.getvalue().splitlines()
+
+
+def check_flag(tmp, tok, mdl, device):
+    from salt.chat import cli
+    parse = cli.build_parser().parse_args
+    assert parse([]).memory_floor is None
+    assert parse(["--memory-floor", "off"]).memory_floor is None
+    assert parse(["--memory-floor", "auto"]).memory_floor == (
+        cli.MEMORY_FLOOR_WORDS) == 400
+    assert parse(["--memory-floor", "250"]).memory_floor == 250
+    for bad in ("0", "-3", "many", "1.5"):
+        try:
+            with redirect_stderr(io.StringIO()):
+                parse(["--memory-floor", bad])
+        except SystemExit:
+            continue
+        raise AssertionError(f"--memory-floor accepted {bad!r}")
+
+    off = chat_session(tmp / "off", tok, mdl, device, [])
+    assert off.memory_floor is None
+    assert off.last_stats["word_budget_raised"] is False, off.last_stats
+    assert not any(ln.startswith("memory floor") for ln in stats_text(off))
+
+    on = chat_session(tmp / "on", tok, mdl, device,
+                      ["--memory-floor", "auto"])
+    assert on.memory_floor == 400
+    s = on.last_stats
+    assert s["word_budget_raised"] is True, s
+    assert s["word_budget"] > int(on.trie.live_words * 0.2), s
+    assert s["words_used"] > off.last_stats["words_used"], (
+        s["words_used"], off.last_stats["words_used"])
+    assert on.runner.prompts[-1] != off.runner.prompts[-1]
+    assert on.runner.prompts[0] == off.runner.prompts[0], (
+        "the first turn has no memory to raise")
+    text = stats_text(on)
+    assert ("memory floor: 400 words - the last block was raised to it"
+            in text), text
+    print("C. --memory-floor: off, auto and a word count parse and anything "
+          "else is refused at launch; without the flag nothing is raised "
+          "or printed; with it a young session's block is raised and "
+          "/stats says so")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu")
@@ -147,6 +245,7 @@ def main():
         tmp = Path(tmp)
         check_floor_off(tmp / "a", tok, mdl, args.device, args.budget)
         check_raised(tmp / "b", tok, mdl, args.device, args.budget)
+        check_flag(tmp / "c", tok, mdl, args.device)
     print("PASS")
 
 

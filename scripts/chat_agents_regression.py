@@ -4582,7 +4582,7 @@ COMPRESS_KWARGS = {"query", "budget_pct", "tokenizer", "model", "device",
                    "assistant_weight", "row_coverage", "max_words",
                    "stable_keys", "coverage_gc", "coverage_max_keys",
                    "query_embedding", "scope_sources", "theme_percentile",
-                   "lam", "defer_commit", "exclude_sent_idx"}
+                   "lam", "memory_floor", "defer_commit", "exclude_sent_idx"}
 
 
 def turn_switches_of(state):

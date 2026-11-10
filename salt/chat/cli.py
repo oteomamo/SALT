@@ -95,6 +95,7 @@ SYSTEM_PROMPT = "You are a helpful assistant."
 MEMORY_CAP_AUTO_TOKENS = 4096
 MEMORY_CAP_RESERVE = 256
 MEMORY_CAP_FLOOR_WORDS = 64
+MEMORY_FLOOR_WORDS = 400
 TOKENS_PER_WORD_SEED = 1.6
 TPW_EMA_ALPHA = 0.3
 MEMORY_BLOCK = (
@@ -356,6 +357,7 @@ class ChatState:
         self.offload_budget_pct = args.offload_budget_pct
         self.budget = args.budget_pct
         self.memory_cap = parse_memory_cap(args.memory_cap)
+        self.memory_floor = args.memory_floor
         self.branch_stats = args.branch_stats
         self.scope_mode = self.scope_launch_mode = args.scope
         self.scope_names = None
@@ -685,6 +687,20 @@ def parse_memory_cap(val):
     except ValueError:
         return None
     return n if n > 0 else None
+
+
+def parse_memory_floor(val):
+    """The least a turn reads, in words: None for 'off', MEMORY_FLOOR_WORDS
+    for 'auto', else a whole number of words above zero."""
+    v = str(val).strip().lower()
+    if v == "off":
+        return None
+    if v == "auto":
+        return MEMORY_FLOOR_WORDS
+    n = int(v)
+    if n <= 0:
+        raise ValueError(f"not a number of words above 0: {val!r}")
+    return n
 
 
 def conversation_sections(trie, idxs, turn_labels=True):
@@ -2097,7 +2113,8 @@ def build_stats(state):
         "compression": s,
         "prompt": {"fixed_tokens": prompt_fixed_tokens(state),
                    "input_budget": limit},
-        "switches": {"coverage_half_life": state.coverage_half_life,
+        "switches": {"memory_floor": state.memory_floor,
+                     "coverage_half_life": state.coverage_half_life,
                      "coverage_decay_docs": state.coverage_decay_docs,
                      "tail_exclude": state.tail_exclude,
                      "shift_damping": state.shift_damping,
@@ -2188,6 +2205,10 @@ def print_stats(state, payload=None):
     sw = d["switches"]
     # reported from the switches, not last_stats: the setting is visible
     # even before the first compress of a session
+    if sw["memory_floor"]:
+        print(f"memory floor: {sw['memory_floor']} words"
+              + (" - the last block was raised to it"
+                 if s.get("word_budget_raised") else ""))
     if sw["coverage_half_life"]:
         keys = s.get("coverage_keys")
         print(f"coverage decay: half-life "
@@ -3167,6 +3188,7 @@ def compress_kwargs(state, line, excl, switches, query_embedding=None,
             "device": state.bge_device,
             **policy.selection_kwargs(switches.__getitem__),
             "max_words": memory_word_cap(state, line),
+            "memory_floor": state.memory_floor,
             "query_embedding": query_embedding,
             "scope_sources": scope_sources,
             "theme_percentile": theme_percentile,
@@ -3984,6 +4006,14 @@ def build_parser():
                         "window fit alone, a number caps it at that many "
                         "tokens, 'off' restores the old unbounded "
                         "percentage sizing (default: auto)")
+    p.add_argument("--memory-floor", type=parse_memory_floor, default=None,
+                   metavar="N|auto|off",
+                   help="the least a turn reads of memory, in words: the "
+                        "block is raised to that size, or to everything it "
+                        "may select from when that is less, so a young "
+                        "session is not read through a few lines. 'auto' "
+                        f"is {MEMORY_FLOOR_WORDS} words, 'off' sizes the "
+                        "block by the budget alone (default: off)")
     p.add_argument("--branch-stats", action="store_true",
                    help="score every branch of the memory trie, each "
                         "attached file and the conversation, against each "
