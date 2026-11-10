@@ -2660,6 +2660,18 @@ ranges is dropped with the reason kept.</p>
 <p>A decision lasts one turn. The session's own settings are the starting
 point every time, so nothing a rule did last turn survives into this
 one, and nothing a rule decides is written into the session.</p>
+<p>Two of the switches are word counts instead of on or off.
+<code>memory_floor</code> is the least a turn reads and <code>memory_hold</code> the most it
+reads when memory holds nothing for it, the numbers <code>--memory-floor</code>
+and <code>--memory-hold</code> set for a whole session. A rule sets either for
+the turns its sentence is true of:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"floor-while-young"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"when"</span><span class="p">:</span><span class="w"> </span><span class="s2">"live_words &lt; 2000"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"then"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"memory_floor"</span><span class="p">:</span><span class="w"> </span><span class="mi">400</span><span class="p">}}</span>
+</code></pre></div>
+<p>The pieces of a planned turn and an <code>/offload</code> select under the same
+two numbers the turn does, and each piece is held or not by its own
+task line.</p>
 <h3 id="what-the-sample-ships">What the sample ships</h3>
 <p><code>salt/agents/switch_rules_sample.json</code> carries one rule there is a
 reason for. Per-source theme profiles have nothing to act on in a
