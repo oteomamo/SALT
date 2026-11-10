@@ -360,8 +360,16 @@ that asked.
 
 ## How much a turn reads
 
-The memory block is a fifth of what the session remembers, under the
-ceiling. Two numbers, both off by default, size it where a fraction
+The memory block is a fifth of what the turn may select from, and a
+ceiling stops it growing. `--memory-cap auto`, on by default, never
+lets the block pass 4096 tokens, about 2500 to 3000 words depending on
+the model. A fifth reaches that once a session remembers about 15000
+words. From there the block keeps the same size and covers a smaller
+share as the session grows: about 6% of a 50000-word session and under
+2% of a 200000-word one. Those words are the ones the selector judged
+closest to the question, so a long session leans on it to choose well.
+
+Two numbers, both off by default, size the block where a fraction
 does badly.
 
 `--memory-floor auto` is the least a turn reads. A fifth of a young
