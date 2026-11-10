@@ -118,10 +118,9 @@ survive. Any model, plain text out, less compute in.
 4. [Read why](architecture.md) selection spreads the budget across
    themes instead of ranking sentences.
 
-## 🔭 Where the project is going
+## 📜 What each version changed
 
-The [Roadmap](roadmap.md) lists what comes next, and the
-[Changelog](changelog.md) explains what every version changed in
+The [Changelog](changelog.md) explains what every version changed in
 plain language.
 
 ## 📝 Paper

@@ -46,7 +46,6 @@ conversation without re-reading the document.
 - [Quick start](#-quick-start)
 - [Chatbot mode](#-chatbot-mode)
 - [Results](#-results)
-- [Roadmap](#-roadmap)
 - [Contributing](#-contributing)
 - [Reference](#-reference)
 - [License](#-license)
@@ -274,14 +273,6 @@ The full per-dataset tables are on the
 legacy selector's table, run with vLLM 0.19.1 for Llama-3.1-8B-Instruct and
 Ministral-8B-Instruct-2410, is in [results/](results/) with the script that
 reproduces it.
-
-## 🔭 Roadmap
-
-Next:
-
-- **Self-deciding memory** - the switch layer's rules, its signals and an
-  experimental model policy are in place, and the next step is a policy
-  that earns a default from measured sessions.
 
 ## 🤝 Contributing
 
