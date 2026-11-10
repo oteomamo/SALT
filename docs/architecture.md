@@ -48,6 +48,7 @@ so it is the fastest way to find where a change belongs:
 │ │ knee cutoff        │  │ §file: doc branches│  │ multi-anchor query │   │
 │ │ junk filter        │  │ rebuilt cheaply    │  │ ≤20% · 4k tokens   │   │
 │ │                    │  │ branch scores      │  │ scoped search      │   │
+│ │                    │  │                    │  │ floor · hold opt-in│   │
 │ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
 │                                                                          │
 │ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
