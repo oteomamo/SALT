@@ -103,6 +103,9 @@ MIN_SOURCE_SENTENCES = 3
 # inference nothing
 SCOPE_FLOOR_WORDS = 400
 
+# what `evidence` reports about a set of rows and one query, in order
+EVIDENCE_KEYS = ("rows", "terms", "top3", "match")
+
 # Orphan-GC grace (compress calls): an orphaned coverage key is inert
 # while orphaned, so the only cost of dropping one is that a later
 # reordering could resurrect the same prefix and find its suppression
@@ -973,6 +976,46 @@ class SessionTrie:
                    "terms": hit_terms, "names": hit_names}
             assert tuple(row) == BRANCH_KEYS
             out.append(row)
+        return out
+
+    def evidence(self, rows, query_embedding, query_keywords=None,
+                 query_proper_nouns=None):
+        """How much a set of rows bears on one query.
+
+        `top3` is the mean cosine of the three rows closest to the
+        query, or of all of them when there are fewer. `match` is the
+        share of the query's term information found in the rows, each
+        term weighted by its surprisal over those rows exactly as the
+        lexical channel weights its own mass, so a term every row
+        carries counts for little and a term no row carries counts for
+        nothing. `terms` counts the query's keywords and proper nouns.
+        `top3` is None when there is no row or no query vector. Pure:
+        nothing on the session changes. Carries EVIDENCE_KEYS."""
+        rows = list(rows)
+        top3 = None
+        if (rows and query_embedding is not None
+                and self.embeddings is not None):
+            cos = self.embeddings[rows] @ np.asarray(query_embedding,
+                                                     dtype=np.float32)
+            k = min(3, len(rows))
+            top3 = round(float(np.partition(cos, -k)[-k:].mean()), 4)
+        terms = {w for w in (query_keywords or ()) if len(w) >= 2}
+        terms |= {p.lower() for p in (query_proper_nouns or ())}
+        match = 0.0
+        if rows and terms:
+            n = len(rows)
+            toks = [self._lex_tokens(self.texts[i]) for i in rows]
+            found = 0.0
+            for w in terms:
+                stem = soft_stem(w)
+                df = sum(1 for t in toks if w in t or stem in t)
+                if df:
+                    found += max(float(np.log((n + 1.0) / (df + 1.0))), 1e-6)
+            whole = max(len(terms) * float(np.log((n + 1.0) / 2.0)), 1e-9)
+            match = round(min(1.0, found / whole), 4)
+        out = {"rows": len(rows), "terms": len(terms), "top3": top3,
+               "match": match}
+        assert tuple(out) == EVIDENCE_KEYS
         return out
 
     def compress(self, query="", budget_pct=None, *, tokenizer, model,

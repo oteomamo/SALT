@@ -21,8 +21,14 @@ floor raises that budget. Groups:
      a block and prints no floor line, and a session launched with it
      raises the block of a young session, says so in the turn's stats
      and prints the floor in /stats.
+  D. EVIDENCE - on a hand-built session with known vectors (no
+     encoder): the mean cosine of the three closest rows and the share
+     of the query's term information found in the rows match
+     hand-computed values; fewer than three rows use what is there; no
+     row or no vector gives no cosine; no term gives a zero share; the
+     result carries EVIDENCE_KEYS and nothing on the session changes.
 
-Every group needs the BGE encoder (downloaded to the HF cache on first
+Groups A to C need the BGE encoder (downloaded to the HF cache on first
 use). CPU is the default device; the run takes about a minute.
 
 Usage:
@@ -31,14 +37,17 @@ Usage:
 import argparse
 import io
 import json
+import math
 import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from salt.engine.session_trie import SessionTrie
+from salt.engine.session_trie import EVIDENCE_KEYS, SessionTrie
 
 if not __debug__:
     sys.exit("run without -O: this harness is assert-based")
@@ -234,6 +243,62 @@ def check_flag(tmp, tok, mdl, device):
           "/stats says so")
 
 
+def hand_built(tmp):
+    """Five rows with vectors chosen by hand, so every number the
+    evidence read returns can be worked out on paper."""
+    trie = SessionTrie("floor_hand", cache_dir=tmp)
+    rows = [
+        ("The zeppelin mast gasket was replaced yesterday.", (1, 0, 0, 0)),
+        ("A south facing roof suits solar panels well.", (0.8, 0.6, 0, 0)),
+        ("Size the solar array around daily usage.", (0.6, 0.8, 0, 0)),
+        ("The bulk fermentation ran five hours.", (0, 1, 0, 0)),
+        ("We talked about bread dough for a while.", (0, 0, 1, 0)),
+    ]
+    for text, _ in rows:
+        trie.texts.append(text)
+        trie.roles.append("user")
+        trie.turns.append(0)
+        trie.sources.append(None)
+        trie.origins.append(None)
+        trie.timestamps.append(None)
+        trie.n_words.append(len(text.split()))
+        trie.keyword_weights.append({})
+        trie.alive.append(True)
+    trie.embeddings = np.asarray([v for _, v in rows], dtype=np.float32)
+    trie.dim = 4
+    return trie
+
+
+def check_evidence(tmp):
+    trie = hand_built(tmp)
+    q = np.asarray((1, 0, 0, 0), dtype=np.float32)
+    before = (list(trie.texts), trie.embeddings.copy(), dict(trie.coverage))
+    ev = trie.evidence(range(5), q, {"solar", "gasket", "harbor"},
+                       {"Zeppelin"})
+    assert tuple(ev) == EVIDENCE_KEYS, ev
+    assert ev["rows"] == 5 and ev["terms"] == 4, ev
+    # the three closest rows sit at 1.0, 0.8 and 0.6
+    assert ev["top3"] == round((1.0 + 0.8 + 0.6) / 3, 4) == 0.8, ev
+    # solar is in two rows, gasket and zeppelin in one each, harbor in none
+    n = 5
+    found = math.log((n + 1) / 3) + 2 * math.log((n + 1) / 2)
+    assert ev["match"] == round(found / (4 * math.log((n + 1) / 2)), 4), ev
+    assert 0.0 < ev["match"] < 1.0, ev
+
+    two = trie.evidence([0, 3], q)
+    assert two == {"rows": 2, "terms": 0, "top3": 0.5, "match": 0.0}, two
+    assert trie.evidence([], q, {"solar"}) == {
+        "rows": 0, "terms": 1, "top3": None, "match": 0.0}
+    assert trie.evidence(range(5), None, {"solar"})["top3"] is None
+    every = trie.evidence(range(5), q, {"gasket"}, {"Zeppelin"})
+    assert every["match"] == 1.0, every
+    assert before[0] == trie.texts and (before[1] == trie.embeddings).all()
+    assert before[2] == trie.coverage
+    print("D. evidence: the asserted keys, the mean of the three closest "
+          "rows and the surprisal share by hand, short and empty row sets, "
+          "no vector, and a pure read")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu")
@@ -246,6 +311,7 @@ def main():
         check_floor_off(tmp / "a", tok, mdl, args.device, args.budget)
         check_raised(tmp / "b", tok, mdl, args.device, args.budget)
         check_flag(tmp / "c", tok, mdl, args.device)
+        check_evidence(tmp / "d")
     print("PASS")
 
 
