@@ -1635,6 +1635,11 @@ real session before it is trusted.</p>
 <td>absolute ceiling on the block, fitted to the model's window and never above 4096 tokens</td>
 </tr>
 <tr>
+<td><code>--memory-floor N\|auto\|off</code></td>
+<td><code>off</code></td>
+<td>the least a turn reads of memory, in words: a young session is read through at least that many, or all of it when it holds less, <code>auto</code> is 400</td>
+</tr>
+<tr>
 <td><code>--branch-stats</code></td>
 <td>off</td>
 <td>show in <code>/stats</code> how each branch of the memory trie, every attached file and the conversation, relates to the last question</td>

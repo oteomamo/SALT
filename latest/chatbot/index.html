@@ -2121,6 +2121,10 @@ page lists them all with when to reach for each. In concept:</p>
 <li><strong>Ceiling.</strong> <code>--memory-cap auto</code> (the default) fits the memory block
   to the space the model's window actually has left and stops at 4096
   tokens, instead of a percentage that grows without bound.</li>
+<li><strong>Floor.</strong> A fifth of a young session is only a few lines. With
+  <code>--memory-floor auto</code> a turn reads at least 400 words of memory, or
+  all of it while the session holds less, and <code>/stats</code> says when the
+  last block was raised.</li>
 <li><strong>Short turns.</strong> Terse decisions like "go with option B" stay in
   memory by default, and <code>--short-turns fuse</code> stores a bare "yes"
   together with the question it answers, so the decision is findable
