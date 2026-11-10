@@ -39,85 +39,51 @@ so it is the fastest way to find where a change belongs:
 ```text
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                                   SALT                                   │
-│                                                                          │
-│ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
-│ │      Indexing      │  │    Keyword Trie    │  │     Selection      │   │
-│ │                    │  │                    │  │                    │   │
-│ │ BGE-small encoder  │  │ SF-ordered paths   │  │ coverage (CELF)    │   │
-│ │ attention keywords │  │ theme branches     │  │ branch discounting │   │
-│ │ knee cutoff        │  │ §file: doc branches│  │ multi-anchor query │   │
-│ │ junk filter        │  │ rebuilt cheaply    │  │ ≤20% · 4k tokens   │   │
-│ │                    │  │ branch scores      │  │ scoped search      │   │
-│ │                    │  │                    │  │ floor · hold opt-in│   │
-│ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
-│                                                                          │
-│ ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐   │
-│ │    Session Trie    │  │  Prompt Assembly   │  │    Chat Runner     │   │
-│ │                    │  │                    │  │                    │   │
-│ │ per-conversation   │  │ stable prefix first│  │ HF streaming       │   │
-│ │ lives in DRAM      │  │ append-only tail   │  │ vLLM + APC (opt-in)│   │
-│ │ grows every turn   │  │ memory + question  │  │ vllm-serve client  │   │
-│ │ cross-turn coverage│  │ instructions.md    │  │ model registry     │   │
-│ │ + half-life decay  │  │                    │  │ GPU-pinned models  │   │
-│ │ + near-dup gate    │  │                    │  │                    │   │
-│ │ + background ingest│  │                    │  │                    │   │
-│ │ + tail-aware select│  │                    │  │                    │   │
-│ └────────────────────┘  └────────────────────┘  └────────────────────┘   │
-│                                                                          │
-│ ┌────────────────────────────────────────────────────────────────────┐   │
-│ │              Document ingest (salt@ files, salt --doc)             │   │
-│ │ pypdf extract · furniture scrub · paragraphs rejoined across floats│   │
-│ │ tables + pseudocode grouped under captions · footnotes isolated    │   │
-│ │ headings, panel labels and equations kept · reference list dropped │   │
-│ └────────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-│ ┌────────────────────────────────────────────────────────────────────┐   │
-│ │            Trie shape - the root binds the conversation            │   │
-│ │                               ● root - the conversation bind       │   │
-│ │         ┌─────────────────────┼─────────────────────┐              │   │
-│ │  §file:paper.pdf       §file:notes.txt        conversation         │   │
-│ │         │                     │              ┌──────┴──────┐       │   │
-│ │   keyword paths         keyword paths     theme A       theme B    │   │
-│ │         │                     │              │             │       │   │
-│ │     sentences             sentences      sentences     sentences   │   │
-│ │                                                                    │   │
-│ │ each turn: branch scores set the scope, the files the question is  │   │
-│ │ about with the conversation always in, a date on the line holds    │   │
-│ │ the other days out, then ≤ budget across what is left (CELF)       │   │
-│ │ the untrie - the verbatim tail - sits OUTSIDE the trie, as the     │   │
-│ │ prompt's stable recent-history window                              │   │
-│ └────────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-│ ┌────────────────────────────────────────────────────────────────────┐   │
-│ │                  Prompt layout (KV-cache shaped)                   │   │
-│ │ [system: instructions · file inventory · attach@ full documents]   │   │
-│ │ → [tail: recent exchanges - append-only, block-wise compaction]    │   │
-│ │ → [newest user message: SALT memory (≤20% of scope) + question]    │   │
-│ │ stable prefix = reusable KV ──── fresh suffix = per-turn prefill   │   │
-│ └────────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-│ ┌────────────────────────────────────────────────────────────────────┐   │
-│ │                    kvtrace - per-turn KV ledger                    │   │
-│ │ read (reused) / write (fresh) / output · events.jsonl + tokens.npy │   │
-│ │ usage keys: input (write) · input_cached_tokens (read) · output    │   │
-│ │ apc fields: engine-measured prefix-cache reuse (vllm + vllm-serve) │   │
-│ └────────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-│ ┌────────────────────────────────────────────────────────────────────┐   │
-│ │              Agents - saltChat asking other models                 │   │
-│ │ roster: worker + orchestrator endpoints, each its own server       │   │
-│ │ personas: roles as files, riding a worker or the chat model itself │   │
-│ │ /offload one task · @NAME one turn · /agent plan, hand out, write  │   │
-│ │ every piece gets the trie selected for IT, committing nothing      │   │
-│ │ switch agent: rules over the session's own numbers set the switches│   │
-│ └────────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-│ ┌────────────────────────────────────────────────────────────────────┐   │
-│ │                            Entry points                            │   │
-│ │ salt (one-shot: --data / --doc) · saltChat · saltServe · eval.py   │   │
-│ │ salt-mcp - SALT memory over MCP, for an editor or an agent runtime │   │
-│ │ salt@ trie attach · attach@ full text · /doc /model /budget /stats │   │
-│ └────────────────────────────────────────────────────────────────────┘   │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 1 INGEST         documents and turns become clean sentences              │
+│   documents      pypdf extract · furniture scrub · tables and            │
+│                  pseudocode under captions · references dropped          │
+│   turns          every exchange, near-duplicates gated out               │
+│   background     ingest runs off the reply path                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 2 INDEX          once per sentence, reused by every turn                 │
+│   keywords       BGE-small [CLS] attention · knee cutoff                 │
+│   keyword trie   SF-ordered paths · theme branches · branch scores       │
+│   session trie   one per conversation, in DRAM, grows every turn         │
+│                  a §file branch per salt@ file + the conversation        │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 3 SELECT         once per turn, five questions in order                  │
+│   whether        a gate may skip memory                         opt-in   │
+│   where          branch scores pick the files, chat always in            │
+│   when           a date on the line keeps the other days out             │
+│   how much       20% of that, under a 4k-token ceiling                   │
+│                  the floor and the hold                         opt-in   │
+│   which          coverage (CELF) across turns · branch discounts         │
+│                  multi-anchor query · tail-aware                         │
+│                  summary mode                                   opt-in   │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 4 ASSEMBLE       a prompt shaped for the KV cache                        │
+│   system         instructions · file inventory · attach@ text   reused   │
+│   tail           recent exchanges, append-only, compacted       reused   │
+│   newest         SALT memory block + the question               fresh    │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 5 ANSWER         the model replies, every token accounted                │
+│   runners        HF streaming · vLLM + APC · vllm-serve client           │
+│   models         model registry · GPU-pinned models                      │
+│   kvtrace        per-turn ledger: cached read · fresh write ·            │
+│                  output · engine-measured prefix-cache reuse             │
+├──────────────────────────────────────────────────────────────────────────┤
+│ AGENTS           saltChat asking other models                            │
+│   roster         worker + orchestrator endpoints · personas              │
+│   delegation     /offload · @NAME · /agent, each piece gets the          │
+│                  trie selected for it and commits nothing                │
+│   switch agent   rules over the session's numbers set the switches       │
+├──────────────────────────────────────────────────────────────────────────┤
+│ ENTRY POINTS                                                             │
+│   one-shot       salt --data / --doc · eval.py                           │
+│   chat           saltChat · saltServe · salt@ and attach@ files          │
+│   commands       /doc /model /budget /scope /when /gate /stats           │
+│   mcp            salt-mcp, SALT memory for an editor or a runtime        │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
