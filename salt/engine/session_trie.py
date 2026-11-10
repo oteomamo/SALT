@@ -105,6 +105,14 @@ SCOPE_FLOOR_WORDS = 400
 
 # what `evidence` reports about a set of rows and one query, in order
 EVIDENCE_KEYS = ("rows", "terms", "top3", "match")
+# a call's rows hold nothing for its query when the three closest
+# average under EVIDENCE_TOP3 and under EVIDENCE_MATCH of the query's
+# term information is found in them. Judged only where the call may
+# select from HOLD_MIN_WORDS or more: a small memory is found empty too
+# easily, and a fraction of it is a short block already
+EVIDENCE_TOP3 = 0.54
+EVIDENCE_MATCH = 0.5
+HOLD_MIN_WORDS = 5000
 
 # Orphan-GC grace (compress calls): an orphaned coverage key is inert
 # while orphaned, so the only cost of dropping one is that a later
@@ -1029,7 +1037,7 @@ class SessionTrie:
                  episode_gap=None, assistant_weight=None,
                  row_coverage=False, query_embedding=None,
                  scope_sources=None, theme_percentile=None, lam=None,
-                 memory_floor=None):
+                 memory_floor=None, memory_hold=None, hold_ok=True):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -1089,6 +1097,21 @@ class SessionTrie:
         the budget to that many words, or to everything the call may
         select from when that is less. `max_words` still clamps the
         result. Stats report `word_budget_raised`. Default None
+        reproduces today's selection exactly.
+
+        `memory_hold` (opt-in, words): the most a call reads when its
+        rows hold nothing for the query. The budget is a fraction of
+        the corpus whether or not any of it bears on the query; a
+        positive `memory_hold` cuts the budget to that many words when
+        the three rows closest to the query average under
+        EVIDENCE_TOP3 and under EVIDENCE_MATCH of the query's term
+        information is found in the rows the call may select from (see
+        `evidence`). It is judged only where those rows hold
+        HOLD_MIN_WORDS or more, never for a query that names nothing,
+        and it never cuts under `memory_floor`. `hold_ok=False` keeps
+        the cut off for a call the caller knows is about the memory
+        itself. Stats report `word_budget_held`, and `evidence_top3`
+        and `evidence_match` on a call that was judged. Default None
         reproduces today's selection exactly.
 
         `stable_keys` (opt-in): freezes the session's keyword order so
@@ -1429,6 +1452,21 @@ class SessionTrie:
             q_emb = (query_embedding if query_embedding is not None
                      else embed_query(query, tokenizer, model, device))
 
+        word_budget_held, ev = False, None
+        if memory_hold is not None and int(memory_hold) > 0 and (
+                q_emb is not None):
+            hold = int(memory_hold)
+            if memory_floor is not None:
+                hold = max(hold, int(memory_floor))
+            if hold < word_budget and sum(
+                    sd["n_words"] for sd in sent_data) >= HOLD_MIN_WORDS:
+                ev = self.evidence([sd["sent_idx"] for sd in sent_data],
+                                   q_emb, q_kws, q_pns)
+                if (hold_ok and ev["terms"] and ev["top3"] is not None
+                        and ev["top3"] < EVIDENCE_TOP3
+                        and ev["match"] < EVIDENCE_MATCH):
+                    word_budget, word_budget_held = hold, True
+
         # Topic-shift detection: query cosine vs the mean of recent
         # conversation embeddings (attachments excluded — a stable document
         # must not anchor the "what we were just talking about" baseline),
@@ -1583,6 +1621,9 @@ class SessionTrie:
         stats["word_budget"] = word_budget
         stats["word_budget_capped"] = word_budget_capped
         stats["word_budget_raised"] = word_budget_raised
+        stats["word_budget_held"] = word_budget_held
+        stats["evidence_top3"] = ev["top3"] if ev else None
+        stats["evidence_match"] = ev["match"] if ev else None
         stats["excluded_sent"] = n_excluded
         stats["scope_branches"] = n_scope_branches
         stats["scope_words"] = scope_words

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Regression harness for the memory floor.
+"""Regression harness for the memory floor and the memory hold.
 
-Pins the least a selection reads. The budget is a fraction of the living
-words, so a young session selects through a block of a few lines; the
-floor raises that budget. Groups:
+Pins the least a selection reads and the most it reads when memory holds
+nothing for the query. The budget is a fraction of the living words, so
+a young session selects through a block of a few lines and a long one
+through thousands of words whether or not any bear on the query; the
+floor raises the first and the hold cuts the second. Groups:
 
   A. FLOOR OFF - compress with no floor and with memory_floor=None give
      the same selection, the same context and the same stats, and the
@@ -27,9 +29,17 @@ floor raises that budget. Groups:
      hand-computed values; fewer than three rows use what is there; no
      row or no vector gives no cosine; no term gives a zero share; the
      result carries EVIDENCE_KEYS and nothing on the session changes.
+  E. HELD - compress with no hold and with memory_hold=None select the
+     same; a memory under HOLD_MIN_WORDS is never judged; past it a
+     query the rows hold nothing for is cut to the hold and the stats
+     say so with the evidence read; rows kept out of candidacy do not
+     count toward the size; a line that names nothing, hold_ok=False
+     and a query the rows hold evidence for are never cut, the last
+     selecting exactly as with no hold; the cut never goes under the
+     floor, and a ceiling already under the hold leaves nothing to cut.
 
-Groups A to C need the BGE encoder (downloaded to the HF cache on first
-use). CPU is the default device; the run takes about a minute.
+Groups A to C and E need the BGE encoder (downloaded to the HF cache on
+first use). CPU is the default device; the run takes about a minute.
 
 Usage:
     python scripts/chat_floor_regression.py [--device cpu] [--budget 0.2]
@@ -47,12 +57,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from salt.engine.session_trie import EVIDENCE_KEYS, SessionTrie
+from salt.engine import session_trie
+from salt.engine.session_trie import (EVIDENCE_KEYS, EVIDENCE_MATCH,
+                                      EVIDENCE_TOP3, SessionTrie)
 
 if not __debug__:
     sys.exit("run without -O: this harness is assert-based")
 
 BGE_MODEL = "BAAI/bge-small-en-v1.5"
+HOLD_STATS = ("word_budget_held", "evidence_top3", "evidence_match")
 
 EXCHANGES = [
     ("I want to plan a rooftop solar installation for my house.",
@@ -75,6 +88,7 @@ EXCHANGES = [
      "output of a solar array by a few percent."),
 ]
 QUERY = "Which inverter suits the solar array on the roof?"
+UNRELATED = "Name the capital city of Australia and the river that crosses it."
 
 
 def build_session(name, tmp, tok, mdl, device):
@@ -299,6 +313,105 @@ def check_evidence(tmp):
           "no vector, and a pure read")
 
 
+def check_held(tmp, tok, mdl, device, budget):
+    trie = build_session("floor_held", tmp, tok, mdl, device)
+    kw = dict(budget_pct=budget, tokenizer=tok, model=mdl, device=device,
+              defer_commit=True)
+    plain = int(trie.live_words * budget)
+    hold = 12
+    assert plain > hold + 8, "the fixture no longer exercises the hold"
+    untouched = [False, None, None]
+
+    off = trie.compress(UNRELATED, **kw)
+    same = trie.compress(UNRELATED, memory_hold=None, hold_ok=True, **kw)
+    assert same["selected_sent_idx"] == off["selected_sent_idx"]
+    assert same["context"] == off["context"]
+    assert comparable(same["stats"]) == comparable(off["stats"])
+    assert [off["stats"][k] for k in HOLD_STATS] == untouched, off["stats"]
+
+    real = session_trie.HOLD_MIN_WORDS
+    assert real == 5000 and trie.live_words < real, (real, trie.live_words)
+    small = trie.compress(UNRELATED, memory_hold=hold, **kw)
+    assert small["selected_sent_idx"] == off["selected_sent_idx"]
+    assert [small["stats"][k] for k in HOLD_STATS] == untouched, (
+        "a memory under the size the hold needs was judged", small["stats"])
+
+    try:
+        session_trie.HOLD_MIN_WORDS = trie.live_words + 1
+        under = trie.compress(UNRELATED, memory_hold=hold, **kw)
+        assert [under["stats"][k] for k in HOLD_STATS] == untouched
+
+        session_trie.HOLD_MIN_WORDS = trie.live_words
+        held = trie.compress(UNRELATED, memory_hold=hold, **kw)
+        s = held["stats"]
+        assert s["evidence_top3"] < EVIDENCE_TOP3 and (
+            s["evidence_match"] < EVIDENCE_MATCH), (
+            "the unrelated request finds evidence in the fixture", s)
+        assert s["word_budget_held"] is True and s["word_budget"] == hold, s
+        assert s["words_used"] <= hold < off["stats"]["words_used"], s
+        assert set(held["selected_sent_idx"]) != set(off["selected_sent_idx"])
+
+        tail = set(range(trie.n_sentences - 6, trie.n_sentences))
+        cut = trie.compress(UNRELATED, memory_hold=hold,
+                            exclude_sent_idx=tail, **kw)
+        assert [cut["stats"][k] for k in HOLD_STATS] == untouched, (
+            "rows kept out of candidacy counted toward the size",
+            cut["stats"])
+
+        for none in (0, None):
+            flat = trie.compress(UNRELATED, memory_hold=none, **kw)
+            assert flat["selected_sent_idx"] == off["selected_sent_idx"]
+            assert [flat["stats"][k] for k in HOLD_STATS] == untouched
+
+        blank = trie.compress("why is that so?", memory_hold=hold, **kw)
+        assert blank["stats"]["word_budget_held"] is False, (
+            "a line that names nothing was cut", blank["stats"])
+        assert blank["stats"]["word_budget"] == plain, blank["stats"]
+
+        free = trie.compress(UNRELATED, memory_hold=hold, hold_ok=False,
+                             **kw)
+        assert free["stats"]["word_budget_held"] is False, free["stats"]
+        assert free["stats"]["word_budget"] == plain, free["stats"]
+        assert free["selected_sent_idx"] == off["selected_sent_idx"]
+        assert free["stats"]["evidence_top3"] == s["evidence_top3"]
+        assert free["stats"]["evidence_match"] == s["evidence_match"]
+
+        base = trie.compress(QUERY, **kw)
+        kept = trie.compress(QUERY, memory_hold=hold, **kw)
+        k = kept["stats"]
+        assert k["evidence_top3"] >= EVIDENCE_TOP3 or (
+            k["evidence_match"] >= EVIDENCE_MATCH), (
+            "the fixture's own question finds no evidence", k)
+        assert k["word_budget_held"] is False and k["word_budget"] == plain
+        assert kept["selected_sent_idx"] == base["selected_sent_idx"]
+        assert kept["context"] == base["context"]
+
+        floored = trie.compress(UNRELATED, memory_hold=hold,
+                                memory_floor=hold + 8, **kw)
+        f = floored["stats"]
+        assert f["word_budget_held"] is True and (
+            f["word_budget"] == hold + 8), f
+        raised = trie.compress(UNRELATED, memory_hold=hold,
+                               memory_floor=plain + 40, **kw)
+        r = raised["stats"]
+        assert r["word_budget_raised"] is True and (
+            r["word_budget_held"] is False), r
+        assert r["word_budget"] == plain + 40, r
+
+        capped = trie.compress(UNRELATED, memory_hold=hold,
+                               max_words=hold - 2, **kw)
+        assert capped["stats"]["word_budget"] == hold - 2, capped["stats"]
+        assert [capped["stats"][k] for k in HOLD_STATS] == untouched
+    finally:
+        session_trie.HOLD_MIN_WORDS = real
+    print("E. held: no hold and memory_hold=None select the same, a small "
+          "memory is never judged, past the size a query the rows hold "
+          "nothing for is cut to the hold, kept-out rows do not count, a "
+          "line that names nothing, hold_ok=False and a query with "
+          "evidence are never cut, the cut stays above the floor, and a "
+          "ceiling under the hold leaves nothing to cut")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--device", default="cpu")
@@ -312,6 +425,7 @@ def main():
         check_raised(tmp / "b", tok, mdl, args.device, args.budget)
         check_flag(tmp / "c", tok, mdl, args.device)
         check_evidence(tmp / "d")
+        check_held(tmp / "e", tok, mdl, args.device, args.budget)
     print("PASS")
 
 
