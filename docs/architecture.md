@@ -572,6 +572,54 @@ search, and no turn that needed memory skipped it. The threshold was
 set on that model, so the switch stays opt-in, and `/stats` counts
 the decisions.
 
+## How much a turn reads
+
+A turn's memory block was a fifth of what the session remembers, under
+the ceiling, for every session and every turn. A fraction sizes the
+long middle of a conversation well and its two ends badly, and each end
+got a number of its own.
+
+The young end has a floor. A fifth of a few hundred words is a few
+lines, so a conversation in its first sessions answered from less than
+it remembered. `--memory-floor auto` raises the block to 400 words, or
+to everything the turn may select from while that is less. It asks
+nothing of the question. The fraction passes 400 words once 2000 are
+remembered, and from there the floor does nothing.
+
+The other end has a hold. A request that stands on its own in the
+middle of a long conversation, a sum to work or a passage to rewrite,
+was handed the same thousands of words as a question about the
+conversation. `--memory-hold auto` measures how much the rows a turn
+may select from bear on it: how close the three closest rows sit to
+the question, and what share of the question's terms the rows contain,
+a rare term counting for more than a common one. A turn under both
+lines reads at most 400 words. Those are still the best words the
+selector has, so a wrong call costs a smaller block and never an empty
+one. The hold judges a memory of 5000 words or more, since a smaller
+one is found empty too easily, and it never holds a turn about the
+memory itself: a summary, a time window, files named by hand, or a
+short line in the first person or about what was said before.
+
+Both numbers travel with each selection the way every switch does. A
+switch rule or the model policy can set either for one turn, and the
+pieces of a planned turn select under them too.
+
+What it is worth. Measured on Llama-3.1-8B-Instruct over ten
+conversations. Asked after each of its first three sessions about what
+had already been said, a conversation read through the floor answers
+three F1 points better over 262 questions, nothing after one session,
+close to five points after two and three and a half after three, for
+two to four hundred more prompt tokens a turn. With standalone
+requests mixed into the same conversations at full length, the hold
+cut 138 of 300 of them to the short block, and such a turn read a
+third of the prompt tokens in under half the time. The requests scored
+right or wrong, sums and text operations, came out right more often,
+36.5 percent against 32.0, and the questions about the conversation
+scored the same: of 1508 the hold cut one. An operation that quotes
+the conversation is not held, since its words are in memory. Both
+numbers stay opt-in, and `/stats` says when a block was raised or held
+and counts the hold's decisions.
+
 Where each stage lives:
 
 | Stage | Code |
@@ -590,6 +638,7 @@ Where each stage lives:
 | Time windows (the parser, `/when`) | `salt/chat/when.py` |
 | Summary turns (the lexicon, `/summary`) | `salt/chat/summary.py`, `salt/engine/session_trie.py` |
 | Search gate (the question, `/gate`) | `salt/chat/gate.py` |
+| Floor and hold (the least and the most a turn reads) | `salt/chat/hold.py`, `salt/engine/session_trie.py` |
 | Chat REPL + model registry | `salt/chat/`, `salt/models/` |
 | Persistent serving (`saltServe`, serve client) | `salt/chat/serve.py`, `salt/chat/runner_serve.py` |
 | MCP server (`salt-mcp`) | `salt/mcp/server.py`, `salt/mcp/pool.py`, `salt/mcp/agents.py` |
