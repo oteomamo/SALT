@@ -43,6 +43,9 @@ plain install stays green.
 - `chat_gate_regression.py` covers whether a turn searches memory at all:
   the question the chat model is asked, how its answer becomes a skip
   probability, the fixed threshold, and what every failure does.
+- `chat_floor_regression.py` covers the memory floor: the least a
+  selection reads, how a young session is raised to it, and the ceiling
+  that still holds it.
 - `chat_models_regression.py` covers chat model loading: the one
   tokenizer loader every backend uses, checked on small tokenizers it
   builds itself and on every registered model. It also checks the stop

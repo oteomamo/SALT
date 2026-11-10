@@ -985,7 +985,8 @@ class SessionTrie:
                  exclude_sent_idx=None, query_identifiers=False,
                  episode_gap=None, assistant_weight=None,
                  row_coverage=False, query_embedding=None,
-                 scope_sources=None, theme_percentile=None, lam=None):
+                 scope_sources=None, theme_percentile=None, lam=None,
+                 memory_floor=None):
         """Compress the accumulated corpus for `query`, reusing the persisted
         trie + cross-turn coverage.
 
@@ -1038,6 +1039,14 @@ class SessionTrie:
         the block stops growing once the corpus outruns the cap. Stats
         report word_budget and word_budget_capped. Default None reproduces
         today's selection exactly.
+
+        `memory_floor` (opt-in, words): the least a call reads. The
+        budget is a fraction of the living corpus, and a fraction of a
+        young session is a few lines; a positive `memory_floor` raises
+        the budget to that many words, or to everything the call may
+        select from when that is less. `max_words` still clamps the
+        result. Stats report `word_budget_raised`. Default None
+        reproduces today's selection exactly.
 
         `stable_keys` (opt-in): freezes the session's keyword order so
         cross-turn coverage keys survive trie rebuilds. New theme keywords
@@ -1355,6 +1364,14 @@ class SessionTrie:
         if max_words is not None and int(max_words) > 0:
             word_budget_capped = word_budget > int(max_words)
             word_budget = min(word_budget, int(max_words))
+        word_budget_raised = False
+        if memory_floor is not None and int(memory_floor) > 0:
+            reach = min(sum(sd["n_words"] for sd in sent_data),
+                        int(memory_floor))
+            if max_words is not None and int(max_words) > 0:
+                reach = min(reach, int(max_words))
+            if word_budget < reach:
+                word_budget, word_budget_raised = reach, True
 
         query = (query or "").strip()
         q_kws = q_pns = q_emb = None
@@ -1522,6 +1539,7 @@ class SessionTrie:
         stats["theme_keywords_sticky"] = n_sticky
         stats["word_budget"] = word_budget
         stats["word_budget_capped"] = word_budget_capped
+        stats["word_budget_raised"] = word_budget_raised
         stats["excluded_sent"] = n_excluded
         stats["scope_branches"] = n_scope_branches
         stats["scope_words"] = scope_words
