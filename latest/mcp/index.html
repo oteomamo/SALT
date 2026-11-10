@@ -1598,6 +1598,10 @@ there is one.</p>
 <td>read documents by path only from under this folder (default: any file the server can read)</td>
 </tr>
 <tr>
+<td><code>--memory-cap</code></td>
+<td>ceiling on the block a memory read returns, in tokens counted at 1.6 a word (default: <code>auto</code>, which is 4096)</td>
+</tr>
+<tr>
 <td><code>--roster</code></td>
 <td>roster of helper models this server may delegate to</td>
 </tr>
@@ -1736,6 +1740,13 @@ labeled memory block a chat turn would be given: excerpts grouped by
 where they came from, each conversation excerpt marked with the turn
 and the speaker. <code>budget_pct</code> sets how much of the conversation the
 block may spend, defaulting to the session's own budget.</p>
+<p>The block stops at the ceiling a chat turn has, however long the
+conversation is and whatever <code>budget_pct</code> asks for. The server has no
+model to count tokens with, so it counts 1.6 tokens a word, which puts
+the default of 4096 tokens at 2560 words. <code>--memory-cap</code> sets another
+ceiling or turns it off. The reply's <code>word_budget</code> says how many words
+the block could spend, and <code>word_budget_capped</code> says whether the
+ceiling cut it.</p>
 <p>A read is a turn. The selection is committed the way a chat turn
 commits it, so what the conversation has already surfaced shapes what
 the next read surfaces. Anything submitted but not yet encoded is

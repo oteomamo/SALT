@@ -1076,10 +1076,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3044" class="md-nav__link">
+  <a href="#300-3045" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.44
+        3.0.0 - 3.0.45
       
     </span>
   </a>
@@ -1300,10 +1300,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#300-3044" class="md-nav__link">
+  <a href="#300-3045" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.0.0 - 3.0.44
+        3.0.0 - 3.0.45
       
     </span>
   </a>
@@ -1478,7 +1478,7 @@
 match the git tags on the
 <a href="https://github.com/oteomamo/SALT">repository</a>. The patch versions
 listed under them are not tagged.</p>
-<h2 id="300-3044">3.0.0 - 3.0.44</h2>
+<h2 id="300-3045">3.0.0 - 3.0.45</h2>
 <p>The agents release. saltChat plans a turn out over helper models, or
 over personas riding its own chat model when there is one GPU or none,
 grades the reply it wrote against the material it was written from,
@@ -1615,6 +1615,11 @@ the details, and the 2.11 section below lists each step.</p>
   session holds less. The block is a fifth of what is remembered, and a
   fifth of a young session was a few lines. The default <code>off</code> sizes the
   block as before.</li>
+<li><strong>3.0.45</strong> A memory read over MCP has a ceiling. <code>session_memory</code>
+  stops at the 4096 tokens a chat turn stops at, counted as 2560 words,
+  where it returned a fifth of the conversation however long that was.
+  <code>salt-mcp --memory-cap</code> moves the ceiling or turns it off, and the
+  reply says when a block was cut to it.</li>
 </ul>
 <h2 id="2110-211123">2.11.0 - 2.11.123</h2>
 <p>The MCP milestone. SALT is a working memory layer for any MCP client:

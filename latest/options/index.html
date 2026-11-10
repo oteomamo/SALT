@@ -1968,6 +1968,11 @@ the <a href="../mcp/">MCP</a> page.</p>
 <td>read documents by path only from under this folder</td>
 </tr>
 <tr>
+<td><code>--memory-cap N\|auto\|off</code></td>
+<td><code>auto</code></td>
+<td>ceiling on the block a memory read returns, in tokens counted at 1.6 a word: <code>auto</code> is 4096, <code>off</code> sizes the block by the budget alone</td>
+</tr>
+<tr>
 <td><code>--read-only</code></td>
 <td>off</td>
 <td>answer reads and refuse every write, leaving every conversation exactly as it was found</td>
