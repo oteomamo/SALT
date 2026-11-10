@@ -288,7 +288,9 @@ saltChat --model qwen05 --conversation-id demo1 --doc report.txt
 Each turn searches only the attached files the question is about and,
 when the question names a day, a month or a span, only the exchanges
 filed inside it, so the memory block comes from where the answer is.
-Two opt-in numbers size that block at its edges: `--memory-floor` reads
+The block is a fifth of that, and a ceiling that is on by default stops
+it at 4096 tokens, so in a long session it keeps the same size and
+covers a smaller share of what is remembered. Two opt-in numbers size that block at its edges: `--memory-floor` reads
 at least 400 words while a session is young, and `--memory-hold` reads
 at most 400 on a turn the memory holds nothing for. A
 persistent server started with `saltServe` keeps the model loaded and
