@@ -16,13 +16,6 @@
 
 </div>
 
-> [!NOTE]
-> **What is next**
->
-> - **Self-deciding memory** - the switch layer's rules, its signals and
->   an experimental model policy are in place, and the next step is a
->   policy that earns a default from measured sessions.
-
 SALT shrinks a long document down to a fixed size before it is sent to a language
 model, keeping the sentences that carry the most information. It works with any
 model, produces a shorter plain-text prompt, and cuts the compute, memory, and
